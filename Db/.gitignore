@@ -1,0 +1,9 @@
+# Bỏ qua các file dữ liệu (áp dụng cho toàn bộ dự án)
+*.json
+*.jsonl
+*.csv
+*.xlsx
+*.log
+
+# Nếu bạn dùng MacOS thì thêm cái này kẻo rác
+.DS_Store
