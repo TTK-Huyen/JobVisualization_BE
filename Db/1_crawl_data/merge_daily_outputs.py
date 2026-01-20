@@ -2,10 +2,16 @@ import os
 import json
 import csv
 from pathlib import Path
+from datetime import datetime
 
 BASE = Path(__file__).resolve().parent
 OUTDIR = BASE / "output"
 OUTDIR.mkdir(exist_ok=True)
+
+# Tạo folder theo ngày (crawl_14_01_26)
+TODAY = datetime.now().strftime("%d_%m_%y")
+CRAWL_DIR = OUTDIR / f"crawl_{TODAY}"
+CRAWL_DIR.mkdir(exist_ok=True)
 
 def load_json_file(p):
     try:
@@ -43,7 +49,12 @@ def main():
     items = []
     seen = set()
 
+    # Scan tất cả files trong OUTDIR (không scan subdirectories)
     for p in OUTDIR.iterdir():
+        # Skip các folder, chỉ xử lý files trực tiếp trong output
+        if p.is_dir():
+            continue
+            
         name = p.name.lower()
         if p.suffix.lower() == '.json':
             data = load_json_file(p)
@@ -65,7 +76,8 @@ def main():
                 seen.add(key)
                 items.append(d)
 
-    out_file = OUTDIR / 'jobs_combined.json'
+    # Lưu vào folder theo ngày, chỉ 1 file JSON
+    out_file = CRAWL_DIR / 'jobs_combined.json'
     with open(out_file, 'w', encoding='utf-8') as f:
         json.dump(items, f, ensure_ascii=False, indent=2)
 

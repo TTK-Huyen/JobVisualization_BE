@@ -9,7 +9,7 @@
 
 -- Bảng: skills
 -- Mục đích: Lưu trữ danh sách chuẩn hóa các kỹ năng (Hard/Soft skill) để tái sử dụng.
-CREATE TABLE skills (
+CREATE TABLE IF NOT EXISTS skills (
     -- Khóa chính tự tăng, định danh nội bộ cho kỹ năng
     skill_id SERIAL PRIMARY KEY,
     
@@ -29,7 +29,7 @@ CREATE TABLE skills (
 
 -- Bảng: industries
 -- Mục đích: Danh mục các ngành nghề hoạt động (IT, Xây dựng, Marketing...)
-CREATE TABLE industries (
+CREATE TABLE IF NOT EXISTS industries (
     industry_id SERIAL PRIMARY KEY,
     
     -- Tên ngành nghề, đảm bảo không trùng lặp
@@ -42,7 +42,7 @@ CREATE TABLE industries (
 
 -- Bảng: companies
 -- Mục đích: Lưu thông tin chi tiết về nhà tuyển dụng
-CREATE TABLE companies (
+CREATE TABLE IF NOT EXISTS companies (
     -- ID này nên lấy từ nguồn dữ liệu gốc (ví dụ LinkedIn ID) để dễ cập nhật/đồng bộ
     company_id BIGINT PRIMARY KEY,
     
@@ -67,7 +67,7 @@ CREATE TABLE companies (
 
 -- Bảng: jobs
 -- Mục đích: Bảng trung tâm chứa thông tin bài đăng tuyển dụng
-CREATE TABLE jobs (
+CREATE TABLE IF NOT EXISTS jobs (
     -- ID bài đăng (giữ nguyên ID từ nguồn gốc như LinkedIn)
     job_id BIGINT PRIMARY KEY,
     
@@ -97,7 +97,10 @@ CREATE TABLE jobs (
     
     -- THỐNG KÊ ĐỘ HOT (Dùng để sắp xếp Trending):
     applies INT DEFAULT 0, -- Số lượt ứng tuyển
-    views INT DEFAULT 0    -- Số lượt xem
+    views INT DEFAULT 0,    -- Số lượt xem
+    
+    -- Optional: Thêm cột fingerprint để tránh trùng lặp bài đăng
+    fingerprint VARCHAR(32) UNIQUE
 );
 
 -- ==========================================================
@@ -107,7 +110,7 @@ CREATE TABLE jobs (
 -- Bảng: job_skills
 -- Mục đích: Liên kết N-N giữa Job và Skill.
 -- Một Job có nhiều Skill, một Skill thuộc về nhiều Job.
-CREATE TABLE job_skills (
+CREATE TABLE IF NOT EXISTS job_skills (
     job_id BIGINT REFERENCES jobs(job_id) ON DELETE CASCADE, -- Xóa Job thì xóa luôn dòng này
     skill_id INT REFERENCES skills(skill_id) ON DELETE CASCADE,
     PRIMARY KEY (job_id, skill_id) -- Khóa chính kép, đảm bảo 1 job không trùng 1 skill 2 lần
@@ -115,7 +118,7 @@ CREATE TABLE job_skills (
 
 -- Bảng: job_industries
 -- Mục đích: Liên kết N-N giữa Job và Industry.
-CREATE TABLE job_industries (
+CREATE TABLE IF NOT EXISTS job_industries (
     job_id BIGINT REFERENCES jobs(job_id) ON DELETE CASCADE,
     industry_id INT REFERENCES industries(industry_id) ON DELETE CASCADE,
     PRIMARY KEY (job_id, industry_id)
@@ -127,7 +130,7 @@ CREATE TABLE job_industries (
 
 -- Bảng: salaries
 -- Mục đích: Tách riêng thông tin lương vì cấu trúc phức tạp và không bắt buộc
-CREATE TABLE salaries (
+CREATE TABLE IF NOT EXISTS salaries (
     salary_id SERIAL PRIMARY KEY,
     job_id BIGINT REFERENCES jobs(job_id) ON DELETE CASCADE,
     
@@ -141,7 +144,7 @@ CREATE TABLE salaries (
 
 -- Bảng: job_benefits
 -- Mục đích: Lưu các phúc lợi (Bảo hiểm, Laptop, Remote...)
-CREATE TABLE job_benefits (
+CREATE TABLE IF NOT EXISTS job_benefits (
     job_id BIGINT REFERENCES jobs(job_id) ON DELETE CASCADE,
     benefit_name VARCHAR(255),
     
@@ -158,11 +161,11 @@ CREATE TABLE job_benefits (
 -- ==========================================================
 
 -- Index cho tìm kiếm nhanh theo tiêu đề job
-CREATE INDEX idx_jobs_title ON jobs(title);
+CREATE INDEX IF NOT EXISTS idx_jobs_title ON jobs(title);
 
 -- Index cho bộ lọc theo kinh nghiệm (Bộ lọc phổ biến nhất)
-CREATE INDEX idx_jobs_experience ON jobs(formatted_experience_level);
+CREATE INDEX IF NOT EXISTS idx_jobs_experience ON jobs(formatted_experience_level);
 
 -- Index Full-text Search (GIN Index): 
 -- Giúp tìm kiếm từ khóa trong cột skills_desc cực nhanh (thay vì dùng LIKE %...%)
-CREATE INDEX idx_jobs_skills_search ON jobs USING GIN (to_tsvector('english', skills_desc));
+CREATE INDEX IF NOT EXISTS idx_jobs_skills_search ON jobs USING GIN (to_tsvector('english', skills_desc));

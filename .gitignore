@@ -205,3 +205,5 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+data-files/careerviet_it_jobs_combined.xlsx
+data-files/test_single_job.json

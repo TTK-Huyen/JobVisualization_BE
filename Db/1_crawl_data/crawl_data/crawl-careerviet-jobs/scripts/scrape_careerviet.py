@@ -193,14 +193,39 @@ def pick_info_value(soup: BeautifulSoup, label_keywords: Iterable[str]) -> Optio
     return None
 
 def extract_deadline(soup: BeautifulSoup) -> Optional[str]:
-    # BeautifulSoup deprecates 'text' in favor of 'string'
-    cand = soup.find(string=re.compile(r"Hạn nộp|Hết hạn|Deadline", re.I))
+    """Extract deadline từ các cấu trúc khác nhau trong trang job detail."""
+    # Cách 1: Tìm text chứa date pattern gần 'Hết hạn nộp'
+    for container in soup.select("li, div.item-blue, .detail-box"):
+        cont_text = text(container) or ""
+        if "Hết hạn nộp" in cont_text or "Hạn nộp" in cont_text:
+            # Tìm date pattern trong container hoặc sibling
+            date_match = re.search(r"(\d{1,2}/\d{1,2}/\d{2,4})", cont_text)
+            if date_match:
+                return date_match.group(1)
+            # Kiểm tra <p> sibling
+            p = container.find("p")
+            if p:
+                p_text = text(p)
+                if p_text:
+                    date_match = re.search(r"(\d{1,2}/\d{1,2}/\d{2,4})", p_text)
+                    if date_match:
+                        return date_match.group(1)
+    
+    # Cách 2: Find string với date pattern gần 'Hết hạn nộp'
+    cand = soup.find(string=re.compile(r"Hạn nộp|Hết hạn|Deadline|Hết hạn nộp", re.I))
     if cand:
         m = re.search(r"(\d{1,2}/\d{1,2}/\d{2,4})", cand)
         if m:
             return m.group(1)
-    # Tìm quanh các nhãn giống pick_info_value
-    return pick_info_value(soup, ["Hạn nộp", "Hết hạn", "Deadline"])
+        # Kiểm tra parent hoặc next sibling
+        for sibling in cand.parent.find_all(["p", "span", "li"], recursive=False):
+            sib_text = text(sibling)
+            if sib_text:
+                date_match = re.search(r"(\d{1,2}/\d{1,2}/\d{2,4})", sib_text)
+                if date_match:
+                    return date_match.group(1)
+    
+    return None
 
 def extract_tags(soup: BeautifulSoup):
     tags = []
@@ -211,42 +236,121 @@ def extract_tags(soup: BeautifulSoup):
 def extract_desc_blocks(soup: BeautifulSoup):
     """
     Tìm các mục mô tả theo heading 'Mô tả Công việc', 'Yêu Cầu Công Việc', 'Quyền lợi/Phúc lợi'
+    Nắm bắt đầy đủ content từ lists, paragraphs, và divs sau heading.
+    Hỗ trợ cấu trúc welfare-list đặc biệt cho phúc lợi.
     """
     data = {}
-    sections = []
-    for h in soup.select("h2, h3"):
+    
+    for h in soup.select("h2, h3, h4"):
         ht = (text(h) or "").lower()
-        if any(k in ht for k in ["mô tả công việc", "yêu cầu công việc", "quyền lợi", "phúc lợi"]):
-            # Lấy sibling/parent container
-            wrap = h.find_parent(class_=re.compile("section|block|desc|description")) or h.parent
-            content = None
-            if wrap:
-                # Tìm vùng text ngay sau heading
-                for cand in [wrap.select_one("div, .content, .section-content, .description"), h.find_next_sibling()]:
-                    if cand and text(cand):
-                        content = text(cand)
-                        break
-            if not content:
-                # Fallback: gom các <li> dưới heading
-                lis = []
-                nxt = h.find_next()
-                while nxt and nxt.name in ("ul", "ol", "p", "li") and len(" ".join(lis)) < 5000:
-                    if text(nxt):
-                        lis.append(text(nxt))
-                    nxt = nxt.find_next_sibling()
-                content = " ".join(lis) if lis else None
-            if content:
-                if "mô tả" in ht:
-                    data["Mô tả công việc"] = content
-                elif "yêu cầu" in ht:
-                    data["Yêu cầu ứng viên"] = content
-                elif "quyền lợi" in ht or "phúc lợi" in ht:
-                    data["Quyền lợi"] = content
+        section_type = None
+        
+        if "mô tả" in ht and "công việc" in ht:
+            section_type = "Mô tả công việc"
+        elif "yêu cầu" in ht and "công việc" in ht:
+            section_type = "Yêu cầu ứng viên"
+        elif "yêu cầu" in ht and "ứng viên" in ht:
+            section_type = "Yêu cầu ứng viên"
+        elif ("quyền lợi" in ht or "phúc lợi" in ht) and "công việc" not in ht:
+            section_type = "Quyền lợi"
+        
+        if not section_type:
+            continue
+        
+        # Gom các content sau heading
+        content_parts = []
+        
+        # Tìm parent container (thường là div.detail-row hoặc div.detail-row.reset-bullet)
+        parent = h.find_parent(class_=re.compile("detail-row")) or h.parent
+        
+        # Nếu là phúc lợi, lấy từ ul.welfare-list
+        if section_type == "Quyền lợi":
+            welfare_list = parent.select_one("ul.welfare-list")
+            if welfare_list:
+                for li in welfare_list.select("li"):
+                    item_text = text(li)
+                    if item_text:
+                        content_parts.append(item_text)
+        else:
+            # Cho mô tả và yêu cầu, lấy từ paragraphs sau heading
+            nxt = h.find_next_sibling()
+            max_length = 5000
+            
+            while nxt and len(" ".join(content_parts)) < max_length:
+                # Dừng nếu gặp heading mới cùng cấp hoặc cao hơn, hoặc div.detail-row
+                if nxt.name and nxt.name.lower() in ("h1", "h2", "h3", "h4", "h5", "h6"):
+                    break
+                if nxt.get("class") and "detail-row" in " ".join(nxt.get("class", [])):
+                    break
+                
+                # Xử lý danh sách (ul/ol) - bỏ qua welfare-list
+                if nxt.name in ("ul", "ol") and "welfare" not in (" ".join(nxt.get("class", []))):
+                    for li in nxt.select("li"):
+                        item_text = text(li)
+                        if item_text:
+                            content_parts.append(item_text)
+                # Xử lý paragraph
+                elif nxt.name == "p":
+                    p_text = text(nxt)
+                    if p_text:
+                        content_parts.append(p_text)
+                # Xử lý div có content
+                elif nxt.name == "div":
+                    div_text = text(nxt)
+                    if div_text and len(div_text) > 10:
+                        content_parts.append(div_text)
+                
+                nxt = nxt.find_next_sibling()
+        
+        # Join tất cả content
+        if content_parts:
+            full_content = " ".join(content_parts).strip()
+            # Làm sạch: loại bỏ các dòng trống
+            full_content = re.sub(r"\s+", " ", full_content)
+            if full_content:
+                data[section_type] = full_content
+    
     return data
 
+def extract_other_info(soup: BeautifulSoup) -> Dict:
+    """
+    Trích xuất thông tin khác như bằng cấp, độ tuổi từ phần "Thông tin khác"
+    """
+    other_info = {
+        "degree": None,
+        "age_requirement": None,
+    }
+    
+    # Tìm section "Thông tin khác"
+    for h3 in soup.select("h3.detail-title"):
+        if "Thông tin khác" in (text(h3) or ""):
+            # Tìm parent div.detail-row
+            parent = h3.find_parent(class_="detail-row")
+            if parent:
+                # Tìm div.content_fck
+                content_div = parent.select_one(".content_fck")
+                if content_div:
+                    for li in content_div.select("li"):
+                        li_text = (text(li) or "").strip()
+                        if "Bằng cấp" in li_text or "bằng cấp" in li_text.lower():
+                            # Tách giá trị
+                            parts = li_text.split(":", 1)
+                            if len(parts) == 2:
+                                other_info["degree"] = parts[1].strip()
+                        elif "Độ tuổi" in li_text or "độ tuổi" in li_text.lower():
+                            parts = li_text.split(":", 1)
+                            if len(parts) == 2:
+                                other_info["age_requirement"] = parts[1].strip()
+            break
+    
+    return other_info
+
 def extract_company_link_from_job(soup: BeautifulSoup) -> Optional[str]:
+    """Extract company URL từ job detail page"""
     cand = soup.select_one("a[href*='/vi/nha-tuyen-dung/']")
     return urljoin(BASE, cand["href"]) if cand and cand.has_attr("href") else None
+
+
 
 def scrape_job_detail(session: requests.Session, job_url: str) -> Dict:
     soup = get_soup(session, job_url)
@@ -260,6 +364,9 @@ def scrape_job_detail(session: requests.Session, job_url: str) -> Dict:
     tags = extract_tags(soup)
     desc_blocks = extract_desc_blocks(soup)
     company_url_detail = extract_company_link_from_job(soup)
+    
+    # Trích xuất thông tin khác (bằng cấp, độ tuổi)
+    other_info = extract_other_info(soup)
 
     # Địa điểm/thời gian làm việc nếu có khối riêng
     working_addresses = None
@@ -283,6 +390,8 @@ def scrape_job_detail(session: requests.Session, job_url: str) -> Dict:
         "desc_quyenloi": desc_blocks.get("Quyền lợi"),
         "working_addresses": working_addresses,
         "working_times": working_times,
+        "degree": other_info.get("degree"),
+        "age_requirement": other_info.get("age_requirement"),
         "company_url_from_job": company_url_detail,
     }
 
@@ -309,8 +418,31 @@ def scrape_company(session: requests.Session, company_url: Optional[str]) -> Dic
             if company_name:
                 break
 
-    website = size = industry = address = None
-    # Tập container có thể chứa thông tin
+    website = size = industry = address = description = None
+    
+    # ========== Cách 1: Tìm từ modal maps (.box-info, .box-contact) ==========
+    # Phần "Thông tin tuyển dụng" trong modal
+    box_info = soup.select_one(".box-info")
+    if box_info:
+        # Tìm table trong modal
+        table = box_info.select_one("table")
+        if table:
+            for tr in table.select("tr"):
+                cells = tr.select("td")
+                if len(cells) >= 2:
+                    label = (text(cells[0]) or "").lower()
+                    value = text(cells[1])
+                    if not value:
+                        continue
+                    if "quy mô" in label or "size" in label:
+                        size = value
+                    elif "lĩnh vực" in label or "industry" in label or "ngành" in label:
+                        industry = value
+                    elif "địa chỉ" in label or "address" in label:
+                        address = value
+    
+    # ========== Cách 2: Tìm từ company profile page ==========
+    # Các khối khả dĩ chứa thông tin
     containers = [
         "div.company-profile", "div.company-info", "section#company", "div.company-overview",
         "div#company-info", "div.company-content", "div.company-intro"
@@ -324,6 +456,7 @@ def scrape_company(session: requests.Session, company_url: Optional[str]) -> Dic
     if container is None:
         container = soup
 
+    # Tìm thông tin chi tiết
     rows = container.select("li, .row, .item, .info-item, .company-info-item, dl, .d-flex")
     for row in rows:
         row_text = text(row) or ""
@@ -353,10 +486,11 @@ def scrape_company(session: requests.Session, company_url: Optional[str]) -> Dic
         elif "địa chỉ" in ln or "address" in ln or "trụ sở" in ln:
             address = value
 
-    description = None
+    # Tìm phần mô tả công ty
     for css in [
         "div.company-description", "#readmore-company", "#company-description",
-        "section.company-description", "div.description", "div#readmore-content"
+        "section.company-description", "div.description", "div#readmore-content",
+        "div.box-about .content"  # Từ modal maps
     ]:
         el = soup.select_one(css)
         if el and text(el):
@@ -433,6 +567,7 @@ def crawl_list_url_to_dataframe(list_url_page1: str, start_page: int = 1, end_pa
         "address_list", "detail_location",
         "exp_list", "detail_experience",
         "deadline", "tags",
+        "degree", "age_requirement",
         "working_addresses", "working_times",
         "desc_mota", "desc_yeucau", "desc_quyenloi",
         "company_website", "company_size", "company_industry",
@@ -457,7 +592,78 @@ def crawl_many_lists(list_urls: Iterable[str], start_page: int = 1, end_page: in
     return df
 
 if __name__ == "__main__":
-    import argparse, os
+    import argparse, os, json
+    
+    # ========== TEST 5 MẪU CÔNG VIỆC (ĐẦY ĐỦ THÔNG TIN) ==========
+    print("[TEST] Testing 5 sample jobs with full info (search + detail + company)...")
+    s = build_session()
+    
+    # Crawl search page
+    test_list_url = "https://careerviet.vn/viec-lam/ai-k-vi.html"
+    print(f"\n[1] Parsing search page: {test_list_url}")
+    jobs = parse_search_page(s, test_list_url)
+    
+    if not jobs:
+        print("[ERROR] No jobs found in search page!")
+    else:
+        # Lấy 5 jobs đầu tiên
+        test_count = min(5, len(jobs))
+        print(f"[2] Found {len(jobs)} jobs, testing first {test_count}:")
+        
+        all_rows = []
+        
+        for idx, job in enumerate(jobs[:test_count], 1):
+            print(f"\n{'='*80}")
+            print(f"[Job {idx}/{test_count}] {job['title']}")
+            print(f"URL: {job['job_url']}")
+            print(f"{'='*80}")
+            
+            try:
+                # Crawl job detail
+                print(f"  [3.{idx}] Scraping job detail...")
+                detail = scrape_job_detail(s, job['job_url'])
+                
+                # Crawl company info
+                company_url = detail.get("company_url_from_job") or job.get("company_url")
+                print(f"  [4.{idx}] Scraping company info...")
+                company = scrape_company(s, company_url)
+                
+                # Merge all info
+                full_row = {**job, **detail, **company}
+                all_rows.append(full_row)
+                
+                print(f"  ✓ Job {idx} completed successfully")
+                
+            except Exception as e:
+                print(f"  ✗ Error processing job {idx}: {e}")
+                continue
+        
+        # Export to JSON
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        data_files_dir = os.path.join(script_dir, "..", "data-files")
+        os.makedirs(data_files_dir, exist_ok=True)
+        test_json_file = os.path.join(data_files_dir, "test_5_jobs.json")
+        
+        with open(test_json_file, "w", encoding="utf-8") as f:
+            json.dump(all_rows, f, ensure_ascii=False, indent=2)
+        
+        print(f"\n{'='*80}")
+        print(f"[OK] Exported {len(all_rows)} test jobs to: {test_json_file}")
+        print(f"Full path: {os.path.abspath(test_json_file)}")
+        print(f"{'='*80}")
+        
+        # Show summary
+        print("\nSummary of extracted fields:")
+        if all_rows:
+            first_job = all_rows[0]
+            print(f"Total fields: {len(first_job)}")
+            print("\nSample data from first job:")
+            for k, v in list(first_job.items())[:10]:
+                val_str = str(v)[:100] + ("..." if len(str(v)) > 100 else "")
+                print(f"  {k:30} : {val_str}")
+    
+    # ========== CRAWL TOÀN BỘ (BỎ COMMENT NẾU SỰ DỤNG) ==========
+    """
     parser = argparse.ArgumentParser(description="Crawl CareerViet jobs (giữ nguyên schema như TopCV) và lưu CSV/XLSX.")
     parser.add_argument("--list-urls", "-u", nargs="+", required=False, default=[
         "https://careerviet.vn/viec-lam/ai-k-vi.html",
@@ -475,6 +681,7 @@ if __name__ == "__main__":
     os.makedirs(os.path.dirname(args.out_prefix), exist_ok=True)
     out_csv = f"{args.out_prefix}_combined.csv"
     out_xlsx = f"{args.out_prefix}_combined.xlsx"
+    out_json = f"{args.out_prefix}_combined.json"
 
     print(df.head())
     df.to_csv(out_csv, index=False, encoding="utf-8-sig")
@@ -483,3 +690,4 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"[WARN] XLSX write failed: {e}")
     print(f"[OK] Saved: {out_csv}")
+    """
