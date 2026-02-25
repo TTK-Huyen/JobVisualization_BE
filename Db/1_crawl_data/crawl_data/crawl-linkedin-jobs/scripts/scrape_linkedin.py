@@ -1,5 +1,16 @@
-import time, re, random, os, argparse, platform
+import time, re, random, os, argparse, platform, json
 from typing import Dict, List
+from datetime import datetime
+import sys
+
+# Configure UTF-8 encoding for console output (Windows compatibility)
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout.reconfigure(encoding='utf-8')
+if sys.stderr.encoding != 'utf-8':
+    sys.stderr.reconfigure(encoding='utf-8')
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
+from schema import RawJobData
 import pandas as pd
 from bs4 import BeautifulSoup
 from selenium import webdriver
@@ -227,75 +238,89 @@ def extract_job_detail(job_id):
     except:
         pass
     
-    # Description parsing
+    # Description parsing (capture HTML + structured lists)
     try:
         desc_div = job_soup.find("div", {"class": "description__text"})
         if desc_div:
             markup_div = desc_div.find("div", {"class": "show-more-less-html__markup"}) or desc_div
 
-            # lấy tất cả header dạng thẻ
-            headers = markup_div.find_all(["strong", "b", "h3"])
+            # Save full HTML for description
+            try:
+                job_post["desc_html"] = str(markup_div)
+            except Exception:
+                job_post["desc_html"] = None
 
-            # thêm text thuần nếu trùng key quan trọng
+            # collect headers
+            headers = list(markup_div.find_all(["strong", "b", "h3"]))
+
+            # also include text nodes that look like headings
             for tag in markup_div.find_all(string=True):
                 txt = tag.strip().lower()
-                if txt in ["requirements", "responsibilities", "job description", 
-                        "desired skills and experience", "benefits"]:
+                if txt in [
+                    "requirements", "responsibilities", "job description",
+                    "desired skills and experience", "benefits", "qualification",
+                    "qualifications", "skills",
+                ]:
                     headers.append(tag)
 
             for section in headers:
-                # lấy header text
-                if hasattr(section, "get_text"):
-                    header = section.get_text(strip=True).lower()
-                else:  # là text node
-                    header = section.strip().lower()
+                # header text
+                header = section.get_text(strip=True).lower() if hasattr(section, "get_text") else str(section).strip().lower()
 
-                # tìm nội dung liền sau
+                # find nearest following list or paragraph
                 text_content = ""
+                items_list = []
                 next_el = section.find_next() if hasattr(section, "find_next") else None
                 if next_el:
                     ul = next_el.find_next("ul")
                     if ul:
-                        text_content = "-".join(li.get_text(strip=True) for li in ul.find_all("li"))
+                        items_list = [li.get_text(strip=True) for li in ul.find_all("li")]
+                        text_content = " - ".join(items_list)
                     else:
                         next_p = next_el.find_next("p")
                         if next_p:
                             text_content = next_p.get_text(strip=True)
-                
-                # Description/Mota
+
+                # Description
                 if any(key in header for key in ["responsibilities", "job description", "mô tả", "description", "main duties", "nhiệm vụ", "mission"]):
-                    job_post["desc_mota"] = text_content
-                
-                # Requirements/Yeucau
-                elif any(key in header for key in ["requirement", "yêu cầu", "qualification", "skill", "requirements", "qualifications"]):
-                    job_post["desc_yeucau"] = text_content
-                
-                # Benefits/Quyenloi
+                    job_post["desc_mota"] = text_content or job_post.get("desc_mota")
+
+                # Requirements
+                elif any(key in header for key in ["requirement", "yêu cầu", "qualification", "skill", "requirements", "qualifications", "skills"]):
+                    job_post["desc_yeucau"] = text_content or job_post.get("desc_yeucau")
+                    if items_list:
+                        job_post["requirements_items"] = items_list
+
+                # Benefits
                 elif any(key in header for key in ["benefit", "quyền lợi", "phúc lợi", "chế độ", "benefits"]):
-                    job_post["desc_quyenloi"] = text_content
-                
+                    job_post["desc_quyenloi"] = text_content or job_post.get("desc_quyenloi")
+                    if items_list:
+                        job_post["benefits_items"] = items_list
+
                 # Working time
                 elif any(key in header for key in ["working time", "thời gian làm việc", "giờ làm việc"]):
-                    job_post["working_times"] = text_content
-                
+                    job_post["working_times"] = text_content or job_post.get("working_times")
+
                 # Working location
                 elif any(key in header for key in ["working location", "địa điểm làm việc", "workplace"]):
-                    job_post["working_addresses"] = text_content
-                
+                    job_post["working_addresses"] = text_content or job_post.get("working_addresses")
+
                 # Salary
                 elif any(key in header for key in ["salary", "lương", "remuneration", "compensation"]):
-                    job_post["detail_salary"] = text_content
-                    job_post["salary_list"] = text_content.split("-") if "-" in text_content else [text_content]
-                
-                # Experience 
+                    job_post["detail_salary"] = text_content or job_post.get("detail_salary")
+                    if text_content:
+                        job_post["salary_list"] = text_content.split("-") if "-" in text_content else [text_content]
+
+                # Experience
                 elif any(key in header for key in ["experience", "kinh nghiệm", "years of experience"]):
-                    job_post["detail_experience"] = text_content
-                    job_post["exp_list"] = [text_content]
-                
+                    job_post["detail_experience"] = text_content or job_post.get("detail_experience")
+                    if text_content:
+                        job_post["exp_list"] = [text_content]
+
                 # Deadline
                 elif any(key in header for key in ["deadline", "hạn nộp", "apply by"]):
-                    job_post["deadline"] = text_content 
-    except:
+                    job_post["deadline"] = text_content or job_post.get("deadline")
+    except Exception:
         pass
     
     # Extract company details if company_url available
@@ -305,47 +330,139 @@ def extract_job_detail(job_id):
     
     return job_post
 
-def scrape_data(keyword: str, location: str) -> List[Dict]:
+def convert_to_raw_job_data(job_post: Dict) -> RawJobData:
+    """Convert LinkedIn job dict to RawJobData schema"""
+    try:
+        # Extract job ID from URL (prefer numeric id at end)
+        job_source_id = ""
+        if job_post.get("job_url"):
+            m = re.search(r"/jobs/view/.*?-(\d+)(?:[/?]|$)", job_post["job_url"])  # slug-<id>
+            if not m:
+                m = re.search(r"/jobs/view/(\d+)(?:[/?]|$)", job_post["job_url"])  # /view/<id>
+            if m:
+                job_source_id = m.group(1)
+        
+        # Extract company source ID from company URL
+        company_source_id = ""
+        if job_post.get("company_url"):
+            match = re.search(r'/company/([^/?]+)', job_post["company_url"])
+            if match:
+                company_source_id = match.group(1)
+        
+        # Parse benefits list
+        benefits = []
+        if job_post.get("benefits_items"):
+            benefits = [b for b in job_post["benefits_items"] if b]
+        elif job_post.get("desc_quyenloi"):
+            # Split by common delimiters and clean up
+            raw = job_post["desc_quyenloi"].replace("•", "-")
+            for sep in ["-", "\n", "\u2022"]:
+                parts = [p.strip() for p in raw.split(sep) if p and p.strip()]
+                if len(parts) > 1:
+                    benefits = parts
+                    break
+            if not benefits:
+                benefits = [raw.strip()]
+        benefits = benefits[:10]
+        
+        # Parse tags from job function and detect skills from description
+        tags = []
+        if job_post.get("tags"):
+            tags.extend([job_post["tags"]] if isinstance(job_post["tags"], str) else job_post["tags"])
+        # simple skills detection from description text
+        text_blob = " ".join(filter(None, [job_post.get("desc_mota"), job_post.get("desc_yeucau")]))
+        skills = [
+            "python", "java", "c#", "c++", "go", "golang", "javascript", "typescript",
+            "react", "angular", "vue", "node", "django", "flask", "spring", "dotnet", 
+            "aws", "azure", "gcp", "kubernetes", "docker", "sql", "postgres", "mysql",
+            "mongodb", "redis", "spark", "hadoop", "airflow", "terraform", "ansible",
+        ]
+        low = (text_blob or "").lower()
+        detected = []
+        for s in skills:
+            if s in low:
+                detected.append(s.capitalize() if s.isalpha() else s)
+        if detected:
+            tags.extend(detected)
+        # de-duplicate, preserve order
+        seen = set()
+        tags = [t for t in tags if not (t in seen or seen.add(t))]
+        
+        return RawJobData(
+            source_name="linkedin",
+            job_url=job_post.get("job_url", ""),
+            job_source_id=job_source_id,
+            title=job_post.get("title", ""),
+            description_html= job_post.get("desc_html") or job_post.get("desc_mota", ""),
+            location_raw=job_post.get("detail_location", ""),
+            salary_raw=job_post.get("detail_salary"),
+            employment_type=job_post.get("working_times"),
+            experience_raw=job_post.get("detail_experience"),
+            posted_date=job_post.get("time_posted"),
+            expiry_date=job_post.get("deadline"),
+            scraped_at=datetime.now().isoformat(),
+            tags=tags,
+            benefits=benefits,
+            company_name=job_post.get("company", ""),
+            company_source_id=company_source_id,
+            company_website=job_post.get("company_website"),
+            company_address= job_post.get("company_address") or job_post.get("detail_location"),
+            company_size_raw=job_post.get("company_size"),
+            company_industry=job_post.get("company_industry"),
+            requirements_text=job_post.get("desc_yeucau")
+        )
+    except Exception as e:
+        print(f"[ERROR] convert_to_raw_job_data: {e}")
+        raise
+
+def export_to_json(jobs_data: List[RawJobData], out_prefix: str):
+    """Export RawJobData list to JSON"""
+    output_file = f"{out_prefix}.json"
+    out_dir = os.path.dirname(output_file) or "."
+    os.makedirs(out_dir, exist_ok=True)
+    print(f"[BEFORE SAVE] out_prefix: {out_prefix}")
+    print(f"[BEFORE SAVE] output_file: {output_file}")
+    print(f"[BEFORE SAVE] out_dir: {out_dir}")
+    with open(output_file, 'w', encoding='utf-8') as f:
+        json.dump([job.to_dict() for job in jobs_data], f, ensure_ascii=False, indent=2)
+    
+    # Print after save
+    actual_path = os.path.abspath(output_file)
+    print(f"[AFTER SAVE] File saved at: {actual_path}")
+    print(f"[AFTER SAVE] File exists: {os.path.exists(actual_path)}")
+
+def scrape_data(keyword: str, location: str) -> List[RawJobData]:
     id_list = extract_job_ids(keyword, location)
     job_list = []
 
     # Loop through the list of job IDs and get each URL
     for job_id in id_list:
         job_post = extract_job_detail(job_id)
-        job_list.append(job_post)
+        raw_job = convert_to_raw_job_data(job_post)
+        job_list.append(raw_job)
         
     return job_list
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="LinkedIn Job Scraper (Selenium)")
-    parser.add_argument("--title", required=True, help="Tên công việc cần tìm, ví dụ: 'Software Engineer'")
-    parser.add_argument("--location", required=True, help="Vị trí, ví dụ: 'Vietnam'")
-    parser.add_argument("--out_prefix", default="output/jobs", help="Tên file output (không kèm đuôi)")
+    parser.add_argument("--keyword", default="software engineer", help="Job keyword to search")
+    parser.add_argument("--location", default="Vietnam", help="Location")
+    parser.add_argument("--out_prefix", default=None, help="Output prefix path without extension")
 
     args = parser.parse_args()
 
-    print(f"[INFO] Đang tìm việc: {args.title} tại {args.location} ...")
-    jobs = scrape_data(args.title, args.location)
+    # Auto-generate output prefix with timestamp if not provided
+    if not args.out_prefix:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_dir = os.path.join(os.path.dirname(__file__), "../../output")
+        args.out_prefix = os.path.join(output_dir, f"{args.keyword}_{args.location.lower().replace(' ', '_')}_{timestamp}")
+
+    print(f"[INFO] Scraping: {args.keyword} in {args.location} ...")
+    jobs = scrape_data(args.keyword, args.location)
 
     if not jobs:
-        print("[WARN] Không tìm thấy kết quả nào.")
+        print("[WARN] No jobs found.")
     else:
-        jobs_df = pd.DataFrame(jobs)
-        # Determine output directory
-        out_dir = os.path.dirname(args.out_prefix)
-        if not out_dir:
-            out_dir = "output"  # tự chọn thư mục mặc định
-        os.makedirs(out_dir, exist_ok=True)
-        
-        out_csv = f"{args.out_prefix}_combined.csv"
-        out_xlsx = f"{args.out_prefix}_combined.xlsx"
-
-        print(jobs_df)
-        jobs_df.to_csv(out_csv, index=False, encoding="utf-8-sig")
-        try:
-            jobs_df.to_excel(out_xlsx, index=False)
-            out_json = f"{args.out_prefix}_combined.json"
-            jobs_df.to_json(out_json, orient="records", force_ascii=False, indent=2)
-        except Exception as e:
-            print(f"[WARN] XLSX write failed: {e}")
-        print(f"[OK] Saved: {out_csv}, {out_xlsx}")
+        print(f"✓ Found {len(jobs)} jobs")
+        export_to_json(jobs, args.out_prefix)
+        print(f"✓ Completed! Output: {args.out_prefix}.json")

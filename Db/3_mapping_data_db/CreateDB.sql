@@ -36,6 +36,21 @@ CREATE TABLE IF NOT EXISTS industries (
     industry_name VARCHAR(255) NOT NULL UNIQUE
 );
 
+-- Bảng: benefits
+-- Mục đích: Danh mục chuẩn hóa các phúc lợi (Health Insurance, Remote Work, Training...)
+CREATE TABLE IF NOT EXISTS benefits (
+    benefit_id SERIAL PRIMARY KEY,
+    
+    -- Tên phúc lợi chuẩn hóa (tiếng Anh), ví dụ: 'health insurance', 'remote work'
+    benefit_name VARCHAR(255) NOT NULL UNIQUE,
+    
+    -- Phân loại phúc lợi: 'Work_Flexibility', 'Compensation', 'Health_Insurance', etc.
+    category VARCHAR(100),
+    
+    -- Thời điểm tạo bản ghi
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- ==========================================================
 -- 2. THÔNG TIN CÔNG TY
 -- ==========================================================
@@ -113,6 +128,12 @@ CREATE TABLE IF NOT EXISTS jobs (
 CREATE TABLE IF NOT EXISTS job_skills (
     job_id BIGINT REFERENCES jobs(job_id) ON DELETE CASCADE, -- Xóa Job thì xóa luôn dòng này
     skill_id INT REFERENCES skills(skill_id) ON DELETE CASCADE,
+    
+    -- Cờ quan trọng: 
+    -- TRUE = Do AI tự suy luận từ văn bản (có thể sai sót). 
+    -- FALSE = Dữ liệu chính xác do người đăng chọn.
+    is_inferred BOOLEAN DEFAULT FALSE,
+    
     PRIMARY KEY (job_id, skill_id) -- Khóa chính kép, đảm bảo 1 job không trùng 1 skill 2 lần
 );
 
@@ -143,17 +164,17 @@ CREATE TABLE IF NOT EXISTS salaries (
 );
 
 -- Bảng: job_benefits
--- Mục đích: Lưu các phúc lợi (Bảo hiểm, Laptop, Remote...)
+-- Mục đích: Liên kết N-N giữa Job và Benefit
 CREATE TABLE IF NOT EXISTS job_benefits (
     job_id BIGINT REFERENCES jobs(job_id) ON DELETE CASCADE,
-    benefit_name VARCHAR(255),
+    benefit_id INT REFERENCES benefits(benefit_id) ON DELETE CASCADE,
     
     -- Cờ quan trọng: 
     -- TRUE = Do AI tự suy luận từ văn bản (có thể sai sót). 
     -- FALSE = Dữ liệu chính xác do người đăng chọn.
-    is_inferred BOOLEAN DEFAULT FALSE, 
+    is_inferred BOOLEAN DEFAULT FALSE,
     
-    PRIMARY KEY (job_id, benefit_name)
+    PRIMARY KEY (job_id, benefit_id)
 );
 
 -- ==========================================================

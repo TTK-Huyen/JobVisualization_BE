@@ -94,6 +94,25 @@ def init_database(conn):
                 END IF;
             END $$;
         """)
+        
+        # Migrate job_benefits table to new schema with benefit_id
+        cur.execute("""
+            DO $$ 
+            BEGIN 
+                -- Check if old schema exists (benefit_name column)
+                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='job_benefits' AND column_name='benefit_name') THEN
+                    -- Drop old table and recreate with new schema
+                    DROP TABLE IF EXISTS job_benefits CASCADE;
+                    
+                    CREATE TABLE IF NOT EXISTS job_benefits (
+                        job_id BIGINT REFERENCES jobs(job_id) ON DELETE CASCADE,
+                        benefit_id INT REFERENCES benefits(benefit_id) ON DELETE CASCADE,
+                        is_inferred BOOLEAN DEFAULT FALSE,
+                        PRIMARY KEY (job_id, benefit_id)
+                    );
+                END IF;
+            END $$;
+        """)
 
         conn.commit()
         cur.close()
@@ -122,13 +141,23 @@ def seed_constants_data(conn):
     if hasattr(constants, 'SKILL_KEYWORDS'):
         for category, skills_list in constants.SKILL_KEYWORDS.items():
             for skill in skills_list:
-                slug = slugify(skill)
+                # Insert skill with category
+                cur.execute("""
+                    INSERT INTO skills (skill_name, category) 
+                    VALUES (%s, %s) 
+                    ON CONFLICT (skill_name) DO UPDATE SET category = EXCLUDED.category
+                """, (skill, category))
+    
+    # 3. Seed Benefits
+    if hasattr(constants, 'BENEFITS_KEYWORDS'):
+        for category, benefits_list in constants.BENEFITS_KEYWORDS.items():
+            for benefit in benefits_list:
                 # Insert và update category nếu đã tồn tại
                 cur.execute("""
-                    INSERT INTO skills (skill_abr, skill_name, category) 
-                    VALUES (%s, %s, %s) 
-                    ON CONFLICT (skill_abr) DO UPDATE SET category = EXCLUDED.category
-                """, (slug, skill, category))
+                    INSERT INTO benefits (benefit_name, category) 
+                    VALUES (%s, %s) 
+                    ON CONFLICT (benefit_name) DO UPDATE SET category = EXCLUDED.category
+                """, (benefit, category))
     
     conn.commit()
     cur.close()
@@ -144,6 +173,10 @@ def import_data(conn, data):
     print("3. Importing job data from JSON...")
     cur = conn.cursor()
     
+    # [NEW] Validate job categories against constants
+    valid_categories = set(constants.JOB_CATEGORIES.keys()) if hasattr(constants, 'JOB_CATEGORIES') else set()
+    print(f"✓ Valid job categories: {sorted(valid_categories)}")
+    
     # Statistics tracking
     stats = {
         'total_jobs_in_file': 0,
@@ -158,14 +191,17 @@ def import_data(conn, data):
     
     # --- LOAD MAP ID TỪ DB (QUAN TRỌNG) ---
     # Sau khi seed, chúng ta lấy ID thực tế từ DB để map vào JSON
-    cur.execute("SELECT skill_abr, skill_id FROM skills")
-    db_skills_map = {row[0]: row[1] for row in cur.fetchall()} 
+    cur.execute("SELECT skill_name, skill_id FROM skills")
+    db_skills_map = {row[0].lower(): row[1] for row in cur.fetchall()} 
     
     cur.execute("SELECT industry_name, industry_id FROM industries")
-    db_industries_map = {row[0].lower(): row[1] for row in cur.fetchall()} 
+    db_industries_map = {row[0].lower(): row[1] for row in cur.fetchall()}
+    
+    cur.execute("SELECT benefit_name, benefit_id FROM benefits")
+    db_benefits_map = {row[0].lower(): row[1] for row in cur.fetchall()} 
 
-    # Map ID tạm trong JSON -> Slug
-    json_skill_temp_to_slug = {s['temp_id']: s['skill_abr'] for s in data.get('skills_master', [])}
+    # Map ID tạm trong JSON -> Skill name
+    json_skill_temp_to_name = {s['temp_id']: s['skill_name'] for s in data.get('skills_master', [])}
     json_ind_temp_to_name = {i['temp_id']: i['industry_name'] for i in data.get('industries', [])}
 
     # --- IMPORT COMPANIES ---
@@ -182,15 +218,42 @@ def import_data(conn, data):
 
     # --- IMPORT JOBS ---
     jobs_data = []
+    invalid_categories_found = []
+    
     for j in data.get('jobs', []):
+        # [NEW] Validate job category
+        job_category = j.get('job_category', 'Other')
+        if job_category not in valid_categories:
+            invalid_categories_found.append({
+                'job_id': j.get('temp_id'),
+                'title': j.get('title', 'N/A'),
+                'category': job_category
+            })
+            continue  # Skip jobs with invalid categories
+        
+        # Parse posted_date - convert invalid dates to None
+        posted_date = j.get('posted_date')
+        if posted_date and not posted_date.replace('-', '').replace('/', '').replace(':', '').replace(' ', '').isdigit():
+            # If contains non-numeric characters like "1 week ago", set to None
+            posted_date = None
+        
         jobs_data.append((
-            j['temp_id'], j['company_temp_id'], j['title'], j.get('job_category', 'Other'),
+            j['temp_id'], j['company_temp_id'], j['title'], job_category,
             j.get('description', ''), j.get('requirements', ''), j.get('formatted_experience_level'),
             j.get('formatted_work_type'), j.get('remote_allowed', False), j.get('job_url'),
-            j.get('fingerprint'), j.get('posted_date')
+            j.get('fingerprint'), posted_date
         ))
 
+    # [NEW] Report invalid categories if found
+    if invalid_categories_found:
+        print(f"\n⚠️  VALIDATION WARNING: {len(invalid_categories_found)} jobs skipped due to invalid categories!")
+        for item in invalid_categories_found[:5]:
+            print(f"  - Job {item['job_id']} ({item['title'][:50]}): category '{item['category']}'")
+        if len(invalid_categories_found) > 5:
+            print(f"  ... and {len(invalid_categories_found) - 5} more")
+
     stats['total_jobs_in_file'] = len(jobs_data)
+    stats['invalid_categories_skipped'] = len(invalid_categories_found)
     
     if jobs_data:
         # Get existing job IDs and fingerprints BEFORE insertion
@@ -270,10 +333,38 @@ def import_data(conn, data):
         stats['salaries_inserted'] = len(salaries_data)
 
     # --- IMPORT BENEFITS ---
-    benefits_data = [(b['job_temp_id'], b['benefit_name'], b['is_inferred']) for b in data.get('job_benefits', []) if b['job_temp_id'] in valid_job_ids]
-    if benefits_data:
-        extras.execute_values(cur, "INSERT INTO job_benefits (job_id, benefit_name, is_inferred) VALUES %s ON CONFLICT DO NOTHING", benefits_data)
-        stats['benefits_inserted'] = len(benefits_data)
+    job_benefits_data = set()
+    for jb in data.get('job_benefits', []):
+        # Only add benefits for jobs that were successfully inserted
+        if jb['job_temp_id'] not in valid_job_ids:
+            continue
+            
+        benefit_name_lower = jb['benefit_name'].lower()
+        real_benefit_id = db_benefits_map.get(benefit_name_lower)
+        
+        # Nếu không tìm thấy trong DB (benefit mới), insert vào DB
+        if not real_benefit_id:
+            try:
+                cur.execute(
+                    "INSERT INTO benefits (benefit_name, category) VALUES (%s, 'Uncategorized') RETURNING benefit_id",
+                    (jb['benefit_name'],)
+                )
+                real_benefit_id = cur.fetchone()[0]
+                db_benefits_map[benefit_name_lower] = real_benefit_id  # Cập nhật cache
+            except:
+                conn.rollback()  # Bỏ qua nếu lỗi
+                continue
+        
+        if real_benefit_id:
+            job_benefits_data.add((jb['job_temp_id'], real_benefit_id, jb.get('is_inferred', False)))
+    
+    if job_benefits_data:
+        extras.execute_values(
+            cur,
+            "INSERT INTO job_benefits (job_id, benefit_id, is_inferred) VALUES %s ON CONFLICT DO NOTHING",
+            list(job_benefits_data)
+        )
+        stats['benefits_inserted'] = len(job_benefits_data)
 
     # --- IMPORT JOB SKILLS (LINKING) ---
     job_skills_data = set()
@@ -282,25 +373,16 @@ def import_data(conn, data):
         if js['job_temp_id'] not in valid_job_ids:
             continue
             
-        skill_slug = json_skill_temp_to_slug.get(js['skill_temp_id'])
-        real_skill_id = db_skills_map.get(skill_slug) # Tìm ID thực trong DB
+        skill_name = json_skill_temp_to_name.get(js['skill_temp_id'])
+        real_skill_id = db_skills_map.get(skill_name.lower() if skill_name else None) # Tìm ID thực trong DB
         
-        # Nếu không tìm thấy trong DB (có thể là skill mới do AI tìm ra), ta insert nóng vào DB
-        if not real_skill_id and skill_slug:
-             # Fallback: Insert skill mới vào bảng skills
-             try:
-                 cur.execute("INSERT INTO skills (skill_abr, skill_name, category) VALUES (%s, %s, 'AI_Extracted') RETURNING skill_id", (skill_slug, skill_slug))
-                 real_skill_id = cur.fetchone()[0]
-                 db_skills_map[skill_slug] = real_skill_id # Cập nhật cache
-             except:
-                 conn.rollback() # Bỏ qua nếu lỗi
-                 continue
-
+        # Nếu không tìm thấy trong DB → BỎ QUA (không thêm skill mới)
+        # Chỉ thêm skills có trong constants.py
         if real_skill_id:
-            job_skills_data.add((js['job_temp_id'], real_skill_id))
+            job_skills_data.add((js['job_temp_id'], real_skill_id, js.get('is_inferred', False)))
             
     if job_skills_data:
-        extras.execute_values(cur, "INSERT INTO job_skills (job_id, skill_id) VALUES %s ON CONFLICT DO NOTHING", list(job_skills_data))
+        extras.execute_values(cur, "INSERT INTO job_skills (job_id, skill_id, is_inferred) VALUES %s ON CONFLICT DO NOTHING", list(job_skills_data))
         stats['job_skills_linked'] = len(job_skills_data)
 
     # --- IMPORT JOB INDUSTRIES (LINKING) ---

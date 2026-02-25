@@ -1,311 +1,272 @@
 #!/usr/bin/env python3
 """
 ETL PIPELINE ORCHESTRATOR
-Điều phối toàn bộ quy trình: Crawl -> Clean -> Import to DB
+Điều hướng 3 bước chính: Crawl -> Clean -> Import
+Gọi các script chính trong từng folder
+Kiến trúc Hybrid:
+  - Crawlers → 1_crawl_data/crawl_data/output/ (tạm thời)
+  - Clean → data/crawl_YYYYMMDD/clean/ (lưu trữ)
+  - Import → đọc từ data/crawl_YYYYMMDD/clean/
 """
 
 import os
 import sys
-import json
 import subprocess
 from pathlib import Path
 from datetime import datetime
-import shutil
+
+# Fix encoding for Windows console
+if sys.stdout.encoding != 'utf-8':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except:
+        pass
 
 # ============================================================================
-# CẤU HÌNH
+# CONFIGURATION
 # ============================================================================
 BASE_DIR = Path(__file__).parent
-CRAWL_DIR = BASE_DIR / "1_crawl_data"
-CLEAN_DIR = BASE_DIR / "2_clean_data"
-MAPPING_DIR = BASE_DIR / "3_mapping_data_db"
 
-# Timestamp cho folder theo ngày
-TODAY = datetime.now().strftime("%d_%m_%y")  # Format: 13_01_26
-TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
+# Use .venv Python executable if available
+VENV_PYTHON = BASE_DIR / ".venv" / "Scripts" / "python.exe"
+if VENV_PYTHON.exists():
+    PYTHON_EXE = str(VENV_PYTHON)
+    print(f"✓ Using .venv Python: {PYTHON_EXE}")
+else:
+    PYTHON_EXE = sys.executable
+    print(f"⚠ .venv not found, using system Python: {PYTHON_EXE}")
 
-# Output folders
-CRAWL_OUTPUT_BASE = CRAWL_DIR / "output" / f"crawl_{TODAY}"
-CLEAN_OUTPUT_BASE = CLEAN_DIR / "output" / f"clean_{TODAY}"
+# Import config
+try:
+    from etl_config import JOB_LIMITS, CRAWLER_TIMEOUT, CLEAN_TIMEOUT, IMPORT_TIMEOUT
+except ImportError:
+    JOB_LIMITS = {"itviec": 1, "linkedin": 1, "careerviet": 1, "vietnamworks": 1}
+    CRAWLER_TIMEOUT = CLEAN_TIMEOUT = IMPORT_TIMEOUT = 600
 
-CRAWL_OUTPUT_BASE.mkdir(parents=True, exist_ok=True)
-CLEAN_OUTPUT_BASE.mkdir(parents=True, exist_ok=True)
-
-# File paths
-CRAWL_OUTPUT_FILE = CRAWL_OUTPUT_BASE / f"job_combined_{TIMESTAMP}.json"
-CLEAN_OUTPUT_FILE = CLEAN_OUTPUT_BASE / f"clean_data_final_{TIMESTAMP}.json"
-
-# Log file
-LOG_FILE = BASE_DIR / "etl_pipeline.log"
+# Date-based folder for archival
+RUN_DATE = datetime.now().strftime("%Y%m%d")
+DATA_FOLDER = BASE_DIR / "data" / f"crawl_{RUN_DATE}"
+RAW_FOLDER = DATA_FOLDER / "raw"
+CLEAN_FOLDER = DATA_FOLDER / "clean"
 
 # ============================================================================
-# LOGGING UTILITY
+# HELPER
 # ============================================================================
-def log(message, level="INFO"):
-    """Log message to both console and file"""
+def log(msg):
+    """Simple logging"""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log_msg = f"[{timestamp}] [{level}] {message}"
-    print(log_msg)
-    with open(LOG_FILE, "a", encoding="utf-8") as f:
-        f.write(log_msg + "\n")
+    print(f"[{timestamp}] {msg}")
 
-# ============================================================================
-# STEP 1: CRAWL DATA
-# ============================================================================
-def run_crawl():
-    """Chạy crawl_all_daily.bat"""
-    log("=" * 60)
-    log("🔄 STEP 1: CRAWLING DATA", "INFO")
-    log("=" * 60)
+def run_step(name, script_path, args=None, timeout=600, cwd=None, env=None, is_batch=False):
+    """Execute a script (Python or Batch) as a step"""
+    log(f"{name}...")
+    
+    if not script_path.exists():
+        log(f"{script_path} không tồn tại")
+        return False
+    
+    # For .bat files on Windows, use cmd /c
+    if is_batch or str(script_path).endswith('.bat'):
+        cmd = ['cmd', '/c', str(script_path)]
+    else:
+        cmd = [PYTHON_EXE, str(script_path)]
+    
+    if args:
+        cmd.extend(args)
+    
+    # Merge environment variables
+    run_env = os.environ.copy()
+    if env:
+        run_env.update(env)
     
     try:
-        # Windows: chạy .bat file
-        bat_file = CRAWL_DIR / "crawl_all_daily.bat"
-        if not bat_file.exists():
-            log(f"❌ Không tìm thấy: {bat_file}", "ERROR")
-            return False
-        
-        log(f"🚀 Chạy: {bat_file}")
         result = subprocess.run(
-            [str(bat_file)],
-            cwd=str(CRAWL_DIR),
+            cmd,
+            cwd=str(cwd or script_path.parent),
             capture_output=True,
-            text=True
+            text=True,
+            encoding='utf-8',
+            timeout=timeout,
+            env=run_env
         )
         
-        if result.returncode != 0:
-            log(f"❌ Crawl failed:\n{result.stderr}", "ERROR")
+        # Print output
+        if result.stdout:
+            print(result.stdout)
+        if result.stderr and result.returncode != 0:
+            print(result.stderr)
+        
+        if result.returncode == 0:
+            log(f"{name} thành công\n")
+            return True
+        else:
+            log(f"{name} thất bại\n")
             return False
-        
-        log(f"✅ Crawl thành công!\n{result.stdout}", "INFO")
-        return True
-        
+    except subprocess.TimeoutExpired:
+        log(f"{name} timeout\n")
+        return False
     except Exception as e:
-        log(f"❌ Lỗi crawl: {e}", "ERROR")
+        log(f"{name} lỗi: {e}\n")
         return False
 
 # ============================================================================
-# STEP 2: CLEAN DATA
-# ============================================================================
-def run_clean(crawl_file):
-    """Chạy clean_process.py với input từ crawl"""
-    log("=" * 60)
-    log("🔄 STEP 2: CLEANING DATA", "INFO")
-    log("=" * 60)
-    
-    try:
-        # Kiểm tra file crawl output
-        if not crawl_file.exists():
-            log(f"❌ Không tìm thấy crawl output: {crawl_file}", "ERROR")
-            return False
-        
-        # Sửa clean_process.py để nhận input từ command line
-        clean_script = CLEAN_DIR / "clean_process_cli.py"
-        
-        if not clean_script.exists():
-            log(f"⚠️  {clean_script} không tồn tại, dùng clean_process.py mặc định", "WARN")
-            clean_script = CLEAN_DIR / "clean_process.py"
-        
-        log(f"📥 Input: {crawl_file}")
-        log(f"📤 Output: {CLEAN_OUTPUT_FILE}")
-        
-        # Chạy clean script với arguments
-        result = subprocess.run(
-            [
-                sys.executable,
-                str(clean_script),
-                "--input", str(crawl_file),
-                "--output", str(CLEAN_OUTPUT_FILE)
-            ],
-            cwd=str(CLEAN_DIR),
-            capture_output=True,
-            text=True
-        )
-        
-        if result.returncode != 0:
-            log(f"❌ Clean failed:\n{result.stderr}", "ERROR")
-            return False
-        
-        log(f"✅ Clean thành công!\n{result.stdout}", "INFO")
-        
-        # Verify output file
-        if not CLEAN_OUTPUT_FILE.exists():
-            log(f"❌ Output file không được tạo: {CLEAN_OUTPUT_FILE}", "ERROR")
-            return False
-        
-        return True
-        
-    except Exception as e:
-        log(f"❌ Lỗi clean: {e}", "ERROR")
-        return False
-
-# ============================================================================
-# STEP 3: IMPORT TO DATABASE
-# ============================================================================
-def run_import(clean_file):
-    """Chạy import_to_db.py với input từ clean"""
-    log("=" * 60)
-    log("🔄 STEP 3: IMPORTING TO DATABASE", "INFO")
-    log("=" * 60)
-    
-    try:
-        # Kiểm tra file clean output
-        if not clean_file.exists():
-            log(f"❌ Không tìm thấy clean output: {clean_file}", "ERROR")
-            return False
-        
-        import_script = MAPPING_DIR / "import_to_db_cli.py"
-        
-        if not import_script.exists():
-            log(f"⚠️  {import_script} không tồn tại, dùng import_to_db.py mặc định", "WARN")
-            import_script = MAPPING_DIR / "import_to_db.py"
-        
-        log(f"📥 Input: {clean_file}")
-        
-        # Chạy import script với arguments
-        result = subprocess.run(
-            [
-                sys.executable,
-                str(import_script),
-                "--input", str(clean_file)
-            ],
-            cwd=str(MAPPING_DIR),
-            capture_output=True,
-            text=True
-        )
-        
-        if result.returncode != 0:
-            log(f"❌ Import failed:\n{result.stderr}", "ERROR")
-            return False
-        
-        log(f"✅ Import thành công!\n{result.stdout}", "INFO")
-        return True
-        
-    except Exception as e:
-        log(f"❌ Lỗi import: {e}", "ERROR")
-        return False
-
-# ============================================================================
-# FIND LATEST CRAWL OUTPUT
-# ============================================================================
-def find_latest_crawl():
-    """Tìm file crawl output mới nhất - kiểm tra nhiều vị trí"""
-    # 1. Tìm trong folder theo ngày (crawl_DD_MM_YY)
-    if CRAWL_OUTPUT_BASE.exists():
-        json_files = sorted(
-            CRAWL_OUTPUT_BASE.glob("job_combined_*.json"),
-            key=lambda f: f.stat().st_mtime,
-            reverse=True
-        )
-        if json_files:
-            return json_files[0]
-    
-    # 2. Fallback: Tìm trực tiếp trong output/ (default của bat file hiện tại)
-    default_output = CRAWL_DIR / "output" / "jobs_combined.json"
-    if default_output.exists():
-        log(f"⚠️  Found crawl output at default location: {default_output}", "WARN")
-        return default_output
-    
-    # 3. Tìm bất kỳ file jobs_combined*.json nào
-    output_dir = CRAWL_DIR / "output"
-    if output_dir.exists():
-        all_combined = sorted(
-            output_dir.glob("**/jobs_combined*.json"),
-            key=lambda f: f.stat().st_mtime,
-            reverse=True
-        )
-        if all_combined:
-            log(f"⚠️  Found crawl output in subdirectory: {all_combined[0]}", "WARN")
-            return all_combined[0]
-    
-    return None
-
-# ============================================================================
-# FIND LATEST CLEAN OUTPUT
-# ============================================================================
-def find_latest_clean():
-    """Tìm file clean output mới nhất - kiểm tra nhiều vị trí"""
-    # 1. Tìm trong folder theo ngày (clean_DD_MM_YY)
-    if CLEAN_OUTPUT_BASE.exists():
-        json_files = sorted(
-            CLEAN_OUTPUT_BASE.glob("clean_data_final_*.json"),
-            key=lambda f: f.stat().st_mtime,
-            reverse=True
-        )
-        if json_files:
-            return json_files[0]
-    
-    # 2. Fallback: Tìm trong bất kỳ folder clean nào
-    output_dir = CLEAN_DIR / "output"
-    if output_dir.exists():
-        all_clean = sorted(
-            output_dir.glob("**/clean_data_final_*.json"),
-            key=lambda f: f.stat().st_mtime,
-            reverse=True
-        )
-        if all_clean:
-            log(f"⚠️  Found clean output in subdirectory: {all_clean[0]}", "WARN")
-            return all_clean[0]
-    
-    return None
-
-# ============================================================================
-# MAIN PIPELINE
+# MAIN
 # ============================================================================
 def main():
     log("=" * 80)
-    log("🚀 START ETL PIPELINE", "INFO")
+    log("ETL PIPELINE START")
+    log(f"Run Date: {RUN_DATE}")
+    log(f"Archive: {DATA_FOLDER}")
+    log("=" * 80 + "\n")
+    
+    # Read step control flags from environment variables
+    step_crawl = os.environ.get("STEP_CRAWL", "true").lower() in ("true", "1", "yes")
+    step_merge = os.environ.get("STEP_MERGE", "true").lower() in ("true", "1", "yes")
+    step_clean = os.environ.get("STEP_CLEAN", "true").lower() in ("true", "1", "yes")
+    step_import = os.environ.get("STEP_IMPORT", "true").lower() in ("true", "1", "yes")
+    
+    log(f"Steps: CRAWL={step_crawl}, MERGE={step_merge}, CLEAN={step_clean}, IMPORT={step_import}\n")
+    
+    start = datetime.now()
+    
+    # Create archive folders
+    RAW_FOLDER.mkdir(parents=True, exist_ok=True)
+    CLEAN_FOLDER.mkdir(parents=True, exist_ok=True)
+    
+    crawl_ok = True
+    clean_ok = True
+    import_ok = True
+    
+    # -------- STEP 1: CRAWL --------
+    if step_crawl:
+        log("STEP 1: CRAWL DATA")
+        
+        # Prepare environment variables for crawlers
+        crawl_env = os.environ.copy()  # Inherit current env
+        crawl_env.update({
+            "OUTPUT_FOLDER": str(RAW_FOLDER),
+            "RAW_DATA_FOLDER": str(RAW_FOLDER),
+            # Pass job limits to crawlers - use correct env var names
+            "ITVIEC_MAX_JOBS": str(JOB_LIMITS.get("itviec", 50)),
+            "LINKEDIN_MAX_JOBS": str(JOB_LIMITS.get("linkedin", 100)),
+            "CAREERVIET_MAX_JOBS": str(JOB_LIMITS.get("careerviet", 50)),
+            "VNWORKS_MAX_JOBS": str(JOB_LIMITS.get("vietnamworks", 50))
+        })
+        
+        log(f"Job Limits: iTviec={JOB_LIMITS.get('itviec', 50)}, LinkedIn={JOB_LIMITS.get('linkedin', 100)}, CareerViet={JOB_LIMITS.get('careerviet', 50)}, VietnamWorks={JOB_LIMITS.get('vietnamworks', 50)}")
+        
+        # Call daily runners directly (not via .bat) to preserve environment variables
+        crawlers = [
+            ("ITviec", "crawl_data/crawl-itviec-jobs/scripts/daily_itviec_runner.py"),
+            ("LinkedIn", "crawl_data/crawl-linkedin-jobs/scripts/daily_linkedin_runner.py"),
+            ("CareerViet", "crawl_data/crawl-careerviet-jobs/scripts/daily_careerviet_runner.py"),
+            ("VietnamWorks", "crawl_data/crawl-vietnamwork-jobs/scripts/daily_vietnamworks_runner.py"),
+        ]
+        
+        crawl_dir = BASE_DIR / "1_crawl_data"
+        
+        for crawler_name, crawler_path in crawlers:
+            crawler_script = crawl_dir / crawler_path
+            if crawler_script.exists():
+                log(f"Running {crawler_name} crawler...")
+                if not run_step(f"{crawler_name} Crawler", crawler_script, timeout=CRAWLER_TIMEOUT, cwd=crawl_dir, env=crawl_env):
+                    log(f"⚠️  {crawler_name} crawler failed or returned no jobs")
+            else:
+                log(f"⚠️  {crawler_name} crawler not found: {crawler_script}")
+        
+        # Merge outputs
+        if step_merge:
+            merge_script = crawl_dir / "merge_daily_outputs.py"
+            if merge_script.exists():
+                log("Merging crawler outputs...")
+                crawl_ok = run_step("Merge Outputs", merge_script, timeout=CRAWLER_TIMEOUT, cwd=crawl_dir, env=crawl_env)
+            else:
+                log("⚠️  Merge script not found")
+                crawl_ok = False
+            
+            # [NEW] Normalize schema after merge
+            if crawl_ok:
+                log("Normalizing crawler schemas...")
+                normalize_script = crawl_dir / "normalize_schema.py"
+                if normalize_script.exists():
+                    merged_file = crawl_dir / "crawl_data" / "output" / "jobs_combined.json"
+                    crawl_ok = run_step("Normalize Schema", normalize_script, timeout=CRAWLER_TIMEOUT, cwd=BASE_DIR, env=crawl_env)
+                else:
+                    log("⚠️  Normalize script not found")
+                    crawl_ok = False
+        else:
+            log("Skipping MERGE (STEP_MERGE=false)")
+        
+        if not crawl_ok:
+            log("Crawl failed")
+    else:
+        log("Skipping CRAWL (STEP_CRAWL=false)\n")
+    
+    # -------- STEP 2: CLEAN --------
+    if step_clean:
+        log("STEP 2: CLEAN DATA")
+        clean_script = BASE_DIR / "2_clean_data" / "clean_process.py"
+        
+        # Use normalized input if it exists, otherwise use raw combined output from data/raw
+        normalized_file = RAW_FOLDER / "jobs_normalized.json"
+        combined_file = RAW_FOLDER / "jobs_combined.json"
+        
+        if normalized_file.exists():
+            input_for_clean = str(normalized_file)
+            log(f"Using normalized input: {normalized_file.name}")
+        elif combined_file.exists():
+            input_for_clean = str(combined_file)
+            log(f"Using raw combined input: {combined_file.name}")
+        else:
+            log("❌ No input file found for cleaning")
+            clean_ok = False
+            input_for_clean = ""
+        
+        if input_for_clean:
+            # Pass input/output paths to clean process
+            clean_args = [
+                "--input", input_for_clean,
+                "--output", str(CLEAN_FOLDER / f"clean_data_final_{RUN_DATE}.json")
+            ]
+            
+            clean_ok = run_step("CLEAN", clean_script, args=clean_args, timeout=CLEAN_TIMEOUT, cwd=BASE_DIR / "2_clean_data")
+            
+            if not clean_ok:
+                log("Clean failed")
+    else:
+        log("Skipping CLEAN (STEP_CLEAN=false)\n")
+    
+    # -------- STEP 3: IMPORT --------
+    if step_import:
+        log("STEP 3: IMPORT TO DATABASE")
+        import_script = BASE_DIR / "3_mapping_data_db" / "import_to_db.py"
+        
+        # Pass cleaned data path to import script
+        import_args = [
+            "--input", str(CLEAN_FOLDER / f"clean_data_final_{RUN_DATE}.json")
+        ]
+        
+        import_ok = run_step("IMPORT", import_script, args=import_args, timeout=IMPORT_TIMEOUT, cwd=BASE_DIR / "3_mapping_data_db")
+        
+        if not import_ok:
+            log("Import failed")
+    else:
+        log("Skipping IMPORT (STEP_IMPORT=false)\n")
+    
+    # -------- SUMMARY --------
     log("=" * 80)
-    log(f"Timestamp: {TIMESTAMP}")
-    log(f"Today: {TODAY}")
-    log("")
-    
-    # # STEP 1: Crawl
-    # if not run_crawl():
-    #     log("❌ Pipeline dừng tại CRAWL", "ERROR")
-    #     return False
-    
-    # Tìm file crawl output
-    # crawl_file = find_latest_crawl()
-    # if not crawl_file:
-    #     log("❌ Không tìm thấy crawl output file", "ERROR")
-    #     return False
-    # log(f"✅ Found crawl output: {crawl_file}", "INFO")
-    
-    # STEP 2: Clean
-    # if not run_clean(crawl_file):
-    #     log("❌ Pipeline dừng tại CLEAN", "ERROR")
-    #     return False
-    
-    # Nếu skip Step 2, tìm clean file mới nhất
-    clean_file = find_latest_clean()
-    if not clean_file:
-        log("❌ Không tìm thấy clean output file", "ERROR")
-        return False
-    log(f"✅ Using clean output: {clean_file}", "INFO")
-    
-    # STEP 3: Import
-    if not run_import(clean_file):
-        log("❌ Pipeline dừng tại IMPORT", "ERROR")
-        return False
-    
-    # Success
+    log("SUMMARY")
     log("=" * 80)
-    log("✅ ETL PIPELINE COMPLETED SUCCESSFULLY!", "SUCCESS")
-    log("=" * 80)
-    # log(f"📊 Crawl output: {crawl_file}")
-    log(f"📊 Clean output: {clean_file}")
-    log(f"📊 Database import: Completed")
+    log(f"Crawl  : {'Done' if crawl_ok else 'Skipped/Failed'}")
+    log(f"Clean  : {'Done' if clean_ok else 'Skipped/Failed'}")
+    log(f"Import : {'Done' if import_ok else 'Skipped/Failed'}")
     
-    return True
+    duration = datetime.now() - start
+    log(f"Duration: {duration}")
+    log("=" * 80)
+    
+    return crawl_ok and clean_ok and import_ok
 
 if __name__ == "__main__":
-    try:
-        success = main()
-        sys.exit(0 if success else 1)
-    except KeyboardInterrupt:
-        log("\n⚠️  Pipeline dừng do user interrupt", "WARN")
-        sys.exit(1)
-    except Exception as e:
-        log(f"❌ Unexpected error: {e}", "ERROR")
-        sys.exit(1)
+    success = main()
+    sys.exit(0 if success else 1)

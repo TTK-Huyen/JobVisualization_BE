@@ -1,14 +1,26 @@
 import time
 import re
 import random
+import sys
+from pathlib import Path
 from typing import Dict, List, Optional, Iterable
 from urllib.parse import urljoin, urlparse
+
+# Configure UTF-8 encoding for console output (Windows compatibility)
+if sys.stdout.encoding != 'utf-8':
+    sys.stdout.reconfigure(encoding='utf-8')
+if sys.stderr.encoding != 'utf-8':
+    sys.stderr.reconfigure(encoding='utf-8')
 
 import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 from urllib3.util.retry import Retry
 from requests.adapters import HTTPAdapter
+
+# Import schema chuẩn
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from schema import RawJobData
 
 BASE = "https://careerviet.vn"
 HEADERS = {
@@ -46,8 +58,15 @@ def text(el) -> Optional[str]:
     if not el:
         return None
     import re as _re
-    t = el.get_text(" ", strip=True)
-    return _re.sub(r"\s+", " ", t) if t else None
+    try:
+        # Lấy tất cả text node và filter None
+        text_parts = [str(s) for s in el.strings if s]
+        if not text_parts:
+            return None
+        t = " ".join(text_parts)
+        return _re.sub(r"\s+", " ", t) if t else None
+    except (TypeError, AttributeError):
+        return None
 
 def smart_sleep(min_s=0.6, max_s=1.4):
     time.sleep(random.uniform(min_s, max_s))
@@ -163,8 +182,33 @@ def parse_search_page(session: requests.Session, url: str) -> List[Dict]:
 def pick_info_value(soup: BeautifulSoup, label_keywords: Iterable[str]) -> Optional[str]:
     """
     Quét các vùng 'thông tin công việc' để tìm giá trị theo nhãn (VD: Mức lương/Địa điểm/Kinh nghiệm).
+    Hỗ trợ cấu trúc: <li><strong>Label</strong><p>Value</p></li>
     """
-    # Các khối khả dĩ chứa key-value
+    # Tìm tất cả <li> elements trong toàn bộ trang
+    for li in soup.select("li"):
+        # Tìm <strong> tag trong li
+        strong_el = li.find("strong")
+        if not strong_el:
+            continue
+        
+        label = (text(strong_el) or "").lower().strip()
+        
+        # Kiểm tra nếu label khớp với keywords
+        for kw in label_keywords:
+            if kw.lower() in label:
+                # Tìm <p> tag trong cùng li
+                p_el = li.find("p")
+                if p_el:
+                    value = text(p_el)
+                    if value:
+                        return value.strip()
+                # Fallback: lấy text sau strong
+                li_text = text(li) or ""
+                value = li_text.replace(text(strong_el) or "", "", 1).strip()
+                if value:
+                    return value
+    
+    # Fallback: Quét các container cũ
     containers = [
         "ul.job-info", ".job-summary", ".job-attributes", ".job-detail", ".section-content", "div#job-summary"
     ]
@@ -304,7 +348,7 @@ def extract_desc_blocks(soup: BeautifulSoup):
         
         # Join tất cả content
         if content_parts:
-            full_content = " ".join(content_parts).strip()
+            full_content = " ".join([p for p in content_parts if p]).strip()
             # Làm sạch: loại bỏ các dòng trống
             full_content = re.sub(r"\s+", " ", full_content)
             if full_content:
@@ -350,6 +394,26 @@ def extract_company_link_from_job(soup: BeautifulSoup) -> Optional[str]:
     cand = soup.select_one("a[href*='/vi/nha-tuyen-dung/']")
     return urljoin(BASE, cand["href"]) if cand and cand.has_attr("href") else None
 
+def extract_job_source_id(job_url: str) -> Optional[str]:
+    """Extract job ID từ URL"""
+    # URL format: https://careerviet.vn/vi/tim-viec-lam/ai-engineer.35C5D54A.html
+    # Extract: 35C5D54A
+    match = re.search(r'\.([A-Z0-9]+)\.html$', job_url)
+    if match:
+        return match.group(1)
+    return None
+
+def extract_company_source_id(company_url: str) -> Optional[str]:
+    """Extract company ID từ URL"""
+    # URL format: https://careerviet.vn/vi/nha-tuyen-dung/cong-ty-co-phan-canifa.35A66CA5.html
+    # Extract: 35A66CA5
+    if not company_url:
+        return None
+    match = re.search(r'\.([A-Z0-9]+)\.html$', company_url)
+    if match:
+        return match.group(1)
+    return None
+
 
 
 def scrape_job_detail(session: requests.Session, job_url: str) -> Dict:
@@ -376,7 +440,10 @@ def scrape_job_detail(session: requests.Session, job_url: str) -> Dict:
             working_addresses = val
             break
 
-    working_times = pick_info_value(soup, ["Thời gian làm việc", "Giờ làm việc", "Hình thức"])
+    working_times = pick_info_value(soup, ["Thời gian làm việc", "Giờ làm việc"])
+    
+    # Employment type (Hình thức): Nhân viên chính thức, Thực tập, v.v.
+    employment_type = pick_info_value(soup, ["Hình thức"])
 
     return {
         "detail_title": title,
@@ -390,12 +457,247 @@ def scrape_job_detail(session: requests.Session, job_url: str) -> Dict:
         "desc_quyenloi": desc_blocks.get("Quyền lợi"),
         "working_addresses": working_addresses,
         "working_times": working_times,
+        "employment_type": employment_type,
         "degree": other_info.get("degree"),
         "age_requirement": other_info.get("age_requirement"),
         "company_url_from_job": company_url_detail,
     }
 
+def convert_to_raw_job_data(job_dict: Dict, detail_dict: Dict, company_dict: Dict) -> RawJobData:
+    """
+    Convert dữ liệu scrape sang schema chuẩn RawJobData
+    
+    Args:
+        job_dict: Dict từ parse_search_page (title, job_url, company, ...)
+        detail_dict: Dict từ scrape_job_detail (detail_title, desc_mota, ...)
+        company_dict: Dict từ scrape_company (company_name_full, company_website, ...)
+    
+    Returns:
+        RawJobData object
+    """
+    # Build full description HTML (kết hợp các phần mô tả)
+    desc_parts = []
+    if detail_dict.get("desc_mota"):
+        desc_parts.append(f"<h3>Mô tả công việc</h3><p>{detail_dict['desc_mota']}</p>")
+    if detail_dict.get("desc_yeucau"):
+        desc_parts.append(f"<h3>Yêu cầu ứng viên</h3><p>{detail_dict['desc_yeucau']}</p>")
+    if detail_dict.get("desc_quyenloi"):
+        desc_parts.append(f"<h3>Quyền lợi</h3><p>{detail_dict['desc_quyenloi']}</p>")
+    
+    description_html = "\n".join([p for p in desc_parts if p]) if desc_parts else ""
+    
+    # Parse tags thành list
+    tags_list = []
+    if detail_dict.get("tags"):
+        tags_list = [tag.strip() for tag in detail_dict["tags"].split(";") if tag.strip()]
+    
+    # Parse benefits thành list
+    benefits_list = []
+    if detail_dict.get("desc_quyenloi"):
+        # Split by common separators
+        benefits_text = detail_dict["desc_quyenloi"]
+        benefits_list = [b.strip() for b in re.split(r'[;,\n]', benefits_text) if b.strip()]
+    
+    # Determine location
+    location = detail_dict.get("detail_location") or job_dict.get("address_list")
+    if detail_dict.get("working_addresses"):
+        location = detail_dict["working_addresses"]
+    
+    # Determine salary
+    salary = detail_dict.get("detail_salary") or job_dict.get("salary_list")
+    
+    # Determine experience
+    experience = detail_dict.get("detail_experience") or job_dict.get("exp_list")
+    
+    # Get company URL
+    company_url = detail_dict.get("company_url_from_job") or job_dict.get("company_url")
+    
+    # Get employment type (ưu tiên từ employment_type, fallback working_times)
+    employment_type = detail_dict.get("employment_type") or detail_dict.get("working_times")
+    
+    # Thời điểm crawler (ISO format với timezone)
+    from datetime import datetime, timezone, timedelta
+    vietnam_tz = timezone(timedelta(hours=7))
+    scraped_at = datetime.now(vietnam_tz).isoformat()
+    
+    return RawJobData(
+        # Identity
+        source_name="careerviet",
+        job_url=job_dict["job_url"],
+        job_source_id=extract_job_source_id(job_dict["job_url"]) or "",
+        
+        # Job Info
+        title=detail_dict.get("detail_title") or job_dict["title"],
+        description_html=description_html,
+        
+        # Attributes
+        location_raw=location,
+        salary_raw=salary,
+        employment_type=employment_type,
+        experience_raw=experience,
+        posted_date=None,  # CareerViet không cung cấp posted date
+        expiry_date=detail_dict.get("deadline"),
+        scraped_at=scraped_at,  # Thời điểm crawler
+        
+        # Lists
+        tags=tags_list,
+        benefits=benefits_list,
+        
+        # Company Info
+        company_name=company_dict.get("company_name_full") or job_dict.get("company"),
+        company_source_id=extract_company_source_id(company_url),
+        company_website=company_dict.get("company_website"),
+        company_address=company_dict.get("company_address"),
+        company_size_raw=company_dict.get("company_size"),
+        company_industry=company_dict.get("company_industry"),
+        requirements_text=detail_dict.get("desc_yeucau"),
+    )
+
 # ---------- Company page ----------
+def scrape_company_website_improved(soup: BeautifulSoup) -> Optional[str]:
+    """
+    Extract company website from company profile page.
+    Tries multiple strategies to find the correct URL.
+    """
+    
+    # Strategy 1: Look for links in company info sections
+    for container in soup.select("div.company-info, div.company-overview, div.company-profile, li, .row"):
+        container_text = (container.get_text(" ", strip=True) or "").lower()
+        
+        # Check if this container mentions website
+        if "website" in container_text or "trang web" in container_text:
+            # Try to find HTTP links in this container
+            for a in container.select("a[href]"):
+                href = (a.get("href") or "").strip()
+                if href and not href.startswith("#"):
+                    # Filter out internal careerviet links and relative links
+                    if href.startswith("http") and "careerviet.vn" not in href:
+                        return href
+                    # Skip internal links
+                    if href.startswith("/"):
+                        continue
+    
+    # Strategy 2: Parse text content for "Website: URL" pattern
+    text_content = soup.get_text("\n", strip=True)
+    
+    # Match patterns like "Website: https://..." or "Trang web: ..."
+    patterns = [
+        r'(?:Website|Trang\s*web)\s*[:：]\s*(https?://[^\s\n]+)',
+        r'(?:Website|Trang\s*web)\s*[:：]\s*([a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}[^\s\n]*)',
+    ]
+    
+    for pattern in patterns:
+        matches = re.findall(pattern, text_content, re.IGNORECASE)
+        for match in matches:
+            url = match.strip()
+            # Skip internal careerviet URLs
+            if "careerviet.vn" in url.lower():
+                continue
+            # Ensure it's a valid URL
+            if not url.lower().startswith("http"):
+                url = "https://" + url
+            if url.startswith("http"):
+                return url
+    
+    # Strategy 3: Check input field (as fallback)
+    website_input = soup.select_one("input#emp_websitets")
+    if website_input:
+        value = (website_input.get("value") or "").strip()
+        if value and "careerviet.vn" not in value:
+            if not value.startswith("http"):
+                value = "https://" + value
+            return value if value.startswith("http") else None
+    
+    return None
+
+
+def scrape_company_overview_tab(soup: BeautifulSoup) -> Dict:
+    """
+    Trích xuất thông tin công ty từ tab "Tổng quan công ty" (tab-2)
+    Lấy: địa chỉ, quy mô, lĩnh vực, mô tả, website
+    """
+    info = {
+        "company_address": None,
+        "company_size": None,
+        "company_industry": None,
+        "company_description": None,
+        "company_website": None,
+    }
+    
+    # ========== Cách 1: Tìm từ các <li> hoặc <div> chứa thông tin chi tiết ==========
+    # Địa điểm (Địa chỉ) - Tìm trong nhiều cấu trúc
+    # Pattern 1: <div class="content"> với <strong>Địa điểm</strong>
+    for container in soup.select("div.content, li, div.box-info .content"):
+        strong_el = container.find("strong")
+        if strong_el and "Địa điểm" in (text(strong_el) or ""):
+            # Clone container để xử lý
+            temp_container = container.__copy__()
+            # Xóa strong tag
+            for strong in temp_container.find_all("strong"):
+                strong.decompose()
+            # Xóa hr tag
+            for hr in temp_container.find_all("hr"):
+                hr.decompose()
+            # Lấy text còn lại - dùng get_text() trực tiếp để tránh lỗi NoneType
+            try:
+                address_text = temp_container.get_text(" ", strip=True)
+                if address_text:
+                    address = re.sub(r'\s+', ' ', address_text).strip()
+                    if address and len(address) > 5:
+                        info["company_address"] = address
+                        break
+            except (TypeError, AttributeError):
+                pass
+    
+    # Quy mô công ty (Quy mô)
+    for li in soup.select("li"):
+        li_text = text(li) or ""
+        if "Quy mô công ty" in li_text or "Quy mô" in li_text:
+            # Format: "Quy mô công ty: XXX nhân viên" hoặc "Quy mô: XXX"
+            parts = li_text.split(":", 1)
+            if len(parts) == 2:
+                size = parts[1].strip()
+                if size:
+                    info["company_size"] = size
+            break
+    
+    # Lĩnh vực công ty (Industry) - Extract "Lĩnh vực" field
+    for li in soup.select("li"):
+        li_text = text(li) or ""
+        if "lĩnh vực" in li_text.lower() or "ngành" in li_text.lower():
+            # Format: "Lĩnh vực: XXX" hoặc "Ngành: XXX"
+            parts = li_text.split(":", 1)
+            if len(parts) == 2:
+                industry = parts[1].strip()
+                if industry and len(industry) > 2:  # Filter out empty/short values
+                    info["company_industry"] = industry
+            break
+    
+    # Loại hình hoạt động (Alternative industry field)
+    if not info["company_industry"]:
+        for li in soup.select("li"):
+            li_text = text(li) or ""
+            if "loại hình" in li_text.lower():
+                parts = li_text.split(":", 1)
+                if len(parts) == 2:
+                    industry = parts[1].strip()
+                    if industry:
+                        info["company_industry"] = industry
+                break
+    
+    # ========== Cách 2: Tìm mô tả công ty từ .intro-section-1 ==========
+    intro_section = soup.select_one(".intro-section-1 .main-text")
+    if intro_section:
+        description = text(intro_section)
+        if description:
+            info["company_description"] = description
+    
+    # ========== Cách 3: Tìm website từ hàm cải tiến ==========
+    if not info["company_website"]:
+        info["company_website"] = scrape_company_website_improved(soup)
+    
+    return info
+
 def scrape_company(session: requests.Session, company_url: Optional[str]) -> Dict:
     if not company_url:
         return {
@@ -420,28 +722,46 @@ def scrape_company(session: requests.Session, company_url: Optional[str]) -> Dic
 
     website = size = industry = address = description = None
     
-    # ========== Cách 1: Tìm từ modal maps (.box-info, .box-contact) ==========
-    # Phần "Thông tin tuyển dụng" trong modal
-    box_info = soup.select_one(".box-info")
-    if box_info:
-        # Tìm table trong modal
-        table = box_info.select_one("table")
-        if table:
-            for tr in table.select("tr"):
-                cells = tr.select("td")
-                if len(cells) >= 2:
-                    label = (text(cells[0]) or "").lower()
-                    value = text(cells[1])
-                    if not value:
-                        continue
-                    if "quy mô" in label or "size" in label:
-                        size = value
-                    elif "lĩnh vực" in label or "industry" in label or "ngành" in label:
-                        industry = value
-                    elif "địa chỉ" in label or "address" in label:
-                        address = value
+    # ========== Cách 1: Tìm từ tab "Tổng quan công ty" (Ưu tiên cao nhất) ==========
+    overview_info = scrape_company_overview_tab(soup)
+    if overview_info.get("company_address"):
+        address = overview_info["company_address"]
+    if overview_info.get("company_size"):
+        size = overview_info["company_size"]
+    if overview_info.get("company_industry"):
+        industry = overview_info["company_industry"]
+    if overview_info.get("company_description"):
+        description = overview_info["company_description"]
+    if overview_info.get("company_website"):
+        website = overview_info["company_website"]
     
-    # ========== Cách 2: Tìm từ company profile page ==========
+    # Nếu vẫn không có website từ overview_info, dùng hàm cải tiến
+    if not website:
+        website = scrape_company_website_improved(soup)
+    
+    # ========== Cách 2: Tìm từ modal maps (.box-info, .box-contact) ==========
+    # Phần "Thông tin tuyển dụng" trong modal
+    if not address or not size or not industry:
+        box_info = soup.select_one(".box-info")
+        if box_info:
+            # Tìm table trong modal
+            table = box_info.select_one("table")
+            if table:
+                for tr in table.select("tr"):
+                    cells = tr.select("td")
+                    if len(cells) >= 2:
+                        label = (text(cells[0]) or "").lower()
+                        value = text(cells[1])
+                        if not value:
+                            continue
+                        if not size and ("quy mô" in label or "size" in label):
+                            size = value
+                        elif not industry and ("lĩnh vực" in label or "industry" in label or "ngành" in label):
+                            industry = value
+                        elif not address and ("địa chỉ" in label or "address" in label):
+                            address = value
+    
+    # ========== Cách 3: Tìm từ company profile page ==========
     # Các khối khả dĩ chứa thông tin
     containers = [
         "div.company-profile", "div.company-info", "section#company", "div.company-overview",
@@ -477,25 +797,26 @@ def scrape_company(session: requests.Session, company_url: Optional[str]) -> Dic
             continue
 
         ln = re.sub(r"\s+", " ", label.lower())
-        if "website" in ln or "trang web" in ln:
+        if not website and ("website" in ln or "trang web" in ln):
             website = value
-        elif "quy mô" in ln or "size" in ln or "nhân sự" in ln:
+        elif not size and ("quy mô" in ln or "size" in ln or "nhân sự" in ln):
             size = value
-        elif "lĩnh vực" in ln or "industry" in ln or "ngành" in ln:
+        elif not industry and ("lĩnh vực" in ln or "industry" in ln or "ngành" in ln):
             industry = value
-        elif "địa chỉ" in ln or "address" in ln or "trụ sở" in ln:
+        elif not address and ("địa chỉ" in ln or "address" in ln or "trụ sở" in ln):
             address = value
 
     # Tìm phần mô tả công ty
-    for css in [
-        "div.company-description", "#readmore-company", "#company-description",
-        "section.company-description", "div.description", "div#readmore-content",
-        "div.box-about .content"  # Từ modal maps
-    ]:
-        el = soup.select_one(css)
-        if el and text(el):
-            description = text(el)
-            break
+    if not description:
+        for css in [
+            "div.company-description", "#readmore-company", "#company-description",
+            "section.company-description", "div.description", "div#readmore-content",
+            "div.box-about .content"  # Từ modal maps
+        ]:
+            el = soup.select_one(css)
+            if el and text(el):
+                description = text(el)
+                break
 
     return {
         "company_name_full": company_name,
@@ -507,8 +828,75 @@ def scrape_company(session: requests.Session, company_url: Optional[str]) -> Dic
     }
 
 # ---------- Pipeline ----------
+def crawl_list_url_to_raw_jobs(list_url_page1: str, start_page: int = 1, end_page: int = 1,
+                                delay_between_pages=(0.5, 1.0)) -> List[RawJobData]:
+    """
+    Pipeline chính: Crawl jobs và trả về danh sách RawJobData objects
+    
+    Returns:
+        List[RawJobData]: Danh sách các job đã được chuẩn hóa theo schema
+    """
+    raw_jobs: List[RawJobData] = []
+    seen_jobs = set()
+    s = build_session()
+
+    for page in range(start_page, end_page + 1):
+        url = build_paged_url(list_url_page1, page)
+        print(f"[INFO] Crawling search page {page}: {url}")
+        jobs = parse_search_page(s, url)
+        if not jobs:
+            print(f"[INFO] Trang {page} không còn job — dừng sớm.")
+            break
+
+        for j in jobs:
+            job_url = j["job_url"]
+            job_id = urlparse(job_url).path
+            if job_id in seen_jobs:
+                continue
+            seen_jobs.add(job_id)
+
+            # Job detail
+            try:
+                detail = scrape_job_detail(s, job_url)
+            except Exception as e:
+                print(f"[WARN] Lỗi job detail {job_url}: {e}")
+                detail = {k: None for k in [
+                    "detail_title", "detail_salary", "detail_location",
+                    "detail_experience", "deadline", "tags", "desc_mota",
+                    "desc_yeucau", "desc_quyenloi", "working_addresses",
+                    "working_times", "company_url_from_job"
+                ]}
+
+            company_url = detail.get("company_url_from_job") or j.get("company_url")
+
+            # Company detail
+            try:
+                comp = scrape_company(s, company_url)
+            except Exception as e:
+                print(f"[WARN] Lỗi company {company_url}: {e}")
+                comp = {k: None for k in [
+                    "company_name_full", "company_website", "company_size",
+                    "company_industry", "company_address", "company_description"
+                ]}
+
+            # Convert sang RawJobData
+            try:
+                raw_job = convert_to_raw_job_data(j, detail, comp)
+                raw_jobs.append(raw_job)
+                print(f"[OK] Scraped: {raw_job.title} - ID: {raw_job.job_source_id}")
+            except Exception as e:
+                print(f"[ERROR] Không thể convert job {job_url}: {e}")
+
+        smart_sleep(*delay_between_pages)
+
+    return raw_jobs
+
 def crawl_list_url_to_dataframe(list_url_page1: str, start_page: int = 1, end_page: int = 1,
                                 delay_between_pages=(0.5, 1.0)) -> pd.DataFrame:
+    """
+    Pipeline cũ: Crawl jobs và trả về DataFrame (để backward compatibility)
+    Khuyến nghị sử dụng crawl_list_url_to_raw_jobs() để có dữ liệu chuẩn hóa
+    """
     rows: List[Dict] = []
     seen_jobs = set()
     s = build_session()
@@ -594,8 +982,43 @@ def crawl_many_lists(list_urls: Iterable[str], start_page: int = 1, end_page: in
 if __name__ == "__main__":
     import argparse, os, json
     
-    # ========== TEST 5 MẪU CÔNG VIỆC (ĐẦY ĐỦ THÔNG TIN) ==========
-    print("[TEST] Testing 5 sample jobs with full info (search + detail + company)...")
+    # ========== TEST SCHEMA: Crawl 5 jobs và export theo RawJobData ==========
+    print("[TEST SCHEMA] Testing with RawJobData schema...")
+    test_url = "https://careerviet.vn/viec-lam/ai-k-vi.html"
+    
+    # Crawl 5 jobs với schema chuẩn
+    raw_jobs = crawl_list_url_to_raw_jobs(test_url, start_page=1, end_page=1)
+    
+    if raw_jobs:
+        # Export to JSON
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        data_files_dir = os.path.join(script_dir, "..", "data-files")
+        os.makedirs(data_files_dir, exist_ok=True)
+        
+        # Export raw schema
+        schema_json_file = os.path.join(data_files_dir, "test_raw_schema.json")
+        raw_jobs_dicts = [job.to_dict() for job in raw_jobs[:5]]  # Giới hạn 5 jobs
+        
+        with open(schema_json_file, "w", encoding="utf-8") as f:
+            json.dump(raw_jobs_dicts, f, ensure_ascii=False, indent=2)
+        
+        print(f"\n{'='*80}")
+        print(f"[OK] Exported {len(raw_jobs_dicts)} jobs (RawJobData schema) to:")
+        print(f"     {schema_json_file}")
+        print(f"{'='*80}")
+        
+        # Show sample
+        if raw_jobs_dicts:
+            print("\n[SAMPLE] First job with RawJobData schema:")
+            first_job = raw_jobs_dicts[0]
+            for key, value in first_job.items():
+                val_str = str(value)[:80] + ("..." if len(str(value)) > 80 else "")
+                print(f"  {key:25} : {val_str}")
+    
+    print("\n" + "="*80)
+    
+    # ========== TEST 5 MẪU CÔNG VIỆC (ĐẦY ĐỦ THÔNG TIN - OLD FORMAT) ==========
+    print("\n[TEST OLD FORMAT] Testing 5 sample jobs with full info (backward compatibility)...")
     s = build_session()
     
     # Crawl search page

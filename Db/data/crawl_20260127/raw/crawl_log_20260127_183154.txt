@@ -1,0 +1,115 @@
+[2026-01-27 18:31:54] [INFO] ================================================================================
+[2026-01-27 18:31:54] [INFO] 🚀 DAILY CRAWL RUNNER - START
+[2026-01-27 18:31:54] [INFO] ================================================================================
+[2026-01-27 18:31:54] [INFO] Start time: 2026-01-27 18:31:54
+[2026-01-27 18:31:54] [INFO] Raw folder: f:\HCMUS_KH\LuanVan\JobVisualization_BE\Db\data\crawl_20260127\raw
+[2026-01-27 18:31:54] [INFO] Clean folder: f:\HCMUS_KH\LuanVan\JobVisualization_BE\Db\data\crawl_20260127\clean
+[2026-01-27 18:31:54] [INFO] Max jobs per scraper: 50
+[2026-01-27 18:31:54] [INFO] 
+[2026-01-27 18:31:54] [INFO] ================================================================================
+[2026-01-27 18:31:54] [INFO] 🔄 DAILY CRAWL - Starting all scrapers
+[2026-01-27 18:31:54] [INFO] 📅 Date: 2026-01-27 18:31:54
+[2026-01-27 18:31:54] [INFO] 📁 Raw folder: f:\HCMUS_KH\LuanVan\JobVisualization_BE\Db\data\crawl_20260127\raw
+[2026-01-27 18:31:54] [INFO] 📂 Clean folder: f:\HCMUS_KH\LuanVan\JobVisualization_BE\Db\data\crawl_20260127\clean
+[2026-01-27 18:31:54] [INFO] 🎯 Max jobs per scraper: 50
+[2026-01-27 18:31:54] [INFO] ================================================================================
+[2026-01-27 18:31:54] [INFO] 🚀 Starting ITVIEC scraper...
+[2026-01-27 18:31:55] [INFO] ✅ itviec completed successfully!
+[2026-01-27 18:31:57] [INFO] 🚀 Starting LINKEDIN scraper...
+[2026-01-27 18:33:22] [INFO] ✅ linkedin completed successfully!
+[2026-01-27 18:33:22] [INFO]   → ✓ JSON saved: f:\HCMUS_KH\LuanVan\JobVisualization_BE\Db\data\crawl_20260127\raw\linkedin_angular_ho_chi_minh_20260127_183158.json
+[2026-01-27 18:33:22] [INFO]   → ✓ JSON saved: f:\HCMUS_KH\LuanVan\JobVisualization_BE\Db\data\crawl_20260127\raw\linkedin_angular_ho_chi_minh_20260127_183158.json (50 jobs)
+[2026-01-27 18:33:24] [INFO] 🚀 Starting CAREERVIET scraper...
+[2026-01-27 18:33:27] [ERROR] ❌ careerviet failed:
+Traceback (most recent call last):
+  File "f:\HCMUS_KH\LuanVan\JobVisualization_BE\Db\1_crawl_data\crawl_data\crawl-careerviet-jobs\scripts\daily_careerviet_runner.py", line 85, in <module>
+    main()
+  File "f:\HCMUS_KH\LuanVan\JobVisualization_BE\Db\1_crawl_data\crawl_data\crawl-careerviet-jobs\scripts\daily_careerviet_runner.py", line 76, in main
+    raw_jobs = crawl_list_url_to_raw_jobs(list_url, start_page=1, end_page=1)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "f:\HCMUS_KH\LuanVan\JobVisualization_BE\Db\1_crawl_data\crawl_data\crawl-careerviet-jobs\scripts\scrape_careerviet.py", line 775, in crawl_list_url_to_raw_jobs
+    jobs = parse_search_page(s, url)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "f:\HCMUS_KH\LuanVan\JobVisualization_BE\Db\1_crawl_data\crawl_data\crawl-careerviet-jobs\scripts\scrape_careerviet.py", line 108, in parse_search_page
+    soup = get_soup(session, url)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "f:\HCMUS_KH\LuanVan\JobVisualization_BE\Db\1_crawl_data\crawl_data\crawl-careerviet-jobs\scripts\scrape_careerviet.py", line 91, in get_soup
+    return BeautifulSoup(r.text, "lxml")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Programs\Python\Python312\Lib\site-packages\bs4\__init__.py", line 250, in __init__
+    raise FeatureNotFound(
+bs4.FeatureNotFound: Couldn't find a tree builder with the features you requested: lxml. Do you need to install a parser library?
+
+[2026-01-27 18:33:29] [INFO] 🚀 Starting VIETNAMWORKS scraper...
+[2026-01-27 18:33:32] [ERROR] ❌ vietnamworks failed:
+Traceback (most recent call last):
+  File "f:\HCMUS_KH\LuanVan\JobVisualization_BE\Db\1_crawl_data\crawl_data\crawl-vietnamwork-jobs\scripts\daily_vietnamworks_runner.py", line 77, in <module>
+    main()
+  File "f:\HCMUS_KH\LuanVan\JobVisualization_BE\Db\1_crawl_data\crawl_data\crawl-vietnamwork-jobs\scripts\daily_vietnamworks_runner.py", line 59, in main
+    raw_jobs = crawl_list_url_to_raw_jobs(list_url, start_page=1, end_page=1, prefer_next=True, fetch_company=False)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "f:\HCMUS_KH\LuanVan\JobVisualization_BE\Db\1_crawl_data\crawl_data\crawl-vietnamwork-jobs\scripts\scrape_vietnamwork.py", line 824, in crawl_list_url_to_raw_jobs
+    jobs = parse_search_page(s, url, prefer_next=prefer_next)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "f:\HCMUS_KH\LuanVan\JobVisualization_BE\Db\1_crawl_data\crawl_data\crawl-vietnamwork-jobs\scripts\scrape_vietnamwork.py", line 257, in parse_search_page
+    soup = get_soup(session, url)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "f:\HCMUS_KH\LuanVan\JobVisualization_BE\Db\1_crawl_data\crawl_data\crawl-vietnamwork-jobs\scripts\scrape_vietnamwork.py", line 141, in get_soup
+    return BeautifulSoup(r.text, "lxml")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ASUS\AppData\Local\Programs\Python\Python312\Lib\site-packages\bs4\__init__.py", line 250, in __init__
+    raise FeatureNotFound(
+bs4.FeatureNotFound: Couldn't find a tree builder with the features you requested: lxml. Do you need to install a parser library?
+
+[2026-01-27 18:33:32] [INFO] ================================================================================
+[2026-01-27 18:33:32] [INFO] 📊 CRAWL SUMMARY
+[2026-01-27 18:33:32] [INFO] ================================================================================
+[2026-01-27 18:33:32] [INFO] ✅ ITVIEC         : SUCCESS
+[2026-01-27 18:33:32] [INFO] ✅ LINKEDIN       : SUCCESS
+[2026-01-27 18:33:32] [INFO] ❌ CAREERVIET     : FAILED
+[2026-01-27 18:33:32] [INFO] ❌ VIETNAMWORKS   : FAILED
+[2026-01-27 18:33:32] [INFO] --------------------------------------------------------------------------------
+[2026-01-27 18:33:32] [INFO] Total: 2/4 scrapers succeeded
+[2026-01-27 18:33:32] [INFO] Raw folder: f:\HCMUS_KH\LuanVan\JobVisualization_BE\Db\data\crawl_20260127\raw
+[2026-01-27 18:33:32] [INFO] Clean folder: f:\HCMUS_KH\LuanVan\JobVisualization_BE\Db\data\crawl_20260127\clean
+[2026-01-27 18:33:32] [INFO] 
+📁 Output files (3):
+[2026-01-27 18:33:32] [INFO]   → jobs_combined.json (13.7 KB)
+[2026-01-27 18:33:32] [INFO]   → linkedin_angular_ho_chi_minh_20260127_181209.json (13.7 KB)
+[2026-01-27 18:33:32] [INFO]   → linkedin_angular_ho_chi_minh_20260127_183158.json (309.8 KB)
+[2026-01-27 18:33:32] [INFO] ================================================================================
+[2026-01-27 18:33:32] [INFO] 
+
+[2026-01-27 18:33:32] [INFO] ================================================================================
+[2026-01-27 18:33:32] [INFO] 🔄 STEP 2A: MERGING CRAWL OUTPUTS
+[2026-01-27 18:33:32] [INFO] ================================================================================
+[2026-01-27 18:33:32] [INFO] 📁 Found 3 JSON files:
+[2026-01-27 18:33:32] [INFO]   → jobs_combined.json (13.7 KB)
+[2026-01-27 18:33:32] [INFO]   → linkedin_angular_ho_chi_minh_20260127_181209.json (13.7 KB)
+[2026-01-27 18:33:32] [INFO]   → linkedin_angular_ho_chi_minh_20260127_183158.json (309.8 KB)
+[2026-01-27 18:33:32] [INFO]   ✓ Loaded jobs_combined.json
+[2026-01-27 18:33:32] [INFO]   ✓ Loaded linkedin_angular_ho_chi_minh_20260127_181209.json
+[2026-01-27 18:33:32] [INFO]   ✓ Loaded linkedin_angular_ho_chi_minh_20260127_183158.json
+[2026-01-27 18:33:32] [INFO] ✅ Merged 54 jobs → jobs_combined.json
+[2026-01-27 18:33:32] [INFO] 
+
+[2026-01-27 18:33:32] [INFO] ================================================================================
+[2026-01-27 18:33:32] [INFO] 🔄 STEP 2B: CLEANING DATA
+[2026-01-27 18:33:32] [INFO] ================================================================================
+[2026-01-27 18:33:32] [INFO] 📋 Input: jobs_combined.json
+[2026-01-27 18:33:32] [INFO] 📤 Output: f:\HCMUS_KH\LuanVan\JobVisualization_BE\Db\data\crawl_20260127\clean\clean_data_final_20260127_183332.json
+[2026-01-27 18:33:32] [INFO] 🔧 Running clean_process.py...
+[2026-01-27 18:33:32] [INFO]   WARNING: 'google-generativeai' not installed. Run 'pip install google-generativeai' to use AI features.
+[2026-01-27 18:33:32] [INFO]   Found constants.py! Using standardized skills list.
+[2026-01-27 18:33:32] [INFO]   Regex Mode: ACTIVATED
+[2026-01-27 18:33:32] [INFO]   Reading: jobs_combined.json
+[2026-01-27 18:33:32] [INFO]   SUCCESS: Data Exported to f:\HCMUS_KH\LuanVan\JobVisualization_BE\Db\data\crawl_20260127\clean\clean_data_final_20260127_183332.json | Jobs: 50 | Duplicates Removed: 4
+[2026-01-27 18:33:32] [INFO] ✅ Clean completed! Output: f:\HCMUS_KH\LuanVan\JobVisualization_BE\Db\data\crawl_20260127\clean\clean_data_final_20260127_183332.json (372.5 KB)
+[2026-01-27 18:33:32] [INFO] 
+================================================================================
+[2026-01-27 18:33:32] [SUCCESS] ✅ PIPELINE COMPLETED SUCCESSFULLY!
+[2026-01-27 18:33:32] [INFO] ================================================================================
+[2026-01-27 18:33:32] [INFO] 📁 Raw data: f:\HCMUS_KH\LuanVan\JobVisualization_BE\Db\data\crawl_20260127\raw
+[2026-01-27 18:33:32] [INFO] 📄 Cleaned data: f:\HCMUS_KH\LuanVan\JobVisualization_BE\Db\data\crawl_20260127\clean\clean_data_final_20260127_183332.json
+[2026-01-27 18:33:32] [INFO] 
+⏱️  Total duration: 0:01:38.728837

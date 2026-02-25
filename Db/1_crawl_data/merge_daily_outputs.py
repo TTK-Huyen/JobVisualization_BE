@@ -1,17 +1,29 @@
 import os
 import json
 import csv
+import sys
 from pathlib import Path
 from datetime import datetime
 
-BASE = Path(__file__).resolve().parent
-OUTDIR = BASE / "output"
-OUTDIR.mkdir(exist_ok=True)
+# Fix encoding for Windows console
+if sys.stdout.encoding != 'utf-8':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except:
+        pass
 
-# Tạo folder theo ngày (crawl_14_01_26)
-TODAY = datetime.now().strftime("%d_%m_%y")
-CRAWL_DIR = OUTDIR / f"crawl_{TODAY}"
-CRAWL_DIR.mkdir(exist_ok=True)
+BASE = Path(__file__).resolve().parent
+# New structure: read from data/crawl_YYYYMMDD/raw/, write merged to data/crawl_YYYYMMDD/raw/
+TODAY = datetime.now().strftime("%Y%m%d")
+CRAWL_DIR = BASE.parent / "data" / f"crawl_{TODAY}"
+RAW_DIR = CRAWL_DIR / "raw"
+OUTDIR = RAW_DIR  # Output merged file to same location
+
+# Ensure output directory exists
+OUTDIR.mkdir(parents=True, exist_ok=True)
+
+print(f"[MERGE] Reading crawled files from: {RAW_DIR}")
+print(f"[MERGE] Output directory: {OUTDIR}")
 
 def load_json_file(p):
     try:
@@ -49,14 +61,23 @@ def main():
     items = []
     seen = set()
 
-    # Scan tất cả files trong OUTDIR (không scan subdirectories)
-    for p in OUTDIR.iterdir():
-        # Skip các folder, chỉ xử lý files trực tiếp trong output
+    # Scan tất cả files trong RAW_DIR (không scan subdirectories)
+    if not RAW_DIR.exists():
+        print(f"[ERROR] Raw directory not found: {RAW_DIR}")
+        return
+    
+    for p in RAW_DIR.iterdir():
+        # Skip các folder, chỉ xử lý files trực tiếp trong raw
         if p.is_dir():
+            continue
+        
+        # Skip merged file
+        if p.name == 'jobs_combined.json':
             continue
             
         name = p.name.lower()
         if p.suffix.lower() == '.json':
+            print(f"[MERGE] Processing: {p.name}")
             data = load_json_file(p)
             if isinstance(data, dict):
                 data = [data]
@@ -68,6 +89,7 @@ def main():
                 items.append(d)
 
         if p.suffix.lower() == '.csv':
+            print(f"[MERGE] Processing: {p.name}")
             data = load_csv_file(p)
             for d in data:
                 key = dedup_key(d)
@@ -76,12 +98,12 @@ def main():
                 seen.add(key)
                 items.append(d)
 
-    # Lưu vào folder theo ngày, chỉ 1 file JSON
-    out_file = CRAWL_DIR / 'jobs_combined.json'
+    # Lưu vào same folder
+    out_file = OUTDIR / 'jobs_combined.json'
     with open(out_file, 'w', encoding='utf-8') as f:
         json.dump(items, f, ensure_ascii=False, indent=2)
 
-    print(f"Merged {len(items)} items -> {out_file}")
+    print(f"[MERGE] [OK] Merged {len(items)} items -> {out_file}")
 
 if __name__ == '__main__':
     main()
