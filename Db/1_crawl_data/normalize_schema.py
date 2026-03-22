@@ -174,7 +174,7 @@ if __name__ == '__main__':
         # Default: use new data/raw directory structure
         TODAY = datetime.now().strftime("%Y%m%d")
         BASE = Path(__file__).resolve().parent
-        RAW_DIR = BASE.parent / "data" / "raw" / f"crawl_{TODAY}"
+        RAW_DIR = BASE.parent / "data" / f"crawl_{TODAY}" / "raw"
         input_file = RAW_DIR / 'jobs_combined.json'
         output_file = RAW_DIR / 'jobs_normalized.json'
     

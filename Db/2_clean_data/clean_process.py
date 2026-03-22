@@ -586,11 +586,14 @@ class DataProcessor:
                     if res.get('min_salary') or res.get('max_salary'):
                         # Remove regex salary if exists
                         self.processed_salaries = [s for s in self.processed_salaries if s['job_temp_id'] != job['temp_id']]
+                        min_salary = res.get('min_salary') if res.get('min_salary') is not None else 0
+                        max_salary = res.get('max_salary') if res.get('max_salary') is not None else 0
+                        med_salary = (min_salary + max_salary) / 2 if max_salary else min_salary
                         self.processed_salaries.append({
                             "job_temp_id": job['temp_id'],
-                            "min_salary": res.get('min_salary'),
-                            "max_salary": res.get('max_salary'),
-                            "med_salary": (res.get('min_salary',0) + res.get('max_salary',0))/2 if res.get('max_salary') else res.get('min_salary'),
+                            "min_salary": min_salary,
+                            "max_salary": max_salary,
+                            "med_salary": med_salary,
                             "currency": res.get('currency', 'VND'),
                             "pay_period": "MONTHLY"
                         })

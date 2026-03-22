@@ -43,8 +43,8 @@ except ImportError:
     JOB_LIMITS = {"itviec": 1, "linkedin": 1, "careerviet": 1, "vietnamworks": 1}
     CRAWLER_TIMEOUT = CLEAN_TIMEOUT = IMPORT_TIMEOUT = 600
 
-# Date-based folder for archival
-RUN_DATE = datetime.now().strftime("%Y%m%d")
+# Date-time-based folder for archival (avoid overwrite)
+RUN_DATE = datetime.now().strftime("%Y%m%d_%H%M%S")
 DATA_FOLDER = BASE_DIR / "data" / f"crawl_{RUN_DATE}"
 RAW_FOLDER = DATA_FOLDER / "raw"
 CLEAN_FOLDER = DATA_FOLDER / "clean"
@@ -206,11 +206,11 @@ def main():
     if step_clean:
         log("STEP 2: CLEAN DATA")
         clean_script = BASE_DIR / "2_clean_data" / "clean_process.py"
-        
+
         # Use normalized input if it exists, otherwise use raw combined output from data/raw
         normalized_file = RAW_FOLDER / "jobs_normalized.json"
         combined_file = RAW_FOLDER / "jobs_combined.json"
-        
+        input_for_clean = ""
         if normalized_file.exists():
             input_for_clean = str(normalized_file)
             log(f"Using normalized input: {normalized_file.name}")
@@ -218,19 +218,37 @@ def main():
             input_for_clean = str(combined_file)
             log(f"Using raw combined input: {combined_file.name}")
         else:
-            log("❌ No input file found for cleaning")
-            clean_ok = False
-            input_for_clean = ""
-        
+            # Tìm file mới nhất trong các folder crawl_*
+            data_dir = BASE_DIR / "data"
+            crawl_folders = [f for f in data_dir.iterdir() if f.is_dir() and f.name.startswith("crawl_")]
+            crawl_folders = sorted(crawl_folders, reverse=True)
+            found = False
+            for folder in crawl_folders:
+                raw_folder = folder / "raw"
+                n_file = raw_folder / "jobs_normalized.json"
+                c_file = raw_folder / "jobs_combined.json"
+                if n_file.exists():
+                    input_for_clean = str(n_file)
+                    log(f"[FALLBACK] Using normalized input: {n_file}")
+                    found = True
+                    break
+                elif c_file.exists():
+                    input_for_clean = str(c_file)
+                    log(f"[FALLBACK] Using raw combined input: {c_file}")
+                    found = True
+                    break
+            if not found:
+                log("❌ No input file found for cleaning in any crawl folder")
+                clean_ok = False
+                input_for_clean = ""
+
         if input_for_clean:
             # Pass input/output paths to clean process
             clean_args = [
                 "--input", input_for_clean,
                 "--output", str(CLEAN_FOLDER / f"clean_data_final_{RUN_DATE}.json")
             ]
-            
             clean_ok = run_step("CLEAN", clean_script, args=clean_args, timeout=CLEAN_TIMEOUT, cwd=BASE_DIR / "2_clean_data")
-            
             if not clean_ok:
                 log("Clean failed")
     else:

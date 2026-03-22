@@ -238,7 +238,7 @@ def import_data(conn, data):
             posted_date = None
         
         jobs_data.append((
-            j['temp_id'], j['company_temp_id'], j['title'], job_category,
+            j['company_temp_id'], j['title'], job_category,
             j.get('description', ''), j.get('requirements', ''), j.get('formatted_experience_level'),
             j.get('formatted_work_type'), j.get('remote_allowed', False), j.get('job_url'),
             j.get('fingerprint'), posted_date
@@ -266,9 +266,9 @@ def import_data(conn, data):
         try:
             extras.execute_values(cur, """
                 INSERT INTO jobs (
-                    job_id, company_id, title, job_category, description, skills_desc, 
+                    company_id, title, job_category, description, skills_desc, 
                     formatted_experience_level, work_type, is_remote, job_posting_url, fingerprint, listed_time
-                ) VALUES %s ON CONFLICT (job_id) DO NOTHING;
+                ) VALUES %s ON CONFLICT (fingerprint) DO NOTHING;
             """, jobs_data)
         except (psycopg2.errors.UniqueViolation, psycopg2.errors.ForeignKeyViolation) as e:
             # If fingerprint or foreign key conflict, try inserting only new jobs
@@ -290,10 +290,14 @@ def import_data(conn, data):
                 if filtered_jobs:
                     extras.execute_values(cur, """
                         INSERT INTO jobs (
-                            job_id, company_id, title, job_category, description, skills_desc, 
+                            company_id, title, job_category, description, skills_desc, 
                             formatted_experience_level, work_type, is_remote, job_posting_url, fingerprint, listed_time
-                        ) VALUES %s ON CONFLICT (job_id) DO NOTHING;
-                    """, filtered_jobs)
+                        ) VALUES %s ON CONFLICT (fingerprint) DO NOTHING;
+                    """, [
+                        (
+                            j[0], j[1], j[2], j[3], j[4], j[5], j[6], j[7], j[8], j[9], j[10]
+                        ) for j in filtered_jobs
+                    ])
             elif 'company_id' in str(e):
                 print(f"[WARN] Bỏ qua jobs có company không tồn tại")
                 # Rollback the failed transaction before continuing
@@ -309,10 +313,14 @@ def import_data(conn, data):
                 if filtered_jobs:
                     extras.execute_values(cur, """
                         INSERT INTO jobs (
-                            job_id, company_id, title, job_category, description, skills_desc, 
+                            company_id, title, job_category, description, skills_desc, 
                             formatted_experience_level, work_type, is_remote, job_posting_url, fingerprint, listed_time
-                        ) VALUES %s ON CONFLICT (job_id) DO NOTHING;
-                    """, filtered_jobs)
+                        ) VALUES %s ON CONFLICT (fingerprint) DO NOTHING;
+                    """, [
+                        (
+                            j[0], j[1], j[2], j[3], j[4], j[5], j[6], j[7], j[8], j[9], j[10]
+                        ) for j in filtered_jobs
+                    ])
             else:
                 raise
         
