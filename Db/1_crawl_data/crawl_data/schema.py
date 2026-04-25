@@ -24,6 +24,7 @@ class RawJobData:
     posted_date: Optional[str] = None
     expiry_date: Optional[str] = None
     scraped_at: Optional[str] = None  # Thời điểm crawler lấy dữ liệu (ISO 8601 format)
+    search_keyword: Optional[str] = None  # Từ khóa tìm kiếm được sử dụng (vd: "software engineer")
     
     # 4. Lists (Mặc định là list rỗng nếu không có)
     tags: List[str] = field(default_factory=list)

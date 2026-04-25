@@ -161,6 +161,61 @@ ALL_SKILLS = [skill for group in SKILL_KEYWORDS.values() for skill in group]
 
 
 # ==============================================================================
+# 2B. SOFT SKILLS (Kỹ năng Mềm)
+# ==============================================================================
+SOFT_SKILLS = {
+    # Language Proficiency
+    "Language_Proficiency": [
+        "english", "english fluency", "english proficiency",
+        "english communication", "english reading", "english writing",
+        "english speaking", "bilingual", "multilingual",
+        "business english", "professional english", "c1 english", "c2 english",
+        "intermediate english", "advanced english", "fluent english"
+    ],
+    
+    # Communication & Interpersonal
+    "Communication": [
+        "communication skills", "verbal communication", "written communication",
+        "presentation skills", "presentation", "public speaking",
+        "negotiation", "interpersonal skills", "people skills",
+        "cross-functional collaboration", "stakeholder communication"
+    ],
+    
+    # Problem Solving & Analytics
+    "Problem_Solving": [
+        "problem-solving", "problem solving", "critical thinking",
+        "analytical thinking", "logical thinking", "troubleshooting",
+        "attention to detail", "analytical skills"
+    ],
+    
+    # Leadership & Teamwork
+    "Leadership_Teamwork": [
+        "teamwork", "team collaboration", "collaboration",
+        "leadership", "self-motivation", "self-driven",
+        "initiative", "responsibility", "ownership",
+        "conflict resolution", "decision making"
+    ],
+    
+    # Soft Competencies
+    "Work_Ethic": [
+        "quick learner", "learning ability", "adaptability", "flexible",
+        "time management", "organizational skills",
+        "professionalism", "reliability", "integrity",
+        "commitment", "passion", "enthusiasm"
+    ],
+    
+    # Agile/Project Management Mindset
+    "Agile_Mindset": [
+        "agile mindset", "agile methodology", "continuous improvement",
+        "iterative thinking", "feedback culture", "growth mindset"
+    ]
+}
+
+# Gộp tất cả soft skills
+ALL_SOFT_SKILLS = [skill for group in SOFT_SKILLS.values() for skill in group]
+
+
+# ==============================================================================
 # 3. JOB BENEFITS (Quyền lợi)
 # ==============================================================================
 BENEFITS_KEYWORDS = {

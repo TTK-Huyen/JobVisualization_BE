@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Scraper for ITViec job listings"
 requires-python = ">=3.8"
 dependencies = [
+    "cloudscraper>=1.2.71",
     "requests>=2.31.0",
     "beautifulsoup4>=4.12.0",
     "pandas>=2.0.0",

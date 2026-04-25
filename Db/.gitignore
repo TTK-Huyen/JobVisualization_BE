@@ -5,5 +5,11 @@
 *.xlsx
 *.log
 
+# Environment variables & secrets
+.env
+.env.local
+.env*.local
+
 # Nếu bạn dùng MacOS thì thêm cái này kẻo rác
 .DS_Store
+/data/

@@ -1,0 +1,78 @@
+# ============================================================================
+# CLEAN PIPELINE CONFIGURATION
+# ============================================================================
+
+# 1️⃣ BATCH SIZE
+batch_size: 60  # Chia cho 30 keys (2 jobs/key)
+
+# 2️⃣ FINGERPRINT STRUCTURE
+fingerprint:
+  fields: [title, company_name, requirements_text]
+  separator: "|"
+  algorithm: "md5"
+
+# 3️⃣ PROMPT: EXTRACTION (Step 2) - Structured JSON only
+prompt_extraction: |
+  Bạn là chuyên gia Tech HR. Đọc toàn bộ nội dung job trong JOB POSTING CONTENT và trả về JSON đúng schema.
+
+  Quy tắc:
+  - title: chỉ lấy tên vị trí tuyển dụng ngắn gọn, tối đa một dòng ngắn. Không được copy cả đoạn job text
+    vào title. Không được chứa company name, địa chỉ, posted date, skills list, job domain, benefits,
+    job description. Nếu không chắc chắn thì trả null.
+  - Fill location, employment_type, experience_raw, company_size_raw, company_industry nếu đọc được
+  - is_it_job = true nếu là job IT / Software / Data / QA / DevOps / Security / Infra / AI
+  - extracted_skills: ưu tiên skills list có sẵn trong text, sau đó bổ sung skill nguyên tử từ requirements /
+    experience / responsibilities. Bỏ trùng, bỏ rác UI/web, giữ skill nghề nghiệp hữu ích cho matching CV.
+    Nếu is_it_job = true và JD kỹ thuật rõ thì cố gắng extract ít nhất 8 skill.
+    Dùng skill_name_eng là bản dịch tiếng Anh ngắn gọn khi cần.
+  - requirements_text luôn là null
+  - Chỉ trả JSON hợp lệ, không markdown, không text ngoài JSON
+
+  {{
+    "title": "<extracted job title or null>",
+    "location": "<extracted location or null>",
+    "employment_type": "<Full-time|Part-time|Contract|Freelance|null>",
+    "experience_raw": "<extracted experience level or null>",
+    "company_size_raw": "<Small|Mid|Large|null>",
+    "company_industry": "<extracted industry or null>",
+    "is_it_job": true,
+    "requirements_text": null,
+    "extracted_skills": [
+      {{
+        "skill_name": "<original skill text>",
+        "skill_name_eng": "<english translation>",
+        "confidence": 0,
+        "is_direct_skill": true
+      }}
+    ]
+  }}
+
+  JOB POSTING CONTENT:
+  {requirements_text}
+
+# 4️⃣ PROMPT: NORMALIZATION (Step 3)
+prompt_normalization: |
+  Quy tắc chuẩn hóa skills:
+  
+  1. FUZZY MATCHING (Threshold: 0.85)
+  - "python" = "Python" = "PYTHON" (không phân biệt case)
+  - "c++" = "C++" (chuẩn hóa format)
+  - "nodejs" = "Node.js" (thêm dấu)
+  
+  2. TRANSLATION (VN → EN)
+  - "lập trình viên" → "Developer"
+  - "đa luồng" → "Multithreading"
+  - "tối ưu database" → "Database Optimization"
+  
+  3. CANONICAL MAPPING
+  - "django web framework" → "Django"
+  - "java programming language" → "Java"
+  - "database sql" → "SQL"
+  
+  4. BENEFIT TRANSLATION
+  - "Laptop" → "Laptop"
+  - "Chế độ bảo hiểm" → "Health Insurance"
+  - "Du lịch" → "Travel"
+  - "Phụ cấp" → "Allowance"
+
+

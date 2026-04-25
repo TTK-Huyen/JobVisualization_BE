@@ -13,14 +13,17 @@ if sys.stdout.encoding != 'utf-8':
         pass
 
 BASE = Path(__file__).resolve().parent
-# New structure: read from data/crawl_YYYYMMDD/raw/, write merged to data/crawl_YYYYMMDD/raw/
-TODAY = datetime.now().strftime("%Y%m%d")
-CRAWL_DIR = BASE.parent / "data" / f"crawl_{TODAY}"
+# Use RUN_DATE from env (set by pipeline) or fallback to current time
+TODAY_WITH_TIME = os.environ.get("RUN_DATE", datetime.now().strftime("%Y%m%d_%H%M%S"))
+CRAWL_DIR = BASE.parent / "data" / f"crawl_{TODAY_WITH_TIME}"
 RAW_DIR = CRAWL_DIR / "raw"
+FALLBACK_DIR = CRAWL_DIR / "fallback"
+SCHEMA_FILE = BASE.parent / "crawl_schema.json"
 OUTDIR = RAW_DIR  # Output merged file to same location
 
 # Ensure output directory exists
 OUTDIR.mkdir(parents=True, exist_ok=True)
+FALLBACK_DIR.mkdir(parents=True, exist_ok=True)
 
 print(f"[MERGE] Reading crawled files from: {RAW_DIR}")
 print(f"[MERGE] Output directory: {OUTDIR}")
@@ -57,9 +60,63 @@ def dedup_key(d: dict) -> str:
     return f"sig::{title}|{comp}|{loc}"
 
 
+def load_schema_fields() -> tuple[list[str], list[str]]:
+    try:
+        with open(SCHEMA_FILE, 'r', encoding='utf-8') as f:
+            schema = json.load(f)
+    except Exception:
+        schema = {}
+
+    required = list(schema.get('required') or [])
+    optional = list(schema.get('optional') or [])
+    return required, optional
+
+
+def has_description_html(d: dict) -> bool:
+    value = d.get('description_html')
+    return isinstance(value, str) and bool(value.strip())
+
+
+def prefer_record(existing: dict, candidate: dict) -> bool:
+    existing_has_description = has_description_html(existing)
+    candidate_has_description = has_description_html(candidate)
+    return candidate_has_description and not existing_has_description
+
+
+REQUIRED_FIELDS, OPTIONAL_FIELDS = load_schema_fields()
+ALL_SCHEMA_FIELDS = tuple(REQUIRED_FIELDS + OPTIONAL_FIELDS)
+
+
+def missing_required_fields(d: dict) -> list[str]:
+    """Return list of required schema fields that are missing or empty in dict d."""
+    missing = []
+    for field_name in REQUIRED_FIELDS:
+        value = d.get(field_name)
+        if value is None:
+            missing.append(field_name)
+            continue
+        if isinstance(value, str) and not value.strip():
+            missing.append(field_name)
+    return missing
+
+
+def missing_schema_fields(d: dict) -> list[str]:
+    """Backward-compatible: return missing required + optional (used only for diagnostics).
+    Keep this for logging but the routing decision will use only required fields.
+    """
+    missing = []
+    for field_name in ALL_SCHEMA_FIELDS:
+        value = d.get(field_name)
+        if value is None:
+            missing.append(field_name)
+            continue
+        if isinstance(value, str) and not value.strip():
+            missing.append(field_name)
+    return missing
+
+
 def main():
-    items = []
-    seen = set()
+    items_by_key = {}
 
     # Scan tất cả files trong RAW_DIR (không scan subdirectories)
     if not RAW_DIR.exists():
@@ -83,27 +140,57 @@ def main():
                 data = [data]
             for d in data:
                 key = dedup_key(d)
-                if key in seen:
-                    continue
-                seen.add(key)
-                items.append(d)
+                existing = items_by_key.get(key)
+                if existing is None or prefer_record(existing, d):
+                    items_by_key[key] = d
 
         if p.suffix.lower() == '.csv':
             print(f"[MERGE] Processing: {p.name}")
             data = load_csv_file(p)
             for d in data:
                 key = dedup_key(d)
-                if key in seen:
-                    continue
-                seen.add(key)
-                items.append(d)
+                existing = items_by_key.get(key)
+                if existing is None or prefer_record(existing, d):
+                    items_by_key[key] = d
+
+    items = list(items_by_key.values())
+    # Decide routing based on *required* fields only
+    fallback_items = [d for d in items if missing_required_fields(d)]
+    combined_items = [d for d in items if not missing_required_fields(d)]
 
     # Lưu vào same folder
     out_file = OUTDIR / 'jobs_combined.json'
     with open(out_file, 'w', encoding='utf-8') as f:
-        json.dump(items, f, ensure_ascii=False, indent=2)
+        json.dump(combined_items, f, ensure_ascii=False, indent=2)
 
-    print(f"[MERGE] [OK] Merged {len(items)} items -> {out_file}")
+    # Annotate fallback items with a clear reason for routing to fallback
+    for item in fallback_items:
+        # Report only missing required fields as the reason for fallback
+        missing_req = missing_required_fields(item)
+        reason = {
+            "type": "missing_required_fields",
+            "missing_fields": missing_req,
+            "summary": f"missing required: {', '.join(missing_req)}" if missing_req else "unknown"
+        }
+        # Do not overwrite if a reason already exists
+        if 'fallback_reason' not in item and '_fallback_reason' not in item:
+            item['fallback_reason'] = reason
+
+    raw_fallback_file = FALLBACK_DIR / 'raw_fallback.json'
+    with open(raw_fallback_file, 'w', encoding='utf-8') as f:
+        json.dump(fallback_items, f, ensure_ascii=False, indent=2)
+
+    for item in fallback_items:
+        missing_fields = ", ".join(missing_required_fields(item))
+        print(
+            "[MERGE][WARN] Missing schema fields ("
+            f"{missing_fields}): "
+            f"{item.get('title') or item.get('detail_title') or '(no title)'} | "
+            f"{item.get('job_url') or item.get('url') or '(no url)'}"
+        )
+
+    print(f"[MERGE] [OK] Merged {len(combined_items)} items -> {out_file}")
+    print(f"[MERGE] [OK] Routed {len(fallback_items)} raw fallback items -> {raw_fallback_file}")
 
 if __name__ == '__main__':
     main()

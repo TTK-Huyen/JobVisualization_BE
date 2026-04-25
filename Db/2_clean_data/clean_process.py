@@ -1,990 +1,941 @@
+"""
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                        CLEAN PROCESS - MAIN MODULE                            ║
+╠═══════════════════════════════════════════════════════════════════════════════╣
+║ PURPOSE: 3-step pipeline orchestrator                                         ║
+║   STEP 1: Clean HTML/CSS/JS from job descriptions                           ║
+║   STEP 2: Extract sections (requirements, benefits, etc.)                    ║
+║   STEP 3: Normalize technical skills with canonical skills map             ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+"""
+
+import sys
 import json
+import hashlib
+import argparse
+import os
 import re
 import unicodedata
-import os
-import time
-import sys
-import hashlib  # <--- [NEW] Thư viện tạo mã băm (Digital Fingerprint)
-from datetime import datetime
+import html as html_lib
+from collections import Counter
 from pathlib import Path
+import yaml
+from dotenv import load_dotenv
 
-# Fix encoding for Windows console
 if sys.stdout.encoding != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8')
 
-# --- CONFIG ---
-# Từ khóa để phát hiện metadata (Giữ nguyên cấu hình metadata)
-KEYWORDS_CONFIG = {
-    "remote": ["remote", "làm việc từ xa", "hybrid", "work from home", "wfh"],
-    "part_time": ["part-time", "part time", "bán thời gian", "thực tập", "intern"],
-    "contract": ["contract", "hợp đồng", "freelance", "thời vụ"],
-    "level": {
-        "Intern": ["intern", "thực tập", "fresher", "sinh viên"],
-        "Junior": ["junior", "1 năm", "1 year", "1-2 năm", "1-3 năm", "mới tốt nghiệp"],
-        "Senior": ["senior", "lead", "trưởng nhóm", "quản lý", "manager", "3-5", "5+"],
-        "Director": ["director", "giám đốc", "head of", "vp"]
-    }
-}
+DB_ROOT = Path(__file__).parent.parent
+if str(DB_ROOT) not in sys.path:
+    sys.path.insert(0, str(DB_ROOT))
 
-# --- THÊM THƯ VIỆN GOOGLE GEMINI ---
-try:
-    import google.generativeai as genai
-    HAS_GEMINI = True
-except ImportError:
-    HAS_GEMINI = False
-    # Tránh lỗi encoding khi chạy từ subprocess
+# Workspace root (one level above Db/) — fallback folder will live here alongside `clean` and `raw`
+WORKSPACE_ROOT = DB_ROOT.parent
+
+
+def _find_crawl_run_dir(path_like):
+    """Return the crawl run directory under `Db/data/` that contains `path_like`, if any."""
     try:
-        print("WARNING: 'google-generativeai' not installed. Run 'pip install google-generativeai' to use AI features.")
-    except:
-        pass
+        p = Path(path_like).resolve()
+    except Exception:
+        p = Path(path_like)
 
-# --- IMPORT CONSTANTS CỦA BẠN ---
-try:
-    import constants
-    print("Found constants.py! Using standardized skills list.")
-except ImportError:
-    constants = None
-    print("WARNING: constants.py not found. Please place this file in the same directory.")
+    data_root = DB_ROOT / 'data'
+    for ancestor in [p] + list(p.parents):
+        if ancestor.name.startswith('crawl_') and data_root in ancestor.parents:
+            return ancestor
+    return None
 
-# ==============================================================================
-# CẤU HÌNH API KEYS (Hỗ trợ multiple keys và fallback)
-# ==============================================================================
-# ==============================================================================
-# CẤU HÌNH API KEYS & MODEL (Hỗ trợ multiple keys và fallback)
-# ==============================================================================
-def load_env_config():
-    """Load configuration từ .env file"""
-    config = {
-        "api_keys": [],
-        "model": "gemini-2.5-flash-preview-09-2025"
-    }
-    
-    # Try load from .env file first
-    env_file = Path(__file__).parent / ".env"
-    if env_file.exists():
-        try:
-            with open(env_file, 'r', encoding='utf-8') as f:
-                for line in f:
-                    line = line.strip()
-                    if line.startswith("GEMINI_API_KEY_"):
-                        key = line.split('=', 1)[1].strip()
-                        if key and not key.startswith("your_"):
-                            config["api_keys"].append(key)
-                    elif line.startswith("GEMINI_MODEL="):
-                        model = line.split('=', 1)[1].strip()
-                        if model:
-                            config["model"] = model
-        except Exception as e:
-            print(f"⚠️  Warning: Could not read .env file: {e}")
-    
-    # Fallback to environment variables
-    if not config["api_keys"]:
-        env_key = os.environ.get("GEMINI_API_KEY", "")
-        if env_key:
-            config["api_keys"].append(env_key)
-    
-    # Allow environment variable to override model
-    env_model = os.environ.get("GEMINI_MODEL", "")
-    if env_model:
-        config["model"] = env_model
-    
-    return config
+# Load .env for config override
+env_file = Path(__file__).parent.parent / ".env"
+if env_file.exists():
+    load_dotenv(env_file)
+    print(f"[*] Loaded .env from {env_file}")
+else:
+    print(f"[!] .env not found at {env_file}, using defaults")
 
-CONFIG = load_env_config()
-API_KEYS = CONFIG["api_keys"]
-GEMINI_MODEL = CONFIG["model"]
-CURRENT_KEY_INDEX = 0
+print(f"[*] Importing cache_manager...", flush=True)
+from cache_manager import initialize_all_caches, save_all_caches, save_pending_failed_jobs, get_job_fingerprint
+print(f"[*] Importing utilities...", flush=True)
+from clean_job_text import clean_description_html
+from utilities import extract_job_sections, log_error
+print(f"[*] All imports completed!", flush=True)
 
-print(f"🔧 Configuration loaded:")
-print(f"   Model: {GEMINI_MODEL}")
-print(f"   API Keys: {len(API_KEYS)} key(s) available")
 
-def get_current_api_key():
-    """Get current API key to use"""
-    global CURRENT_KEY_INDEX
-    if not API_KEYS:
+# ╔═════════════════════════════════════════════════════════════════════════════╗
+# ║                       INITIALIZE CACHES                                     ║
+# ╚═════════════════════════════════════════════════════════════════════════════╝
+
+print("[*] Initializing caches...")
+CACHES = initialize_all_caches()
+
+
+REQUIREMENTS_START_MARKERS = [
+    "yêu cầu công việc",
+    "yêu cầu ứng viên",
+    "yêu cầu",
+    "your skills and experience",
+    "your skills & experience",
+    "skills & experience",
+    "qualifications",
+    "preferred qualifications",
+    "minimum qualifications",
+    "who you are",
+    "your qualifications and skills",
+    "what we are looking for",
+    "must-have",
+    "nice-to-have",
+    "role responsibilities",
+    "your opportunity",
+    "core responsibilities",
+    "what does it take to succeed?",
+    "requirements",
+    "requirements:",
+]
+
+REQUIREMENTS_END_MARKERS = [
+    "quyền lợi",
+    "phúc lợi",
+    "benefits",
+    "why you'll love working here",
+    "giới thiệu công ty",
+    "thông tin công ty",
+    "company overview",
+    "việc làm đang tuyển",
+    "địa điểm làm việc",
+    "thông tin khác",
+    "application process",
+    "who we are",
+    "about the company",
+    "about the function",
+    "what we offer",
+    "apply today",
+    "equal opportunity employer",
+]
+
+NOISE_MARKERS = [
+    "chi tiết",
+    "tổng quan công ty",
+    "việc làm đang tuyển",
+    "xem thêm",
+    "thu gọn",
+    "địa điểm",
+    "thông tin công ty",
+    "company overview",
+    "job opening",
+    "apply now",
+    "follow",
+    "followers",
+    "seniority level",
+    "employment type",
+    "job function",
+    "industries",
+    "about the company",
+    "company",
+    "style=",
+    "text-decoration",
+    "background-color",
+    "border:",
+    "color:",
+    "display:",
+]
+
+STEP1_PREFIX_NOISE_PATTERNS = [
+    r"^company$",
+    r"^about the company$",
+    r"^seniority level$",
+    r"^employment type$",
+    r"^job function$",
+    r"^industries$",
+    r"^location$",
+    r"^posted(?:\s*[:\-–—].*)?$",
+    r"^followers?$",
+    r"^apply now$",
+    r"^save this job$",
+    r"^top 3 reasons to join us$",
+    r"^báo xấu$",
+    r"^gửi tôi việc làm tương tự$",
+    r"^xem thêm$",
+    r"^thu gọn$",
+]
+
+STEP1_LINKEDIN_HTML_NOISE_PATTERNS = [
+    r"<section[^>]*class=\"[^\"]*linkedin-job-header[^\"]*\"[^>]*>.*?</section>",
+    r"<section[^>]*class=\"[^\"]*linkedin-about-company[^\"]*\"[^>]*>.*?</section>",
+]
+
+CSS_NOISE_PATTERNS = [
+    r"\ba\s*\{[^{}]{0,400}?\}",
+    r"\btr\s+th,\s*tr\s+td\s*\{[^{}]{0,400}?\}",
+    r"\btr\s+th\s*\{[^{}]{0,400}?\}",
+]
+
+
+def _normalize_for_search(text):
+    if not text:
         return ""
-    if CURRENT_KEY_INDEX >= len(API_KEYS):
-        CURRENT_KEY_INDEX = 0
-    return API_KEYS[CURRENT_KEY_INDEX]
+    text = unicodedata.normalize("NFKC", str(text))
+    text = text.replace("\r", "\n")
+    text = re.sub(r"[\t ]+", " ", text)
+    text = re.sub(r"\n+", "\n", text)
+    return text.strip()
 
-def switch_to_next_api_key():
-    """Fallback to next API key when current one is exhausted"""
-    global CURRENT_KEY_INDEX
-    CURRENT_KEY_INDEX += 1
-    if CURRENT_KEY_INDEX >= len(API_KEYS):
-        print(f"❌ All {len(API_KEYS)} API keys exhausted!")
-        CURRENT_KEY_INDEX = 0
-        return False
+
+def _strip_accents(text):
+    if not text:
+        return ""
+    normalized = unicodedata.normalize("NFKD", str(text))
+    return "".join(char for char in normalized if not unicodedata.combining(char))
+
+
+def _normalize_for_fingerprint(text):
+    if not text:
+        return ""
+    text = _strip_accents(_normalize_for_search(text)).lower()
+    text = re.sub(r"[^\w\s]+", " ", text, flags=re.UNICODE)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def _remove_noise_blocks(text):
+    if not text:
+        return ""
+
+    cleaned = text
+    for pattern in CSS_NOISE_PATTERNS:
+        cleaned = re.sub(pattern, " ", cleaned, flags=re.IGNORECASE | re.DOTALL)
+
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned.strip()
+
+
+def _strip_html_tags_to_text(text):
+    if not text:
+        return ""
+
+    cleaned = html_lib.unescape(str(text))
+    for pattern in STEP1_LINKEDIN_HTML_NOISE_PATTERNS:
+        cleaned = re.sub(pattern, " ", cleaned, flags=re.IGNORECASE | re.DOTALL)
+
+    cleaned = re.sub(r"<script[^>]*>.*?</script>", " ", cleaned, flags=re.IGNORECASE | re.DOTALL)
+    cleaned = re.sub(r"<style[^>]*>.*?</style>", " ", cleaned, flags=re.IGNORECASE | re.DOTALL)
+    cleaned = re.sub(r"(?i)<br\s*/?>", "\n", cleaned)
+    cleaned = re.sub(r"(?i)</(?:p|div|li|section|article|header|footer|ul|ol|table|thead|tbody|tr|td|th|h[1-6])\b[^>]*>", "\n", cleaned)
+    cleaned = re.sub(r"(?i)<(?:p|div|li|section|article|header|footer|ul|ol|table|thead|tbody|tr|td|th|h[1-6])\b[^>]*>", "\n", cleaned)
+    cleaned = re.sub(r"<[^>]+>", " ", cleaned)
+    cleaned = unicodedata.normalize("NFKC", cleaned)
+    cleaned = cleaned.replace("\r", "\n")
+    cleaned = re.sub(r"[\t ]+", " ", cleaned)
+    cleaned = re.sub(r"\n{2,}", "\n", cleaned)
+    return cleaned.strip()
+
+
+def _is_step1_prefix_noise(line, title_hint="", company_hint=""):
+    if not line:
+        return True
+
+    normalized = _strip_accents(re.sub(r"\s+", " ", str(line))).lower().strip()
+    if not normalized:
+        return True
+
+    if title_hint:
+        title_normalized = _strip_accents(_normalize_for_search(title_hint)).lower().strip()
+        if title_normalized and normalized == title_normalized:
+            return True
+
+    if company_hint:
+        company_normalized = _strip_accents(_normalize_for_search(company_hint)).lower().strip()
+        if company_normalized and normalized == company_normalized:
+            return True
+
+    for pattern in STEP1_PREFIX_NOISE_PATTERNS:
+        if re.fullmatch(pattern, normalized, flags=re.IGNORECASE):
+            return True
+
+    if "|" in normalized and any(token in normalized for token in ("ago", "applicant", "seniority", "employment", "job function", "industr")):
+        return True
+
+    if any(token in normalized for token in ("seniority level", "employment type", "job function", "industries")):
+        return True
+
+    if any(token in normalized for token in ("company overview", "about the company", "job criteria", "top 3 reasons", "follow us")):
+        return True
+
+    return False
+
+
+def _prepare_step1_text(raw_html, title_hint="", company_hint=""):
+    cleaned_text = _strip_html_tags_to_text(raw_html)
+    if not cleaned_text:
+        return ""
+
+    lines = []
+    for line in cleaned_text.splitlines():
+        line = re.sub(r"\s+", " ", line).strip()
+        if not line:
+            continue
+        if not lines and _is_step1_prefix_noise(line, title_hint=title_hint, company_hint=company_hint):
+            continue
+        lines.append(line)
+
+    if not lines:
+        return ""
+
+    cleaned = "\n".join(lines)
+    cleaned = _remove_noise_blocks(cleaned)
+    return cleaned.strip()
+
+
+def _is_nearly_empty_text(text):
+    if not text:
+        return True
+
+    normalized = _normalize_for_fingerprint(text)
+    if not normalized:
+        return True
+
+    return len(normalized) < 12
+
+
+def _looks_like_careerviet_noise(text):
+    if not text:
+        return True
+
+    normalized = _normalize_for_fingerprint(text)
+    if not normalized:
+        return True
+
+    noise_phrases = [
+        "giói thiệu về công ty",
+        "giới thiệu về công ty",
+        "thông điệp từ",
+        "việc làm đang tuyển",
+        "followers",
+        "website",
+        "quy mô công ty",
+        "loại hình hoạt động",
+        "xem thêm",
+        "thu gọn",
+        "báo xấu",
+        "gửi tôi việc làm tương tự",
+    ]
+    noise_hits = sum(1 for phrase in noise_phrases if phrase in normalized)
+    if noise_hits >= 2:
+        return True
+
+    jd_markers = [
+        "yêu cầu",
+        "requirements",
+        "qualifications",
+        "responsibilities",
+        "must-have",
+        "nice-to-have",
+        "role responsibilities",
+        "what we are looking for",
+        "core responsibilities",
+    ]
+    has_jd_marker = any(marker in normalized for marker in jd_markers)
+    if not has_jd_marker and noise_hits >= 1:
+        return True
+
+    return False
+
+
+def _compute_fingerprint(job, requirements_text):
+    title_norm = _normalize_for_fingerprint(job.get('title'))
+    company_norm = _normalize_for_fingerprint(job.get('company_name'))
+    requirements_norm = _normalize_for_fingerprint(requirements_text)
+
+    if _is_nearly_empty_text(title_norm) and _is_nearly_empty_text(company_norm) and _is_nearly_empty_text(requirements_norm):
+        fallback_source = "|".join([
+            _normalize_for_fingerprint(job.get('source_name')),
+            _normalize_for_fingerprint(job.get('job_source_id')),
+            _normalize_for_fingerprint(job.get('job_url')),
+        ])
+        if not fallback_source.strip("|"):
+            fallback_source = f"{job.get('source_name') or ''}|{job.get('job_source_id') or ''}|{job.get('job_url') or ''}"
+        return _stable_hash([fallback_source])
+
+    return _stable_hash([title_norm, company_norm, requirements_norm])
+
+
+def _stable_hash(parts):
+    joined = "|".join(parts)
+    return hashlib.md5(joined.encode("utf-8")).hexdigest()
+
+
+def _find_best_marker_position(text, markers):
+    candidates = []
+    text_lower = text.lower()
+    text_ascii = _strip_accents(text_lower)
+
+    for marker in markers:
+        marker_lower = marker.lower()
+        marker_ascii = _strip_accents(marker_lower)
+
+        idx = text_lower.find(marker_lower)
+        if idx != -1:
+            candidates.append((idx, marker_lower))
+
+        idx_ascii = text_ascii.find(marker_ascii)
+        if idx_ascii != -1:
+            candidates.append((idx_ascii, marker_ascii))
+
+    if not candidates:
+        return None, None
+
+    candidates.sort(key=lambda item: (item[0], -len(item[1])))
+    return candidates[0]
+
+
+def _extract_requirements_segment(cleaned_text):
+    normalized_text = _remove_noise_blocks(_normalize_for_search(cleaned_text))
+    if not normalized_text:
+        return "", "fallback_empty_after_extract"
+
+    start_pos, start_marker = _find_best_marker_position(normalized_text, REQUIREMENTS_START_MARKERS)
+    if start_pos is None:
+        return normalized_text, "fallback_no_start_marker"
+
+    text_tail = normalized_text[start_pos + len(start_marker):]
+    if not text_tail.strip():
+        return normalized_text, "fallback_empty_after_extract"
+
+    end_candidates = []
+    tail_lower = text_tail.lower()
+    tail_ascii = _strip_accents(tail_lower)
+    for marker in REQUIREMENTS_END_MARKERS:
+        marker_lower = marker.lower()
+        marker_ascii = _strip_accents(marker_lower)
+
+        idx = tail_lower.find(marker_lower)
+        if idx != -1:
+            end_candidates.append(idx)
+
+        idx_ascii = tail_ascii.find(marker_ascii)
+        if idx_ascii != -1:
+            end_candidates.append(idx_ascii)
+
+    if end_candidates:
+        end_pos = min(end_candidates)
+        extracted = text_tail[:end_pos].strip(" -:\n\t")
+        if not extracted:
+            return normalized_text, "fallback_empty_after_extract"
+
+        alnum_count = sum(1 for char in extracted if char.isalnum())
+        alnum_ratio = alnum_count / max(1, len(extracted))
+        noise_hits = sum(1 for marker in NOISE_MARKERS if marker in extracted.lower())
+        if len(extracted) < 60 or noise_hits >= 3 or alnum_ratio < 0.35:
+            return normalized_text, "fallback_noise_too_high"
+
+        return extracted, "regex_matched"
+
+    extracted = text_tail.strip(" -:\n\t")
+    if not extracted:
+        return normalized_text, "fallback_empty_after_extract"
+
+    alnum_count = sum(1 for char in extracted if char.isalnum())
+    alnum_ratio = alnum_count / max(1, len(extracted))
+    noise_hits = sum(1 for marker in NOISE_MARKERS if marker in extracted.lower())
+    if len(extracted) < 120 or noise_hits >= 3 or alnum_ratio < 0.30:
+        return normalized_text, "fallback_noise_too_high"
+
+    return extracted, "regex_matched_to_end"
+
+
+# ╔═════════════════════════════════════════════════════════════════════════════╗
+# ║                     STEP 1: CLEAN HTML                                      ║
+# ╚═════════════════════════════════════════════════════════════════════════════╝
+
+def _resolve_run_root(output_file):
+    output_path = Path(output_file)
+    if output_path.parent.name in ("logs", "clean", "fallback") and output_path.parent.parent:
+        return output_path.parent.parent
+    return output_path.parent
+
+
+def step_1_clean_html(input_file, output_file="clean/pending_llm.json"):
+    """Clean HTML/CSS/JavaScript from job descriptions."""
+    print(f"\n{'='*80}")
+    print("STEP 1: CLEAN HTML FROM TEXT")
+    print(f"{'='*80}")
     
-    next_key = get_current_api_key()
-    print(f"🔄 Switching to API key #{CURRENT_KEY_INDEX + 1}")
-    return True
-
-GEMINI_API_KEY = get_current_api_key()
-
-class DataProcessor:
-    def __init__(self):
-        self.companies_map = {} 
-        self.skills_map = {}
-        self.industries_map = {} 
-        
-        self.processed_jobs = []
-        self.processed_salaries = []
-        self.processed_job_skills = []
-        self.processed_job_benefits = [] 
-        self.processed_job_industries = [] 
-        
-        # [NEW] Set chứa các chữ ký (fingerprints) để kiểm tra trùng lặp
-        self.seen_signatures = set()
-        self.duplicate_count = 0
-        
-        # Token usage tracking
-        self.total_input_tokens = 0
-        self.total_output_tokens = 0
-        self.api_calls_count = 0
-
-        # Load keywords từ file constants.py của bạn
-        self.skill_keywords = constants.SKILL_KEYWORDS if constants else {}
-        self.job_categories = constants.JOB_CATEGORIES if constants and hasattr(constants, 'JOB_CATEGORIES') else {}
-        self.benefits_keywords = constants.BENEFITS_KEYWORDS if constants and hasattr(constants, 'BENEFITS_KEYWORDS') else {}
-        self.vn_to_en_benefits = constants.VIETNAMESE_TO_ENGLISH_BENEFITS if constants and hasattr(constants, 'VIETNAMESE_TO_ENGLISH_BENEFITS') else {}
-        
-        # Flatten all skills list từ constants để dùng cho validation
-        self.ALL_SKILLS = [skill for group in self.skill_keywords.values() for skill in group] if self.skill_keywords else []
-        
-        # [NEW] Valid categories từ constants - strict validation
-        self.VALID_CATEGORIES = set(self.job_categories.keys()) if self.job_categories else set()
-        if "Other" in self.VALID_CATEGORIES:
-            self.VALID_CATEGORIES.discard("Other")  # Remove "Other" - chỉ dùng khi thực sự cần
-        
-        print(f"📋 Valid job categories from constants: {sorted(self.VALID_CATEGORIES)}")
-        
-        # Cấu hình AI
-        self.use_ai = False
-        self.current_api_key = GEMINI_API_KEY
-        
-        if HAS_GEMINI and API_KEYS:
-            try:
-                genai.configure(api_key=self.current_api_key)
-                self.model = genai.GenerativeModel(GEMINI_MODEL, 
-                                                  generation_config={"response_mime_type": "application/json"})
-                self.use_ai = True
-                self.job_buffer = [] 
-                self.BATCH_SIZE = 10 
-                print(f"✅ AI Mode: ACTIVATED")
-                print(f"   Model: {GEMINI_MODEL}")
-                print(f"   API Keys: #{CURRENT_KEY_INDEX + 1}/{len(API_KEYS)}")
-            except Exception as e:
-                print(f"❌ AI initialization failed: {e}")
-                print("Falling back to Regex Mode")
-        else:
-            if not HAS_GEMINI:
-                print("⚠️  google-generativeai not installed")
-            elif not API_KEYS:
-                print("⚠️  No Gemini API keys found in .env")
-            print("📋 Regex Mode: ACTIVATED")
-
-    # --------------------------------------------------------------------------
-    # HELPER FUNCTIONS (REGEX & CLEANING)
-    # --------------------------------------------------------------------------
-    def clean_text_regex(self, text):
-        if not text: return ""
-        clean = re.sub(r'<[^>]+>', ' ', str(text)) # Bỏ HTML
-        clean = re.sub(r'[\r\n]+', '\n', clean)    # Chuẩn hóa xuống dòng
-        return re.sub(r'\s+', ' ', clean).strip()
-
-    def slugify(self, text):
-        if not text: return ""
-        text = text.lower().replace("c++", "cpp").replace("c#", "c-sharp").replace(".net", "dot-net")
-        text = unicodedata.normalize('NFKD', text).encode('ascii', 'ignore').decode('utf-8')
-        text = re.sub(r'[^\w\s-]', '', text)
-        return re.sub(r'[-\s]+', '-', text).strip('-')
-
-    def parse_salary_regex(self, salary_str):
-        if not salary_str: return None, None, None, 'VND', 'MONTHLY'
-        salary_str = salary_str.lower().replace(',', '')
-        currency = 'USD' if '$' in salary_str or 'usd' in salary_str else 'VND'
-        # Default pay period
-        pay_period = 'MONTHLY' 
-        
-        multiplier = 1_000_000 if any(x in salary_str for x in ['tr', 'triệu', 'million']) else 1
-        numbers = [float(n) for n in re.findall(r'\d+(?:\.\d+)?', salary_str)]
-        
-        min_s, max_s, med_s = 0, 0, 0
-        
-        if not numbers: return None, None, None, 'VND', 'MONTHLY'
-        
-        if len(numbers) == 1:
-            val = numbers[0] * multiplier
-            if 'up to' in salary_str or 'tới' in salary_str: max_s = val
-            elif 'from' in salary_str or 'từ' in salary_str: min_s = val
-            else: min_s = max_s = med_s = val
-        elif len(numbers) >= 2:
-            min_s = numbers[0] * multiplier
-            max_s = numbers[1] * multiplier
-            med_s = (min_s + max_s) / 2
-
-        return min_s, max_s, med_s, currency, pay_period
-
-    def extract_metadata(self, title, desc, exp_str):
-        """Suy luận các trường còn thiếu từ text"""
-        full_text = (title + " " + desc + " " + str(exp_str)).lower()
-        
-        # 1. Remote Allowed
-        is_remote = any(k in full_text for k in KEYWORDS_CONFIG["remote"])
-        
-        # 2. Work Type
-        work_type = "Full-time"
-        if any(k in full_text for k in KEYWORDS_CONFIG["part_time"]):
-            work_type = "Part-time"
-        elif any(k in full_text for k in KEYWORDS_CONFIG["contract"]):
-            work_type = "Contract"
-            
-        # 3. Experience Level
-        level = "Associate" # Default
-        for lvl_name, keys in KEYWORDS_CONFIG["level"].items():
-            if any(k in full_text for k in keys):
-                level = lvl_name
-                break
-                
-        return is_remote, work_type, level
-
-    def extract_benefits_list(self, benefit_text):
-        """Tách chuỗi benefits thành list và chuẩn hóa theo BENEFITS_KEYWORDS
-        Ưu tiên map Vietnamese -> English canonical forms
-        CHỈ CHẤP NHẬN benefits có trong danh sách constants, không bổ sung thêm
-        """
-        if not benefit_text: return []
-        
-        # Tách dựa trên các ký tự đầu dòng phổ biến hoặc dấu phẩy/chấm phẩy
-        splitters = r'[\n•\-\+;]|\s{2,}'
-        raw_items = re.split(splitters, benefit_text)
-        clean_items = [item.strip().lower() for item in raw_items if len(item.strip()) > 3]
-        
-        # Chuẩn hóa benefits theo keywords (so khớp theo từ/cụm, tránh match bên trong "laptop" -> "pto")
-        normalized_benefits = []
-        for item in clean_items:
-            matched = False
-            
-            # Step 1: Check Vietnamese-to-English mapping first
-            if self.vn_to_en_benefits:
-                for vn_keyword, en_canonical in self.vn_to_en_benefits.items():
-                    pattern = r"\b" + re.escape(vn_keyword.lower()) + r"\b"
-                    if re.search(pattern, item):
-                        normalized_benefits.append(en_canonical)
-                        matched = True
-                        break
-            
-            # Step 2: Check English benefits keywords
-            if not matched and self.benefits_keywords:
-                for category, keywords in self.benefits_keywords.items():
-                    for keyword in keywords:
-                        pattern = r"\b" + re.escape(keyword.lower()) + r"\b"
-                        if re.search(pattern, item):
-                            normalized_benefits.append(keyword)
-                            matched = True
-                            break
-                    if matched:
-                        break
-
-            # Step 3: Nếu không match -> BỎ QUA (không giữ lại)
-            # Chỉ chấp nhận benefits có trong constants.BENEFITS_KEYWORDS
-
-        return list(set(normalized_benefits))  # Loại bỏ duplicate
-
-    def normalize_benefit_items(self, items):
-        """Chuẩn hóa list benefits (đầu vào là list đã tách) theo BENEFITS_KEYWORDS
-        Ưu tiên map Vietnamese -> English canonical forms
-        """
-        if not items: return []
-        normalized = []
-        for raw in items:
-            item = str(raw).strip().lower()
-            if not item:
-                continue
-            matched = False
-            
-            # Step 1: Check Vietnamese-to-English mapping first
-            if self.vn_to_en_benefits:
-                for vn_keyword, en_canonical in self.vn_to_en_benefits.items():
-                    pattern = r"\b" + re.escape(vn_keyword.lower()) + r"\b"
-                    if re.search(pattern, item):
-                        normalized.append(en_canonical)
-                        matched = True
-                        break
-            
-            # Step 2: Check English benefits keywords
-            if not matched and self.benefits_keywords:
-                for category, keywords in self.benefits_keywords.items():
-                    for keyword in keywords:
-                        pattern = r"\b" + re.escape(keyword.lower()) + r"\b"
-                        if re.search(pattern, item):
-                            normalized.append(keyword)
-                            matched = True
-                            break
-                    if matched:
-                        break
-            
-            # Step 3: If no match, keep original (truncated)
-            if not matched:
-                normalized.append(item[:100])
-        
-        return list(set(normalized))
+    # Check if use LLM cleaning
+    use_llm = os.getenv("CLEAN_USE_LLM", "false").lower() in ("true", "1", "yes")
+    print(f"[*] Mode: {'LLM + Regex' if use_llm else 'Regex only'}")
     
-    def validate_category(self, category):
-        """
-        [NEW] Strict validation - chỉ chấp nhận categories từ constants
-        Nếu category không hợp lệ, trả về None để reprocess
-        """
-        if category in self.VALID_CATEGORIES:
-            return category
-        
-        # "Other" chỉ được phép nếu thực sự không match
-        if category == "Other" and "Other" in self.job_categories:
-            return "Other"
-        
-        # Invalid category - trả về None
-        return None
-    
-    def extract_category_regex(self, title, description="", requirements=""):
-        """
-        Phân loại job dựa trên title, description, requirements
-        Sử dụng keyword matching với fallback thông minh
-        """
-        if not self.job_categories or not title:
-            return "Other"
-        
-        title_lower = title.lower()
-        full_text = f"{title} {description} {requirements}".lower()
-        
-        # Bản đồ keyword thêm để phát hiện category
-        category_keywords_map = {
-            "Software/Web/Mobile": [
-                "engineer", "developer", "programmer", "backend", "frontend", "full stack",
-                "web", "mobile", "android", "ios", "react", "vue", "angular", "spring",
-                "nodejs", "python dev", "java dev", "php dev", "golang", "ruby", ".net",
-                "qa", "test", "tester", "automation", "tech lead", "principal", "architect",
-                "video editor", "graphics", "ux", "ui designer", "game", "unity", "unreal"
-            ],
-            "Data/AI": [
-                "data analyst", "analyst", "data engineer", "bi ", "business intelligence",
-                "data scientist", "scientist", "machine learning", "ml ", "ai ", "ai engineer",
-                "nlp", "computer vision", "deep learning", "neural", "tensorflow", "pytorch",
-                "mlops", "applied scientist", "abap", "sap", "statistics", "bigdata"
-            ],
-            "DevOps/Cloud/Infra": [
-                "devops", "sre", "site reliability", "cloud", "aws", "azure", "gcp",
-                "kubernetes", "docker", "terraform", "infrastructure", "platform engineer",
-                "system admin", "linux", "network", "database admin", "dba", "system engineer"
-            ],
-            "Security": [
-                "security", "cybersecurity", "soc", "penetration", "pentest", "hacker",
-                "devsecops", "iam", "compliance", "incident", "audit"
-            ],
-            "Product/Design": [
-                "product manager", "product owner", "scrum master", "designer", "ux", "ui",
-                "product designer", "design", "sales", "manager", "director", "supervisor"
-            ]
-        }
-        
-        # Điểm số cho mỗi category
-        category_scores = {cat: 0 for cat in self.job_categories.keys()}
-        
-        # Tính điểm dựa trên keyword matching
-        for category, keywords in category_keywords_map.items():
-            for kw in keywords:
-                # Kiểm tra trong title (điểm cao hơn)
-                if kw.lower() in title_lower:
-                    category_scores[category] += 3
-                # Kiểm tra trong full text
-                elif kw.lower() in full_text:
-                    category_scores[category] += 1
-        
-        # Cũng kiểm tra chính xác từ constant keywords
-        for category, keywords in self.job_categories.items():
-            if not keywords:  # Skip empty categories like "Other"
-                continue
-            for kw in keywords:
-                if kw.lower() in title_lower:
-                    category_scores[category] += 5  # Ưu tiên cao nhất
-        
-        # Tìm category có điểm cao nhất
-        best_category = max(category_scores, key=category_scores.get)
-        best_score = category_scores[best_category]
-        
-        # Nếu có match với score > 0, return nó
-        if best_score > 0:
-            return best_category
-        
-        # Nếu không có match nào, kiểm tra từ tiếp theo
-        # VD: "Technical Manager" → check "Manager" → "Product/Design"
-        if best_score == 0:
-            # Thử tìm từ cuối cùng trong title
-            words = title_lower.split()
-            for word in reversed(words):
-                if len(word) > 3:  # Bỏ qua từ quá ngắn
-                    for category, keywords in self.job_categories.items():
-                        if keywords and any(word in kw.lower() for kw in keywords):
-                            return category
-        
-        # Last resort: nếu có từ "engineer", "developer", "specialist" → Software
-        if any(word in title_lower for word in ["engineer", "developer", "programmer", "specialist"]):
-            return "Software/Web/Mobile"
-        
-        # Fallback: "Other" chỉ khi thực sự không match
-        return "Other"
-
-    def extract_skills_regex(self, full_text):
-        """Quét text để tìm skills dựa trên constants.SKILL_KEYWORDS"""
-        found_skills = set()
-        text_lower = full_text.lower()
-        
-        if not self.skill_keywords:
+    try:
+        # Load input JSON safely; if unreadable, move to fallback and continue
+        with open(input_file, 'r', encoding='utf-8') as f:
+            raw_text = f.read()
+        try:
+            jobs = json.loads(raw_text)
+        except json.JSONDecodeError as e:
+            from datetime import datetime
+            # Prefer crawl run folder under Db/data (e.g., Db/data/crawl_.../fallback)
+            crawl_dir = _find_crawl_run_dir(input_file)
+            if crawl_dir:
+                fallback_dir = crawl_dir / 'fallback'
+            else:
+                fallback_dir = DB_ROOT / 'data' / 'fallback'
+            fallback_dir.mkdir(parents=True, exist_ok=True)
+            # Use fixed fallback filename per step (crawl run folder provides isolation)
+            fallback_name = "clean_fallback.json"
+            fallback_path = fallback_dir / fallback_name
+            with open(fallback_path, 'w', encoding='utf-8') as bf:
+                bf.write(raw_text)
+            log_error(f"STEP 1: unreadable JSON moved to fallback: {fallback_path} ({str(e)})")
+            # Return empty list so pipeline can continue without halting
             return []
+        
+        if not isinstance(jobs, list):
+            jobs = [jobs]
+        
+        print(f"[*] Loaded {len(jobs)} jobs")
+        
+        # Initialize LLM cleaner if enabled
+        llm_cleaner = None
+        if use_llm:
+            print("[*] Initializing LLM cleaner...")
+            from skill_extraction_llm import SkillExtractor
+            llm_cleaner = SkillExtractor()
+        
+        cleaned_jobs = []
+        non_empty_clean_count = 0
+        for job in jobs:
+            cleaned_job = dict(job)
+            raw_text = cleaned_job.get('description_html') or ''
+            cleaned_text = clean_description_html(str(raw_text))
 
-        for category, skills in self.skill_keywords.items():
-            for skill in skills:
-                # Dùng regex \b để tìm chính xác từ (tránh tìm 'java' trong 'javascript')
-                pattern = r'\b' + re.escape(skill.lower()) + r'\b'
-                
-                # Xử lý ngoại lệ cho C++, C#, .NET
-                if skill.lower() in ['c++', 'c#', '.net']:
-                    if skill.lower() in text_lower:
-                        found_skills.add((skill, category))
-                else:
-                    if re.search(pattern, text_lower):
-                        found_skills.add((skill, category))
-        
-        return list(found_skills)
+            cleaned_job['requirements_text'] = cleaned_text
+            cleaned_jobs.append(cleaned_job)
 
-    def process_industry(self, job_temp_id, industry_str):
-        """Xử lý ngành nghề"""
-        if not industry_str: return
-        # Tách nhiều ngành nghề (VD: "IT Software; Education")
-        inds = [i.strip() for i in re.split(r'[;,]', industry_str) if i.strip()]
-        
-        for ind_name in inds:
-            slug = self.slugify(ind_name)
-            if slug not in self.industries_map:
-                self.industries_map[slug] = {
-                    "temp_id": len(self.industries_map) + 1,
-                    "industry_name": ind_name
-                }
-            
-            # Link Job -> Industry
-            self.processed_job_industries.append({
-                "job_temp_id": job_temp_id,
-                "industry_temp_id": self.industries_map[slug]["temp_id"]
-            })
+            if cleaned_text:
+                non_empty_clean_count += 1
 
-    # --------------------------------------------------------------------------
-    # AI LOGIC
-    # --------------------------------------------------------------------------
-    def process_batch_with_gemini(self):
-        if not self.job_buffer: return
+            if len(cleaned_jobs) == 1:
+                print(f"\n[*] First job cleaning:")
+                print(f"   Raw size: {len(str(raw_text)):,} chars")
+                print(f"   Cleaned size: {len(cleaned_text):,} chars")
+                if raw_text:
+                    print(f"   Reduction: {(1 - len(cleaned_text)/len(str(raw_text)))*100:.1f}%")
+        
+        # Save output
+        Path(output_file).parent.mkdir(parents=True, exist_ok=True)
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(cleaned_jobs, f, ensure_ascii=False, indent=2)
 
-        # Tạo danh sách skill, category, benefit gợi ý để AI tham khảo
-        skills_context = ""
-        category_context = ""
-        benefits_context = ""
-        if self.skill_keywords:
-            skills_context = "STANDARD SKILLS LIST: " + json.dumps(self.skill_keywords)
-        if self.job_categories:
-            category_context = "STANDARD JOB CATEGORIES: " + json.dumps(list(self.job_categories.keys()))
-        if self.benefits_keywords:
-            flat_benefits = sorted({kw for kws in self.benefits_keywords.values() for kw in kws})
-            benefits_context = "STANDARD BENEFITS KEYWORDS: " + json.dumps(flat_benefits)
+        print(f"\n[+] STEP 1 Complete!")
+        print(f"   Output: {output_file}")
+        print(f"   Jobs: {len(cleaned_jobs)}")
+        print(f"   Cleaned text present: {non_empty_clean_count}")
+        
+        return cleaned_jobs
+        
+    except Exception as e:
+        log_error(f"STEP 1 failed: {str(e)}")
+        raise
 
-        prompt = f"""
-        You are a Tech HR Expert. Analyze job data to normalize & extract info.
-        
-        {skills_context}
-        {category_context}
-        {benefits_context}
-        
-        INSTRUCTIONS:
-        1. **SKILLS:** Extract specific TECH SKILLS from the 'requirements'. Map them to the STANDARD SKILLS LIST keys (e.g., 'aws') if applicable.
-        2. **CATEGORY:** Classify the job into ONE of the STANDARD JOB CATEGORIES based on the Title and Description. If none fit, use "Other".
-        3. **CLEANING:** Clean Salary, Experience Level, Work Type, Remote status.
-        4. **BENEFITS NORMALIZATION (CRITICAL):**
-           - Extract ALL benefits from 'requirements' and 'benefits_str' fields
-           - Map EACH benefit to the closest match in STANDARD BENEFITS KEYWORDS (exact match preferred)
-           - If a benefit phrase contains multiple standard benefits, split them into separate items
-           - For Vietnamese benefits, translate to English and map to standard keywords
-           - Only output benefits that exist in the STANDARD BENEFITS KEYWORDS list
-           - Examples:
-             * "chế độ bảo hiểm" → "health insurance"
-             * "13th month salary + performance bonus" → ["13th month salary", "performance bonus"]
-             * "laptop, health insurance, training" → ["company laptop", "health insurance", "training budget"]
-           - DO NOT output: fragments, metadata, or non-benefit text
-           - DO NOT keep original text if it doesn't match standard benefits
 
-        INPUT JSON: {{raw_data}}
-        
-        OUTPUT JSON SCHEMA (Array):
-        [
-            {{
-                "original_id": 1,
-                "clean_title": "AI Engineer",
-                "job_category": "Data/AI", 
-                "min_salary": 1000, "max_salary": 2000, "currency": "USD",
-                "extracted_skills": ["python", "aws", "tensorflow", "agile"], 
-                "benefits_list": ["health insurance", "13th month salary", "company laptop", "training budget"],
-                "experience_level": "Senior",
-                "work_type": "Full-time",
-                "is_remote": true
-            }}
-        ]
-        """
-        mini_batch = []
-        for j in self.job_buffer:
-            # Ưu tiên lấy desc_yeucau (requirements) để phân tích skills
-            req_text = j.get('requirements', '')
-            desc_text = j.get('description', '')
-            ben_text = j.get('raw_benefits', '')
-            
-            # Nếu requirements quá ngắn, gộp thêm description
-            analyze_text = req_text if len(req_text) > 50 else (req_text + "\n" + desc_text)
+# ╔═════════════════════════════════════════════════════════════════════════════╗
+# ║                   STEP 2: EXTRACT SECTIONS                                  ║
+# ╚═════════════════════════════════════════════════════════════════════════════╝
 
-            mini_batch.append({
-                "original_id": j['temp_id'],
-                "title": j['title'],
-                "salary_str": j.get('raw_salary', ''),
-                "requirements": analyze_text[:1500], # Cắt ngắn để tiết kiệm token
-                "benefits_str": ben_text[:800],  # Thêm benefits để AI phân tích
-                "description_snippet": desc_text[:500]  # Thêm snippet description để AI có context
-            })
-            
-        try:
-            response = self.model.generate_content(prompt.replace("{raw_data}", json.dumps(mini_batch)))
-            
-            # Track token usage
-            if hasattr(response, 'usage_metadata'):
-                input_tokens = response.usage_metadata.prompt_token_count
-                output_tokens = response.usage_metadata.candidates_token_count
-                self.total_input_tokens += input_tokens
-                self.total_output_tokens += output_tokens
-                self.api_calls_count += 1
-                print(f"   📊 Tokens: Input={input_tokens}, Output={output_tokens}, Total={input_tokens + output_tokens}")
-            
-            ai_results = json.loads(response.text)
-            result_map = {item['original_id']: item for item in ai_results}
-            
-            for job in self.processed_jobs:
-                if job['temp_id'] in result_map:
-                    res = result_map[job['temp_id']]
-                    
-                    # Update fields
-                    job['title'] = res.get('clean_title', job['title'])
-                    job['job_category'] = res.get('job_category', job['job_category']) # Cập nhật Category từ AI
-                    job['formatted_experience_level'] = res.get('experience_level', job['formatted_experience_level'])
-                    job['formatted_work_type'] = res.get('work_type', job['formatted_work_type'])
-                    job['remote_allowed'] = res.get('is_remote', job['remote_allowed'])
-                    
-                    # Salary Update
-                    if res.get('min_salary') or res.get('max_salary'):
-                        # Remove regex salary if exists
-                        self.processed_salaries = [s for s in self.processed_salaries if s['job_temp_id'] != job['temp_id']]
-                        min_salary = res.get('min_salary') if res.get('min_salary') is not None else 0
-                        max_salary = res.get('max_salary') if res.get('max_salary') is not None else 0
-                        med_salary = (min_salary + max_salary) / 2 if max_salary else min_salary
-                        self.processed_salaries.append({
-                            "job_temp_id": job['temp_id'],
-                            "min_salary": min_salary,
-                            "max_salary": max_salary,
-                            "med_salary": med_salary,
-                            "currency": res.get('currency', 'VND'),
-                            "pay_period": "MONTHLY"
-                        })
-
-                    # Benefits List Update
-                    if res.get('benefits_list'):
-                        normalized_benefits = self.normalize_benefit_items(res.get('benefits_list'))
-                        if normalized_benefits:
-                            self.processed_job_benefits = [b for b in self.processed_job_benefits if b['job_temp_id'] != job['temp_id']]
-                            for ben in normalized_benefits:
-                                self.processed_job_benefits.append({
-                                    "job_temp_id": job['temp_id'],
-                                    "benefit_name": ben,
-                                    "is_inferred": True
-                                })
-                    
-                    # --- AI SKILL EXTRACTION & MAPPING ---
-                    if res.get('extracted_skills'):
-                        ai_skills = res.get('extracted_skills', [])
-                        existing_skill_ids = {s['skill_temp_id'] for s in self.processed_job_skills if s['job_temp_id'] == job['temp_id']}
-                        
-                        # CHỈ CHẤP NHẬN skills có trong SKILL_KEYWORDS từ constants
-                        # Lọc ra những skills không hợp lệ - BỎ QUA hoàn toàn
-                        valid_skills = []
-                        for skill_name in ai_skills:
-                            # Kiểm tra xem skill có trong ALL_SKILLS (từ constants) hay không
-                            if skill_name.lower() in [s.lower() for s in self.ALL_SKILLS]:
-                                valid_skills.append(skill_name)
-                            # else: Bỏ qua skill không hợp lệ, không thêm vào database
-                        
-                        for skill_name in valid_skills:
-                            slug = self.slugify(skill_name)
-                            if slug not in self.skills_map:
-                                self.skills_map[slug] = {
-                                    "temp_id": len(self.skills_map) + 1,
-                                    "skill_name": skill_name, 
-                                    "category": "Methodology"  # Dùng category hợp lệ từ constants
-                                }
-                            skill_id = self.skills_map[slug]["temp_id"]
-                            if skill_id not in existing_skill_ids:
-                                self.processed_job_skills.append({
-                                    "job_temp_id": job['temp_id'],
-                                    "skill_temp_id": skill_id,
-                                    "is_inferred": True
-                                })
-                                existing_skill_ids.add(skill_id)
-
-            print(f"   ✨ AI cleaned batch of {len(mini_batch)} jobs.")
-            time.sleep(1) 
-
-        except Exception as e:
-            error_msg = str(e)
-            
-            # Check if quota exceeded error
-            if "quota" in error_msg.lower() or "rate_limit" in error_msg.lower() or "resource_exhausted" in error_msg.lower():
-                print(f"   ⚠️  Current API key quota exceeded: {e}")
-                
-                # Try to switch to next API key
-                if switch_to_next_api_key():
-                    print(f"   🔄 Retrying with new API key...")
-                    try:
-                        genai.configure(api_key=API_KEYS[CURRENT_KEY_INDEX])
-                        self.model = genai.GenerativeModel(GEMINI_MODEL, 
-                                                          generation_config={"response_mime_type": "application/json"})
-                        # Retry the batch
-                        response = self.model.generate_content(prompt.replace("{raw_data}", json.dumps(mini_batch)))
-                        ai_results = json.loads(response.text)
-                        result_map = {item['original_id']: item for item in ai_results}
-                        print(f"   ✅ Retry successful with new API key!")
-                        # Continue processing...
-                    except Exception as retry_error:
-                        print(f"   ❌ Retry also failed: {retry_error}. Keeping Regex values.")
-                else:
-                    print(f"   ❌ No more API keys available. Keeping Regex values.")
-            else:
-                print(f"   ❌ AI Error: {e}. Keeping Regex values.")
-
-        self.job_buffer = []
-
-    # --------------------------------------------------------------------------
-    # MAIN PROCESSING
-    # --------------------------------------------------------------------------
-    def process_file(self, file_path: Path):
-        print(f"Reading: {file_path.name}") 
-        try:
-            content = file_path.read_text(encoding='utf-8')
-            data = json.loads(content)
-            if isinstance(data, dict): data = [data]
-            
-            for raw_job in data:
-                self.transform_job(raw_job)
-            
-            if self.use_ai and len(self.job_buffer) >= self.BATCH_SIZE:
-                self.process_batch_with_gemini()
-                
-        except Exception as e:
-            try:
-                print(f"❌ Error {file_path.name}: {e}")
-            except UnicodeEncodeError:
-                print(f"Error processing {file_path.name}: {str(e)}")
-
-    def transform_job(self, raw_job):
-        title_raw = raw_job.get('title', '')
-        if not title_raw: return
-        
-        # === PHASE 1: CLEAN & NORMALIZE (strip HTML, unify fields, fingerprint) ===
-        # Map fields từ các scrapers khác nhau
-        company_raw = (raw_job.get('company_name') or 
-                      raw_job.get('company_name_full') or 
-                      raw_job.get('company', 'Unknown'))
-        
-        # Description có thể từ nhiều nguồn -> remove HTML tags
-        desc_html = (raw_job.get('description_html') or 
-                    raw_job.get('desc_mota') or 
-                    raw_job.get('description', ''))
-        clean_desc = self.clean_text_regex(desc_html)
-        
-        # Requirements
-        req_text = (raw_job.get('requirements_text') or 
-                   raw_job.get('desc_yeucau') or 
-                   raw_job.get('requirements', ''))
-        clean_req = self.clean_text_regex(req_text)
-        if not clean_req and clean_desc:
-            clean_req = clean_desc  # fallback khi crawler không có requirements riêng
-        
-        # Benefits
-        ben_text = ''
-        if raw_job.get('benefits'):
-            if isinstance(raw_job['benefits'], list):
-                ben_text = ' '.join(raw_job['benefits'])
-            else:
-                ben_text = str(raw_job['benefits'])
-        if not ben_text:
-            ben_text = raw_job.get('desc_quyenloi', '')
-        clean_ben = self.clean_text_regex(ben_text)
-        
-        # --- [IMPROVED] DUPLICATION CHECK (MD5 CONTENT HASH) ---
-        # Thay vì chỉ dựa vào Title + Company (dễ trùng nếu tuyển nhiều vị trí giống tên)
-        # Chúng ta dùng thêm Nội dung mô tả (Description) để tạo Fingerprint.
-        
-        # Tạo chuỗi duy nhất: Tên công ty + Tiêu đề + mô tả
-        signature_source = f"{self.slugify(company_raw)}_{self.slugify(title_raw)}_{clean_desc[:500]}"
-        
-        # Tạo mã băm MD5 (nhanh và ngắn gọn)
-        job_hash = hashlib.md5(signature_source.encode('utf-8')).hexdigest()
-        
-        if job_hash in self.seen_signatures:
-            self.duplicate_count += 1
-            # Bỏ qua job này, không xử lý tiếp
-            return
-            
-        self.seen_signatures.add(job_hash)
-        # ---------------------------------------------
-
-        # --- 1. Company ---
-        company_name = self.clean_text_regex(company_raw)
-        if company_name not in self.companies_map:
-            self.companies_map[company_name] = {
-                "temp_id": len(self.companies_map) + 1,
-                "name": company_name,
-                "website": raw_job.get('company_website', ''),
-                "size": raw_job.get('company_size_raw') or raw_job.get('company_size', ''),
-                "address": raw_job.get('company_address', ''),
-                "industry_raw": raw_job.get('company_industry', ''),
-                # [NEW] Preserve source ID
-                "source_id": raw_job.get('company_source_id', '')
-            }
-        
-        comp_obj = self.companies_map[company_name]
-        
-        # --- 2. Metadata Inference ---
-        exp_raw = raw_job.get('experience_raw') or raw_job.get('exp_list', '')
-        is_remote, work_type, level = self.extract_metadata(title_raw, clean_desc, exp_raw)
-        
-        # [NEW] Phân loại Job Category bằng Regex + Smart matching
-        job_category = self.extract_category_regex(title_raw, clean_desc, clean_req)
-        
-        # [NEW] Validate category - chỉ chấp nhận categories từ constants
-        validated_category = self.validate_category(job_category)
-        if validated_category is None:
-            # Invalid category - force reassign with smarter logic
-            print(f"⚠️  Invalid category '{job_category}' for '{title_raw[:50]}' - reassigning...")
-            # Reassign: mặc định là Software/Web/Mobile nếu có từ "engineer"/"developer"
-            if any(word in title_raw.lower() for word in ["engineer", "developer", "programmer"]):
-                job_category = "Software/Web/Mobile"
-            else:
-                # Kiểm tra nội dung
-                full_check_text = f"{title_raw} {clean_desc} {clean_req}".lower()
-                if any(word in full_check_text for word in ["data", "ai", "ml", "analyst", "science"]):
-                    job_category = "Data/AI"
-                elif any(word in full_check_text for word in ["devops", "cloud", "infra", "kubernetes", "docker"]):
-                    job_category = "DevOps/Cloud/Infra"
-                elif any(word in full_check_text for word in ["security", "secure", "cyber"]):
-                    job_category = "Security"
-                elif any(word in full_check_text for word in ["product", "design", "manager", "ux", "ui"]):
-                    job_category = "Product/Design"
-                else:
-                    # Last resort: Software/Web/Mobile as catch-all
-                    job_category = "Software/Web/Mobile"
-        else:
-            job_category = validated_category
-        
-        # --- 3. Job Object (Full Fields) ---
-        job_temp_id = len(self.processed_jobs) + 1
-        job_obj = {
-            "temp_id": job_temp_id,
-            "company_temp_id": comp_obj["temp_id"],
-            "title": title_raw,
-            "job_category": job_category, 
-            "fingerprint": job_hash,
-            "job_url": raw_job.get('job_url', ''),
-            "description": clean_desc,
-            "requirements": clean_req,
-            "benefits_raw": clean_ben, 
-            "formatted_work_type": work_type,
-            "formatted_experience_level": level,
-            "remote_allowed": is_remote,
-            "views": 0,
-            "applies": 0,
-            "posted_date": raw_job.get('posted_date') or datetime.now().strftime("%Y-%m-%d"),
-            # [NEW] Preserve source attributes
-            "source_name": raw_job.get('source_name', 'unknown'),
-            "job_source_id": raw_job.get('job_source_id', ''),
-            "employment_type": raw_job.get('employment_type', ''),
-            "experience_raw": raw_job.get('experience_raw', ''),
-            "scraped_at": raw_job.get('scraped_at', datetime.now().isoformat()),
-        }
-        self.processed_jobs.append(job_obj)
-
-        # --- 4. Salaries ---
-        salary_str = raw_job.get('salary_raw') or raw_job.get('salary_list') or raw_job.get('detail_salary')
-        min_s, max_s, med_s, curr, period = self.parse_salary_regex(salary_str)
-        if min_s or max_s:
-            self.processed_salaries.append({
-                "job_temp_id": job_temp_id,
-                "min_salary": min_s, "max_salary": max_s, "med_salary": med_s,
-                "currency": curr, "pay_period": period
-            })
-
-        # --- 5. Benefits List ---
-        ben_list = self.extract_benefits_list(clean_ben)
-        for ben in ben_list:
-            self.processed_job_benefits.append({
-                "job_temp_id": job_temp_id,
-                "benefit_name": ben,
-                "is_inferred": False
-            })
-
-        # --- 6. Skills ---
-        full_text = f"{title_raw} {clean_desc} {clean_req} {raw_job.get('tags', '')}"
-        extracted = self.extract_skills_regex(full_text)
-        
-        # Handle tags (can be string or list)
-        tags = raw_job.get('tags')
-        if tags:
-            if isinstance(tags, str):
-                # String format: split by semicolon
-                extracted.extend([(t.strip(), 'Other') for t in tags.split(';') if t.strip()])
-            elif isinstance(tags, list):
-                # List format: use directly
-                extracted.extend([(t.strip(), 'Other') for t in tags if t and str(t).strip()])
-
-        for name, cat in extracted:
-            slug = self.slugify(name)
-            if slug not in self.skills_map:
-                self.skills_map[slug] = {
-                    "temp_id": len(self.skills_map) + 1,
-                    "skill_name": name, 
-                    "category": cat
-                }
-            self.processed_job_skills.append({
-                "job_temp_id": job_temp_id,
-                "skill_temp_id": self.skills_map[slug]["temp_id"],
-                "is_inferred": False
-            })
-        
-        # --- 7. Industries ---
-        self.process_industry(job_temp_id, comp_obj.get('industry_raw'))
-        
-        # === PHASE 2: OPTIONAL AI ENRICHMENT (Gemini) ===
-        # Đẩy vào buffer để Gemini phân tích & chuẩn hóa thêm (skills/benefits/category...)
-        if self.use_ai:
-            self.job_buffer.append({
-                "temp_id": job_temp_id,
-                "title": title_raw,
-                "description": clean_desc,
-                "requirements": clean_req,
-                "raw_salary": raw_job.get('salary_list') or raw_job.get('detail_salary') or raw_job.get('salary_raw'),
-                "raw_exp": raw_job.get('experience_raw') or raw_job.get('exp_list'),
-                "raw_benefits": clean_ben
-            })
-
-    def export_data(self, output_file='clean_data_full.json'):
-        if self.use_ai and self.job_buffer:
-            self.process_batch_with_gemini()
-
-        # [NEW] Validate all categories before export
-        invalid_categories = []
-        for job in self.processed_jobs:
-            cat = job.get('job_category')
-            if cat not in self.VALID_CATEGORIES and cat != "Other":
-                invalid_categories.append((job.get('temp_id'), job.get('title'), cat))
-        
-        if invalid_categories:
-            print(f"\n⚠️  VALIDATION ERROR: {len(invalid_categories)} jobs with invalid categories!")
-            print("Valid categories:", sorted(self.VALID_CATEGORIES))
-            for job_id, title, cat in invalid_categories[:5]:
-                print(f"  Job {job_id} ({title[:50]}): {cat}")
-            raise ValueError(f"Cannot export data with invalid categories")
-
-        final_data = {
-            "metadata": {
-                "total_jobs": len(self.processed_jobs), 
-                "timestamp": str(datetime.now()),
-                "duplicates_removed": self.duplicate_count,  # Thống kê số lượng bị trùng
-                "ai_usage": {
-                    "enabled": self.use_ai,
-                    "api_calls": self.api_calls_count,
-                    "total_input_tokens": self.total_input_tokens,
-                    "total_output_tokens": self.total_output_tokens,
-                    "total_tokens": self.total_input_tokens + self.total_output_tokens,
-                    "avg_tokens_per_job": round((self.total_input_tokens + self.total_output_tokens) / len(self.processed_jobs), 2) if self.processed_jobs else 0
-                }
-            },
-            "companies": list(self.companies_map.values()),
-            "skills_master": list(self.skills_map.values()),
-            "industries": list(self.industries_map.values()),
-            "jobs": self.processed_jobs,
-            "salaries": self.processed_salaries,
-            "job_benefits": self.processed_job_benefits,
-            "job_industries": self.processed_job_industries,
-            "job_skills": self.processed_job_skills 
-        }
-        Path(output_file).write_text(json.dumps(final_data, ensure_ascii=False, indent=2), encoding='utf-8')
-        print(f"\nSUCCESS: Data Exported to {output_file} | Jobs: {len(self.processed_jobs)} | Duplicates Removed: {self.duplicate_count}")
-        
-        if self.use_ai:
-            total_tokens = self.total_input_tokens + self.total_output_tokens
-            
-            # Tính toán token còn lại
-            daily_quota = 15_000_000  # 15M tokens/day free quota
-            tokens_remaining = max(0, daily_quota - total_tokens)
-            avg_tokens_per_job = round(total_tokens / len(self.processed_jobs), 2) if self.processed_jobs else 0
-            jobs_can_process = int(tokens_remaining / avg_tokens_per_job) if avg_tokens_per_job > 0 else 0
-            
-            print(f"\n📊 TOKEN USAGE:")
-            print(f"   Đã dùng: {total_tokens:,} tokens")
-            print(f"   Trung bình/job: {avg_tokens_per_job:,.0f} tokens")
-            print(f"   Còn lại hôm nay: {tokens_remaining:,} tokens")
-            print(f"   Có thể xử lý thêm: {jobs_can_process:,} jobs")
-
-# --- MAIN ---
-if __name__ == "__main__":
-    import argparse
+def step_2_extract_sections(input_file, output_file="clean/extracted.json"):
+    """Extract sections from cleaned text + extract skills via LLM (SEQUENTIAL)."""
+    print(f"\n{'='*80}")
+    print("STEP 2: EXTRACT JOB SECTIONS & SKILLS (SEQUENTIAL)")
+    print(f"{'='*80}")
     
-    parser = argparse.ArgumentParser(description='Clean job data from crawl output')
-    parser.add_argument('--input', type=str, help='Input JSON file or folder path')
-    parser.add_argument('--output', type=str, help='Output JSON file path')
+    try:
+        # Load config - Priority: .env > clean_config.yaml
+        batch_size = int(os.getenv("ETL_CLEAN_BATCH_SIZE", "0"))
+        
+        if batch_size == 0:
+            # Fallback to clean_config.yaml
+            config_path = Path(__file__).parent / "clean_config.yaml"
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+            batch_size = config.get('batch_size', 60)
+            print(f"[*] batch_size from clean_config.yaml: {batch_size}")
+        else:
+            print(f"[*] batch_size from .env (ETL_CLEAN_BATCH_SIZE): {batch_size}")
+        
+        # Load input JSON safely; if unreadable, move to fallback and continue
+        with open(input_file, 'r', encoding='utf-8') as f:
+            raw_text = f.read()
+        try:
+            jobs = json.loads(raw_text)
+        except json.JSONDecodeError as e:
+            from datetime import datetime
+            # Prefer crawl run folder under Db/data (e.g., Db/data/crawl_.../fallback)
+            crawl_dir = _find_crawl_run_dir(input_file)
+            if crawl_dir:
+                fallback_dir = crawl_dir / 'fallback'
+            else:
+                fallback_dir = DB_ROOT / 'data' / 'fallback'
+            fallback_dir.mkdir(parents=True, exist_ok=True)
+            # Use fixed fallback filename per step (crawl run folder provides isolation)
+            fallback_name = "extract_fallback.json"
+            fallback_path = fallback_dir / fallback_name
+            with open(fallback_path, 'w', encoding='utf-8') as bf:
+                bf.write(raw_text)
+            log_error(f"STEP 2: unreadable JSON moved to fallback: {fallback_path} ({str(e)})")
+            # Return empty list so pipeline can continue without halting
+            return []
+        
+        if not isinstance(jobs, list):
+            jobs = [jobs]
+        
+        print(f"[*] Loaded {len(jobs)} jobs")
+        print(f"[*] STEP 2 input file: {input_file}")
+        print(f"[*] STEP 2 output file: {output_file}")
+        print(f"[*] STEP 2 raw job count: {len(jobs)}")
+        
+        use_llm = os.getenv("CLEAN_USE_LLM", "false").lower() in ("true", "1", "yes")
+        if use_llm:
+            # Smart thread allocation: Use actual available keys from SkillExtractor
+            print("[*] Importing SkillExtractor...", flush=True)
+            from skill_extraction_llm import SkillExtractor, init_api_counter
+
+            print("[*] Initializing API call counter...", flush=True)
+            init_api_counter()
+
+            from skill_extraction_llm import load_all_api_keys
+            available_keys, key_numbers = load_all_api_keys()
+            num_available_keys = len(available_keys)
+
+            # Show which keys are loaded
+            if key_numbers and key_numbers[0] != 0:  # Skip if fallback (0)
+                key_summary = ", ".join([f"GEMINI_API_KEY_{k}" for k in key_numbers])
+                print(f"[*] Loaded {num_available_keys} API keys: {key_summary}")
+            else:
+                print(f"[*] Available API keys: {num_available_keys}")
+
+            print(f"[*] Using sequential extraction only (jobs={len(jobs)}, keys={num_available_keys})")
+            sequential_extractor = SkillExtractor()
+        else:
+            num_available_keys = 0
+            sequential_extractor = None
+            print(f"[*] Using regex-only mode (jobs={len(jobs)})")
+        
+        extracted_jobs = []
+        
+        # Process jobs in batches
+        total_batches = (len(jobs) + batch_size - 1) // batch_size
+        
+        for batch_num in range(total_batches):
+            start_idx = batch_num * batch_size
+            end_idx = min(start_idx + batch_size, len(jobs))
+            batch_jobs = jobs[start_idx:end_idx]
+            
+            print(f"\n[BATCH {batch_num+1}/{total_batches}] Processing {len(batch_jobs)} jobs ({start_idx+1}-{end_idx})...")
+            print(f"   [BATCH {batch_num+1}] job titles: {[(job.get('title') or '')[:40] for job in batch_jobs]}")
+            
+            # Step A: Extract sections using regex (for each job individually)
+            print(f"   ├─ SUB-STEP 1: Extracting sections with regex...")
+            for job in batch_jobs:
+                req_text = job.get('requirements_text', '')
+                if req_text:
+                    sections = extract_job_sections(req_text)
+                    job['extracted_sections'] = sections
+                else:
+                    job['extracted_sections'] = {}
+                
+                # Calculate fingerprint from requirements section (canonical)
+                # This ensures same job from different sources (LinkedIn, CareerViet...)
+                # will have same fingerprint despite website-specific text artifacts
+                title = job.get('title') or ''
+                company = job.get('company_name') or ''
+                requirements_only = sections.get('requirements', '') if sections else ''
+                fingerprint_input = f"{title}|{company}|{requirements_only}"
+                job['fingerprint'] = hashlib.md5(fingerprint_input.encode('utf-8')).hexdigest()
+            
+            # Step B: Extract skills SEQUENTIALLY or skip LLM entirely in regex-only mode
+            if use_llm:
+                print(f"   ├─ SUB-STEP 2: Extracting skills SEQUENTIALLY ({len(batch_jobs)} jobs)...")
+            else:
+                print(f"   ├─ SUB-STEP 2: Regex-only mode, skipping Gemini extraction ({len(batch_jobs)} jobs)...")
+            
+            # Prepare batch: use requirements_only from sections (or fallback to full text)
+            batch_for_extraction = []
+            for job in batch_jobs:
+                sections = job.get('extracted_sections', {})
+                requirements_only = sections.get('requirements', '') or job.get('requirements_text', '')
+                
+                # Create a copy for extraction (to avoid modifying original)
+                job_copy = job.copy()
+                job_copy['requirements_text'] = requirements_only  # Sequential extractor reads this field
+                batch_for_extraction.append(job_copy)
+
+            print(f"   ├─ DEBUG: batch_for_extraction size = {len(batch_for_extraction)}")
+            for idx, job in enumerate(batch_for_extraction, 1):
+                req_len = len(job.get('requirements_text', '') or '')
+                print(f"   │  [JOB {idx}] title='{(job.get('title') or '')[:40]}', req_len={req_len}")
+
+            if use_llm and sequential_extractor:
+                # Run sequential extraction with a single extractor
+                skills_results = []
+                for idx, job in enumerate(batch_for_extraction, 1):
+                    req_text = job.get('requirements_text', '')
+                    title = job.get('title') or ''
+                    print(f"   │  [SEQ {idx}/{len(batch_for_extraction)}] title='{title[:40]}' req_len={len(req_text)}")
+                    result = sequential_extractor.extract_skills(req_text, job_id=job.get('fingerprint'))
+                    skills_results.append(result)
+
+                print(f"   └─ ✓ Sequential extraction complete")
+            else:
+                skills_results = [
+                    {
+                        'is_it_job': False,
+                        'extracted_skills': [],
+                        'benefits': [],
+                    }
+                    for _ in batch_for_extraction
+                ]
+                print(f"   └─ ✓ Regex-only output prepared (no LLM calls)")
+
+            # Collect failed jobs so they can be retried on the next run
+            failed_jobs = []
+            for job, skills in zip(batch_for_extraction, skills_results):
+                if isinstance(skills, dict) and skills.get('error'):
+                    failed_job = job.copy()
+                    failed_job['_error'] = skills.get('error')
+                    failed_job['_message'] = skills.get('message', '')
+                    failed_job['_fingerprint'] = job.get('fingerprint') or get_job_fingerprint(job)
+                    failed_jobs.append(failed_job)
+
+            if failed_jobs:
+                print(f"   ⚠️  Saving {len(failed_jobs)} failed jobs for next run")
+                save_pending_failed_jobs(failed_jobs)
+            
+            # Step C: Merge results
+            print(f"   └─ SUB-STEP 3: Merging results...")
+            for job, skills in zip(batch_jobs, skills_results):
+                sections = job.get('extracted_sections', {}) or {}
+                requirements_only = (sections.get('requirements', '') or '').strip()
+                if requirements_only:
+                    job['requirements_text'] = requirements_only
+
+                if isinstance(skills, dict):
+                    # Merge null fields from extraction
+                    if skills.get('title') and not job.get('title'):
+                        job['title'] = skills['title']
+                    if skills.get('location') and not job.get('location_raw'):
+                        job['location_raw'] = skills['location']
+                    if skills.get('employment_type') and not job.get('employment_type'):
+                        job['employment_type'] = skills['employment_type']
+                    if skills.get('experience_raw') and not job.get('experience_raw'):
+                        job['experience_raw'] = skills['experience_raw']
+                    if skills.get('company_size_raw') and not job.get('company_size_raw'):
+                        job['company_size_raw'] = skills['company_size_raw']
+                    if skills.get('company_industry') and not job.get('company_industry'):
+                        job['company_industry'] = skills['company_industry']
+                    
+                    # Add extracted skills
+                    job['extracted_skills'] = skills.get('extracted_skills', [])
+                    job['benefits'] = skills.get('benefits', [])
+                    job['is_it_job'] = skills.get('is_it_job', False)
+                else:
+                    job['extracted_skills'] = skills if isinstance(skills, list) else []
+                    job['benefits'] = []
+                    job['is_it_job'] = len(job.get('extracted_skills', [])) > 0
+                
+                extracted_jobs.append(job)
+        
+        # Save output
+        Path(output_file).parent.mkdir(parents=True, exist_ok=True)
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(extracted_jobs, f, ensure_ascii=False, indent=2)
+        
+        print(f"\n[+] STEP 2 Complete!")
+        print(f"   Output: {output_file} (debug)")
+        print(f"   Jobs: {len(extracted_jobs)}")
+        print(f"   Skills extracted: {sum(len(j.get('extracted_skills', [])) for j in extracted_jobs)}")
+        
+        return extracted_jobs
+        
+    except Exception as e:
+        log_error(f"STEP 2 failed: {str(e)}")
+        raise
+
+
+# ╔═════════════════════════════════════════════════════════════════════════════╗
+# ║                   STEP 3: NORMALIZE SKILLS                                  ║
+# ╚═════════════════════════════════════════════════════════════════════════════╝
+
+def step_3_normalize_skills(input_file, output_file="clean/normalized.json"):
+    """Normalize technical skills + benefits using embedding matcher (cached FAISS)."""
+    # Delegate normalization to the new controller in 2_1_normalized_data
+    from Db.2_1_normalized_data.normalize_controller import run_normalize
+
+    # Determine fallback folder: prefer crawl run folder under Db/data
+    crawl_dir = _find_crawl_run_dir(input_file)
+    if crawl_dir:
+        fallback_dir = crawl_dir / 'fallback'
+    else:
+        fallback_dir = DB_ROOT / 'data' / 'fallback'
+    fallback_dir.mkdir(parents=True, exist_ok=True)
+    fallback_file = fallback_dir / "normalize_fallback.json"
+
+    return run_normalize(input_file, output_file, str(fallback_file))
+
+
+# ╔═════════════════════════════════════════════════════════════════════════════╗
+# ║                    FULL PIPELINE                                            ║
+# ╚═════════════════════════════════════════════════════════════════════════════╝
+
+def run_full_pipeline(input_file, output_file="clean/normalized.json"):
+    """Execute all 3 steps."""
+    try:
+        print("\n" + "█"*80)
+        print("█" + " "*78 + "█")
+        print("█" + "  FULL PIPELINE: 3-STEP JOB CLEANING & NORMALIZATION".center(78) + "█")
+        print("█" + " "*78 + "█")
+        print("█"*80)
+        
+        # STEP 1
+        output_1 = "clean/pending_llm.json"
+        step_1_clean_html(input_file, output_1)
+        
+        # STEP 2
+        output_2 = "clean/extracted.json"
+        step_2_extract_sections(output_1, output_2)
+        
+        # STEP 3 - with fallback if API quota exceeded
+        skip_step3 = os.getenv('SKIP_NORMALIZE', '').lower() == 'true'
+        if not skip_step3:
+            try:
+                step_3_normalize_skills(output_2, output_file)
+            except Exception as e:
+                error_msg = str(e)
+                if "429" in error_msg or "quota" in error_msg.lower() or "daily limit" in error_msg.lower():
+                    print(f"\n⚠️  STEP 3 FALLBACK: API quota exceeded, using STEP 2 output directly")
+                    print(f"    Error: {error_msg[:100]}")
+                    import shutil
+                    from datetime import datetime
+                    try:
+                        with open(output_2, 'r', encoding='utf-8') as sf:
+                            payload = json.load(sf)
+                    except Exception:
+                        # if we can't read JSON, fallback to raw copy
+                        shutil.copy(output_2, output_file)
+                    else:
+                        fallback_obj = {
+                            "_is_fallback": True,
+                            "fallback_reason": "API quota or rate limit detected",
+                            "error_message": error_msg[:100],
+                            "source_step": 2,
+                            "source_file": str(output_2),
+                            "timestamp": datetime.utcnow().isoformat() + "Z",
+                            "data": payload,
+                        }
+                        Path(output_file).parent.mkdir(parents=True, exist_ok=True)
+                        with open(output_file, 'w', encoding='utf-8') as of:
+                            json.dump(fallback_obj, of, ensure_ascii=False, indent=2)
+                else:
+                    raise
+        else:
+            print(f"\n[SKIP] STEP 3 NORMALIZE skipped (SKIP_NORMALIZE=true)")
+            import shutil
+            from datetime import datetime
+            try:
+                with open(output_2, 'r', encoding='utf-8') as sf:
+                    payload = json.load(sf)
+            except Exception:
+                shutil.copy(output_2, output_file)
+                print(f"    Copied {output_2} → {output_file} (raw copy)")
+            else:
+                fallback_obj = {
+                    "_is_fallback": True,
+                    "fallback_reason": "SKIP_NORMALIZE=true",
+                    "source_step": 2,
+                    "source_file": str(output_2),
+                    "timestamp": datetime.utcnow().isoformat() + "Z",
+                    "data": payload,
+                }
+                Path(output_file).parent.mkdir(parents=True, exist_ok=True)
+                with open(output_file, 'w', encoding='utf-8') as of:
+                    json.dump(fallback_obj, of, ensure_ascii=False, indent=2)
+                print(f"    Wrote fallback with metadata {output_file}")
+        
+        print("\n" + "█"*80)
+        print("█" + "[+] PIPELINE COMPLETE!".center(78) + "█")
+        print("█" + f"Final output: {output_file}".center(78) + "█")
+        print("█"*80)
+        
+        # Save caches
+        save_all_caches(CACHES)
+        
+        # Print total API calls for parent process to capture
+        try:
+            from skill_extraction_llm import get_api_call_count
+        except Exception:
+            get_api_call_count = None
+
+        if get_api_call_count:
+            total_api_calls = get_api_call_count()
+            if total_api_calls > 0:
+                print(f"\n[📊] TOTAL API CALLS IN SUBPROCESS: {total_api_calls}")
+        
+    except Exception as e:
+        log_error(f"Pipeline failed: {str(e)}")
+        raise
+
+
+# ╔═════════════════════════════════════════════════════════════════════════════╗
+# ║                         CLI ARGUMENTS                                       ║
+# ╚═════════════════════════════════════════════════════════════════════════════╝
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Job cleaning 3-step pipeline",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python clean_process.py input/test_single_job.json
+  python clean_process.py input/test_single_job.json --step 1
+  python clean_process.py input/test_single_job.json --step 2
+  python clean_process.py input/test_single_job.json --step 3
+  python clean_process.py input/test_single_job.json --output custom_output.json
+  python clean_process.py --input input/test.json --output output.json
+        """
+    )
+    
+    parser.add_argument('input_file', nargs='?', help='Input JSON file (positional or use --input)')
+    parser.add_argument('--input', dest='input_flagged', help='Input JSON file (alternative to positional)')
+    parser.add_argument('--step', type=int, choices=[1, 2, 3], 
+                       help='Run specific step (1=clean, 2=extract, 3=normalize)')
+    parser.add_argument('--output', help='Output file path')
+    parser.add_argument('--debug', type=int, help='Debug job at index')
+    
     args = parser.parse_args()
     
-    processor = DataProcessor()
+    # Support both positional and flag-based input
+    input_file = args.input_flagged or args.input_file
+    if not input_file:
+        print("❌ Error: Input file required (positional or --input flag)")
+        parser.print_help()
+        sys.exit(1)
     
-    current_dir = Path(__file__).parent
-    ignore_patterns = ['package.json', 'package-lock.json', 'clean_data']
+    # Validate input file
+    if not Path(input_file).exists():
+        print(f"❌ Error: Input file not found: {input_file}")
+        sys.exit(1)
     
-    # Nếu có --input argument, dùng nó; nếu không, search trong folder
-    if args.input:
-        input_path = Path(args.input)
-        if input_path.is_file() and input_path.suffix == '.json':
-            processor.process_file(input_path)
-        elif input_path.is_dir():
-            # Scan folder for JSON files
-            json_files = list(input_path.glob("*.json"))
-            for f in json_files:
-                if not any(ig in f.name for ig in ignore_patterns):
-                    processor.process_file(f)
-        else:
-            print(f"❌ Input path không hợp lệ: {input_path}")
-            sys.exit(1)
+    # Execute
+    if args.step == 1:
+        output_file = args.output or "clean/pending_llm.json"
+        step_1_clean_html(input_file, output_file)
+        
+    elif args.step == 2:
+        output_file = args.output or "clean/extracted.json"
+        step_2_extract_sections(input_file, output_file)
+        
+    elif args.step == 3:
+        output_file = args.output or "clean/normalized.json"
+        step_3_normalize_skills(input_file, output_file)
+        
     else:
-        # Default: look for jobs_combined.json in current directory
-        combined_file = current_dir / 'jobs_combined.json'
-        if combined_file.exists():
-            processor.process_file(combined_file)
-        else:
-            print("🔍 Scanning folder recursively...")
-            json_files = list(current_dir.rglob("*.json"))
-            for f in json_files:
-                if not any(ig in f.name for ig in ignore_patterns):
-                    processor.process_file(f)
-    
-    # Nếu có --output argument, dùng nó; nếu không dùng mặc định
-    output_file = args.output if args.output else 'clean_data_final.json'
-    processor.export_data(output_file)
+        output_file = args.output or "clean/normalized.json"
+        run_full_pipeline(input_file, output_file)

@@ -14,6 +14,7 @@ Solution: Create a normalization step before clean_process.py processes the data
 import json
 from pathlib import Path
 import sys
+import os
 
 # Fix encoding for Windows console
 if sys.stdout.encoding != 'utf-8':
@@ -172,9 +173,10 @@ if __name__ == '__main__':
         output_file = sys.argv[2] if len(sys.argv) > 2 else input_file.replace('.json', '_normalized.json')
     else:
         # Default: use new data/raw directory structure
-        TODAY = datetime.now().strftime("%Y%m%d")
+        # Use RUN_DATE from env (set by pipeline) or fallback to current time
+        TODAY_WITH_TIME = os.environ.get("RUN_DATE", datetime.now().strftime("%Y%m%d_%H%M%S"))
         BASE = Path(__file__).resolve().parent
-        RAW_DIR = BASE.parent / "data" / f"crawl_{TODAY}" / "raw"
+        RAW_DIR = BASE.parent / "data" / f"crawl_{TODAY_WITH_TIME}" / "raw"
         input_file = RAW_DIR / 'jobs_combined.json'
         output_file = RAW_DIR / 'jobs_normalized.json'
     

@@ -210,3 +210,23 @@ data-files/test_single_job.json
 
 # JSON files (data, outputs, etc.)
 *.json
+
+# Db module - Crawl results & debug
+/Db/data/crawl_*/
+/Db/debug/
+
+# Matching module - Output & cache
+/Matching/output/
+/Matching/cache/
+/Matching/*.pkl
+
+# WeightLearning module - Models & weights
+/WeightLearning/models/
+/WeightLearning/weights/
+/WeightLearning/*.npy
+
+# Temp & backup files
+temp_*.json
+debug_*.txt
+*.json.bak
+*.model

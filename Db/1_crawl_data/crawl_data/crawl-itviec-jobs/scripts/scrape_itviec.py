@@ -16,6 +16,7 @@ import re
 # Import schema
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 from schema import RawJobData
+from date_filter import describe_date_filter, is_posted_date_allowed, parse_iso_date, parse_relative_time_to_date
 
 # Try to use cloudscraper if available, fallback to requests
 try:
@@ -46,6 +47,33 @@ def get_headers():
         "Sec-Fetch-User": "?1",
         "Cache-Control": "max-age=0"
     }
+def extract_itviec_posted_date(job_soup: BeautifulSoup):
+    for script in job_soup.find_all("script", {"type": "application/ld+json"}):
+        raw = script.string or script.get_text(strip=True)
+        if not raw:
+            continue
+        try:
+            data = json.loads(raw)
+        except Exception:
+            continue
+        if isinstance(data, list):
+            items = data
+        else:
+            items = [data]
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            if item.get("@type") == "JobPosting" and item.get("datePosted"):
+                parsed = parse_iso_date(item.get("datePosted"))
+                if parsed:
+                    return parsed
+
+    posted_elem = job_soup.find("span", string=re.compile(r"Posted\s+\d+\s+\w+\s+ago", re.I))
+    if posted_elem:
+        parsed = parse_relative_time_to_date(posted_elem.get_text(" ", strip=True))
+        if parsed:
+            return parsed
+    return None
 
 # Lấy số trang tối đa
 def get_max_page(keyword, location):
@@ -112,7 +140,7 @@ def get_job_list(keyword, location):
     return job_links
 
 # Lấy chi tiết job từ từng link
-def scrape_job_detail(job_url: str) -> RawJobData:
+def scrape_job_detail(job_url: str) -> RawJobData | None:
     # Initialize default values
     title = None
     description_html = ""
@@ -136,6 +164,20 @@ def scrape_job_detail(job_url: str) -> RawJobData:
         for tag in section.find_all(["button", "script", "style"]):
             tag.decompose()
         return str(section)
+
+    def find_full_job_preview_block(soup):
+        """Return the full preview block that contains header, info, content and employer box."""
+        content_section = soup.select_one("section.job-content, section[data-jobs--jd-scroll-target='jobContent']")
+        if not content_section:
+            return None
+
+        node = content_section
+        while node:
+            classes = node.get("class", [])
+            if node.name == "div" and "row" in classes and "im-0" in classes and "ip-0" in classes:
+                return node
+            node = node.parent if getattr(node, "parent", None) else None
+        return None
 
     def extract_company_from_block(soup):
         """Extract company info from job page employer block. Returns dict with extracted values."""
@@ -211,7 +253,6 @@ def scrape_job_detail(job_url: str) -> RawJobData:
         job_detail = session.get(job_url, headers=get_headers(), timeout=15)
         if job_detail.status_code != 200:
             print(f"[WARN] Failed to fetch job details for {job_url} - Status: {job_detail.status_code}")
-            # Return minimal valid object
             return RawJobData(
                 source_name="itviec",
                 job_url=job_url,
@@ -221,253 +262,120 @@ def scrape_job_detail(job_url: str) -> RawJobData:
             )
 
         job_soup = BeautifulSoup(job_detail.text, "html.parser")
-
-        # Extract job_source_id from URL (slug)
-        job_source_id = job_url.rstrip("/").split("/")[-1]
-
-        # Thông tin job
+        posted_dt = extract_itviec_posted_date(job_soup)
+        if not is_posted_date_allowed(posted_dt):
+            print(f"[SKIP OLD JOB] {job_url} - posted_date={posted_dt}")
+            return None
+        
+        # Extract minimal fields only (match vietnamworks)
         title_elem = job_soup.select_one("div.job-header-info h1")
-        if title_elem:
-            title = title_elem.get_text(strip=True)
+        title = title_elem.get_text(strip=True) if title_elem else "Unknown"
         
-        # Salary
-        salary_elem = job_soup.select_one("div.salary, span.salary, .imy-3")
-        salary_raw = salary_elem.get_text(strip=True) if salary_elem else "Login to view"
-        
-        # Work Location and related info are in span.normal-text sequence
-        location_spans = job_soup.select("span.normal-text")
-        if len(location_spans) >= 2:
-            location_raw = location_spans[1].get_text(strip=True)
-        elif location_spans:
-            location_raw = location_spans[0].get_text(strip=True)
-
-        # Employment type often appears as the third span (e.g., Hybrid/Onsite/Remote)
-        if len(location_spans) >= 3:
-            employment_type = location_spans[2].get_text(strip=True)
-
-        # Posted date sometimes listed after a span with text "Posted" or inside the same span
-        for idx, sp in enumerate(location_spans):
-            text = sp.get_text(" ", strip=True)
-            if "posted" in text.lower():
-                cleaned = text.replace("Posted", "").strip()
-                posted_date = cleaned if cleaned else None
-                if not posted_date and idx + 1 < len(location_spans):
-                    posted_date = location_spans[idx + 1].get_text(" ", strip=True)
-                break
-
-        # Expiry date / closing date if present (skip scripts/styles and very long blobs)
-        expiry_candidates = job_soup.find_all(
-            lambda tag: tag.name in ["span", "div", "p", "li"]
-            and tag.get_text(strip=True)
-            and "expire" in tag.get_text(strip=True).lower()
-        )
-        for cand in expiry_candidates:
-            text = cand.get_text(" ", strip=True)
-            if len(text) > 80:
-                continue
-            match = re.search(r"(?:expire[s]?|closing)[:\-\s]*(.*)", text, re.IGNORECASE)
-            candidate = match.group(1).strip() if match else text
-            if candidate and len(candidate) <= 60:
-                expiry_date = candidate
-                break
-
-        # Skills as tags
-        tags = [a.get_text(strip=True) for a in job_soup.select("div:has(> .fw-600:-soup-contains('Skills')) a")]
-        extract_tags_from_skills_block(job_soup)
-        
-        # Experience
-        exp_elem = job_soup.find("div", string=lambda t: t and "experience" in t.lower() if t else False)
-        if exp_elem:
-            experience_raw = exp_elem.get_text(strip=True)
-
-
-        # Description sections (fallback if old selector not found)
-        desc_sections = job_soup.find_all("div", class_="job-description__item--content")
-        desc_parts = []
-
-        if desc_sections:
-            if len(desc_sections) > 0:
-                desc_parts.append(f"<h3>Job Description</h3>{clean_section_html(desc_sections[0])}")
-            if len(desc_sections) > 1:
-                requirements_text = desc_sections[1].get_text("\n", strip=True)
-                desc_parts.append(f"<h3>Job Requirements</h3>{clean_section_html(desc_sections[1])}")
-            if len(desc_sections) > 2:
-                benefits_text = desc_sections[2].get_text("\n", strip=True)
-                desc_parts.append(f"<h3>Benefits</h3>{clean_section_html(desc_sections[2])}")
-        else:
-            # New layout fallback: use h2/h3 headings
-            section_map = {}
-            for heading in job_soup.find_all(["h2", "h3"]):
-                name = heading.get_text(strip=True).lower()
-                key = None
-                if "job description" in name:
-                    key = "description"
-                elif "skills" in name or "experience" in name:
-                    key = "requirements"
-                elif "love working here" in name or "benefits" in name:
-                    key = "benefits"
-                if not key:
-                    continue
-
-                blocks = []
-                sib = heading.find_next_sibling()
-                while sib and sib.name not in ["h2", "h3"]:
-                    if sib.name in ["button", "script", "style"]:
-                        sib = sib.find_next_sibling()
-                        continue
-                    blocks.append(str(sib))
-                    sib = sib.find_next_sibling()
-                section_map[key] = "\n".join(blocks).strip()
-
-            if "description" in section_map:
-                desc_parts.append(f"<h3>Job Description</h3>{section_map['description']}")
-            if "requirements" in section_map:
-                requirements_text = BeautifulSoup(section_map["requirements"], "html.parser").get_text("\n", strip=True)
-                desc_parts.append(f"<h3>Job Requirements</h3>{section_map['requirements']}")
-            if "benefits" in section_map:
-                benefits_text = BeautifulSoup(section_map["benefits"], "html.parser").get_text("\n", strip=True)
-                desc_parts.append(f"<h3>Benefits</h3>{section_map['benefits']}")
-
-            # Fallback: explicitly grab list under "Your skills and experience"
-            if not requirements_text:
-                req_heading = job_soup.find(lambda tag: tag.name in ["h2", "h3"] and "skills" in tag.get_text(strip=True).lower())
-                if req_heading:
-                    req_list = req_heading.find_next_sibling("ul")
-                    if req_list:
-                        requirements_text = req_list.get_text("\n", strip=True)
-
-        description_html = "\n".join(str(p) for p in desc_parts)
-
-        # Thông tin công ty
+        # Extract company name
         company_name_elem = job_soup.select_one(".employer-name, h2.employer-long-overview__name")
         company_name = company_name_elem.text.strip() if company_name_elem else None
-
-        # Inline company info block on job page - extract before company page scraping
-        emp_info = extract_company_from_block(job_soup)
-        if emp_info["size"]:
-            company_size_raw = emp_info["size"]
-        if emp_info["industry"]:
-            company_industry = emp_info["industry"]
-        if emp_info["address"]:
-            company_address = emp_info["address"]
         
-        extract_industry_from_job_domain(job_soup)
+        # Prefer the full preview block users see on the job page:
+        # header + info strip + job content + employer info box.
+        full_preview_block = find_full_job_preview_block(job_soup)
+
+        # Extract full job content section (main job-content section with all details)
+        job_content_section = job_soup.select_one("section.job-content, section[data-jobs--jd-scroll-target='jobContent']")
+        employer_info_section = job_soup.select_one("section.job-show-employer-info")
         
-        # If address still empty, use location_raw as fallback
-        if not company_address and location_raw:
-            company_address = location_raw
-
-        # Company link: try multiple patterns and match by name if possible
-        company_url = None
-        header_block = job_soup.select_one(".job-header-info")
-        first_part_name = company_name.split("|")[0].strip() if company_name else None
-
-        candidates = []
-        if header_block:
-            candidates.extend(header_block.find_all("a", href=lambda h: h and "/companies/" in h))
-        candidates.extend(job_soup.find_all("a", href=lambda h: h and "/companies/" in h))
-
-        for link in candidates:
-            text = link.get_text(strip=True)
-            if first_part_name and first_part_name.lower() not in text.lower():
-                continue
-            href = link.get("href")
-            if not href:
-                continue
-            company_url = href if href.startswith("http") else f"https://itviec.com{href}"
-            break
-
-        # Fallback: guess company URL from company_name slug if no link found
-        if not company_url and company_name:
-            guessed_slug = slugify(company_name)
-            if guessed_slug:
-                guess_url = f"https://itviec.com/companies/{guessed_slug}"
-                try:
-                    resp_guess = session.get(guess_url, headers=get_headers(), timeout=8)
-                    if resp_guess.status_code == 200:
-                        company_url = guess_url
-                    else:
-                        print(f"[INFO] Guessed company URL {guess_url} returned {resp_guess.status_code}")
-                except Exception:
-                    pass
-
-        # Scrape company page nếu có link
-        if company_url:
-            try:
-                comp_resp = session.get(company_url, headers=get_headers(), timeout=10)
-                if comp_resp.status_code == 200:
-                    comp_soup = BeautifulSoup(comp_resp.text, "html.parser")
+        if full_preview_block:
+            description_html = clean_section_html(full_preview_block)
+        elif job_content_section:
+            # Keep the main job content and append employer info so output matches
+            # the information users see on the ITViec job page.
+            parts = [clean_section_html(job_content_section)]
+            if employer_info_section:
+                parts.append(clean_section_html(employer_info_section))
+            description_html = "\n".join(part for part in parts if part)
+        else:
+            # Fallback: Build description HTML from description sections
+            desc_sections = job_soup.find_all("div", class_="job-description__item--content")
+            desc_parts = []
+            
+            if desc_sections:
+                if len(desc_sections) > 0:
+                    desc_parts.append(f"<h3>Job Description</h3>{clean_section_html(desc_sections[0])}")
+                if len(desc_sections) > 1:
+                    desc_parts.append(f"<h3>Job Requirements</h3>{clean_section_html(desc_sections[1])}")
+                if len(desc_sections) > 2:
+                    desc_parts.append(f"<h3>Benefits</h3>{clean_section_html(desc_sections[2])}")
+            else:
+                # Alternative layout: use h2/h3 headings
+                section_map = {}
+                for heading in job_soup.find_all(["h2", "h3"]):
+                    name = heading.get_text(strip=True).lower()
+                    key = None
+                    if "job description" in name:
+                        key = "description"
+                    elif "skills" in name or "experience" in name:
+                        key = "requirements"
+                    elif "love working here" in name or "benefits" in name:
+                        key = "benefits"
+                    if not key:
+                        continue
                     
-                    website_elem = comp_soup.find("a", {"rel": "nofollow noopener noreferrer"})
-                    company_website = website_elem["href"] if website_elem and website_elem.has_attr("href") else None
-                    
-                    size_elem = comp_soup.find("svg", class_="fi-rr-users-alt")
-                    if not company_size_raw:
-                        company_size_raw = size_elem.parent.parent.text.strip() if size_elem and size_elem.parent and size_elem.parent.parent else None
-                    
-                    industry_elem = comp_soup.find("svg", class_="fi-rr-briefcase")
-                    if not company_industry:
-                        company_industry = industry_elem.parent.parent.text.strip() if industry_elem and industry_elem.parent and industry_elem.parent.parent else None
-                    
-                    address_elem = comp_soup.find("svg", class_="fi-rr-marker")
-                    if not company_address:
-                        company_address = address_elem.parent.parent.text.strip() if address_elem and address_elem.parent and address_elem.parent.parent else None
-            except Exception as e:
-                print(f"[WARN] Failed to scrape company page: {e}")
+                    blocks = []
+                    sib = heading.find_next_sibling()
+                    while sib and sib.name not in ["h2", "h3"]:
+                        if sib.name in ["button", "script", "style"]:
+                            sib = sib.find_next_sibling()
+                            continue
+                        blocks.append(str(sib))
+                        sib = sib.find_next_sibling()
+                    section_map[key] = "\n".join(blocks).strip()
+                
+                if "description" in section_map:
+                    desc_parts.append(f"<h3>Job Description</h3>{section_map['description']}")
+                if "requirements" in section_map:
+                    desc_parts.append(f"<h3>Job Requirements</h3>{section_map['requirements']}")
+                if "benefits" in section_map:
+                    desc_parts.append(f"<h3>Benefits</h3>{section_map['benefits']}")
+            
+            if employer_info_section:
+                desc_parts.append(clean_section_html(employer_info_section))
 
+            description_html = "\n".join(str(p) for p in desc_parts) if desc_parts else ""
+        
         time.sleep(random.uniform(2, 5))
+        
     except Exception as e:
         print(f"[ERROR] scrape_job_detail({job_url}): {e}")
-        # Return minimal valid object on error
         return RawJobData(
             source_name="itviec",
             job_url=job_url,
             job_source_id=job_url.rstrip("/").split("/")[-1],
-            title=title or "Error",
+            title="Error",
             description_html=""
         )
-
-    # Extract company_source_id from company URL
-    company_source_id = None
-    if company_url:
-        company_source_id = company_url.split("/")[-1] if "/" in company_url else None
-
-    # Build benefits list from benefits_text if available
-    benefits = []
-    if benefits_text:
-        # Split by newlines or bullet points
-        raw_benefits = [b.strip() for b in benefits_text.split("\n") if b.strip()]
-        excluded = {"benefits", "cultural values", "equal opportunity"}
-        benefits = []
-        for b in raw_benefits:
-            norm = re.sub(r"[^a-z0-9]+", " ", b.lower()).strip()
-            if norm in excluded or len(norm) <= 2:
-                continue
-            benefits.append(b)
-
-    # Return RawJobData object
+    
+    # Return RawJobData object (minimal - match vietnamworks)
     return RawJobData(
         source_name="itviec",
         job_url=job_url,
-        job_source_id=job_source_id,
-        title=title or "Unknown",
+        job_source_id=job_url.rstrip("/").split("/")[-1],
+        title=title,
         description_html=description_html,
-        location_raw=location_raw,
-        salary_raw=salary_raw,
-        employment_type=employment_type,
-        experience_raw=experience_raw,
-        posted_date=posted_date,
-        expiry_date=expiry_date,
+        location_raw=None,
+        salary_raw=None,
+        employment_type=None,
+        experience_raw=None,
+        posted_date=None,
+        expiry_date=None,
         scraped_at=datetime.now().isoformat(),
-        tags=tags,
-        benefits=benefits,
+        tags=[],
+        benefits=[],
         company_name=company_name,
-        company_source_id=company_source_id,
-        company_website=company_website,
-        company_address=company_address,
-        company_size_raw=company_size_raw,
-        company_industry=company_industry,
-        requirements_text=requirements_text
+        company_source_id=None,
+        company_website=None,
+        company_address=None,
+        company_size_raw=None,
+        company_industry=None,
+        requirements_text=None
     )
 
 # Export functions
@@ -515,8 +423,9 @@ def export_to_excel(data, out_prefix=None):
         out = f"{out_prefix}.xlsx"
     df.to_excel(out, index=False)
 
-def scrape_data(keyword, location, max_jobs=None):
+def scrape_data(keyword, location, max_jobs=None, search_keyword=None):
     print(f"[INFO] Dang crawl danh sach job cho '{keyword}' tai '{location}'...")
+    print(f"[INFO] Date filter mode: {describe_date_filter()}")
     job_links = get_job_list(keyword, location)
     print(f"[INFO] Tim thay {len(job_links)} job. Dang scrape chi tiet...")
 
@@ -528,6 +437,9 @@ def scrape_data(keyword, location, max_jobs=None):
     for i, job_url in enumerate(job_links, 1):
         print(f"[{i}/{len(job_links)}] Scraping {job_url}")
         detail = scrape_job_detail(job_url)
+        if detail is None:
+            continue
+        detail.search_keyword = search_keyword or keyword  # Set search keyword
         jobs_data.append(detail)
 
     return jobs_data

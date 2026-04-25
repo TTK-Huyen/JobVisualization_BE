@@ -38,7 +38,7 @@ DB_CONFIG = {
     "port": os.getenv("PG_PORT", "5432")
 }
 
-JSON_FILE = 'clean_data_final.json'  # Default
+JSON_FILE = 'clean/import_ready.json'  # Default
 SQL_FILE = 'CreateDB.sql'
 
 # Parse command line arguments
@@ -165,7 +165,7 @@ def seed_constants_data(conn):
 
 def load_json_data():
     if not Path(JSON_FILE).exists():
-        print(f"ERROR: JSON file not found: {JSON_FILE}. Run clean_process.py first.")
+        print(f"ERROR: JSON file not found: {JSON_FILE}. Run transform_for_import.py first.")
         return None
     return json.loads(Path(JSON_FILE).read_text(encoding='utf-8'))
 
