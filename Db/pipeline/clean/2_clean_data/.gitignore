@@ -1,0 +1,5 @@
+# Chặn data sạch và data tạm
+output/
+*.json
+*.csv
+__pycache__/

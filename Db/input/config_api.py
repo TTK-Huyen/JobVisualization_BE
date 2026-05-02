@@ -7,11 +7,11 @@ Load từ .env file
 """
 
 import os
-import json
 import re
 from pathlib import Path
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
+import threading
 
 # Load .env
 ENV_FILE = Path(__file__).parent.parent / ".env"
@@ -50,6 +50,7 @@ def _load_api_keys():
                 "status": "active",      # active, cooldown
                 "cooldown_until": None,  # datetime object
                 "error_count": 0,        # Số lần lỗi
+                "last_request": None,    # datetime of last request made with this key
             })
     
     return api_keys
@@ -67,39 +68,53 @@ class KeyRotationManager:
         self.api_keys = api_keys
         self.current_index = int(os.getenv("CURRENT_API_KEY_INDEX", "0"))
         self.cooldown_duration = int(os.getenv("API_KEY_COOLDOWN_MINUTES", "15"))
+        # Minimum interval in seconds between consecutive requests using the same key
+        self.min_interval_seconds = int(os.getenv("API_KEY_MIN_INTERVAL_SECONDS", "15"))
+        self._lock = threading.Lock()
     
     def get_active_key(self, provider="gemini"):
         """Lấy API key hiện tại - tự động skip key cooldown"""
         if provider not in self.api_keys or len(self.api_keys[provider]) == 0:
             return None
-        
         keys = self.api_keys[provider]
         max_attempts = len(keys)
         attempts = 0
-        
-        # Try từng key: skip cooldown keys, lấy key active đầu tiên
-        while attempts < max_attempts:
-            index = self.current_index % len(keys)
-            key_info = keys[index]
-            
-            # Check nếu key in cooldown
-            if key_info["status"] == "cooldown" and key_info["cooldown_until"]:
-                if datetime.now() < key_info["cooldown_until"]:
-                    # Still in cooldown, try next
+
+        now = datetime.now()
+        # Use a lock to prevent race conditions when multiple threads request keys
+        with self._lock:
+            # Try each key in round-robin starting from current_index
+            while attempts < max_attempts:
+                index = self.current_index % len(keys)
+                key_info = keys[index]
+
+                # Skip keys explicitly in cooldown
+                if key_info["status"] == "cooldown" and key_info["cooldown_until"]:
+                    if now < key_info["cooldown_until"]:
+                        self.current_index += 1
+                        attempts += 1
+                        continue
+                    else:
+                        # Cooldown expired
+                        key_info["status"] = "active"
+                        key_info["cooldown_until"] = None
+                        key_info["error_count"] = 0
+
+                # Enforce minimum interval between uses of the same key
+                last_req = key_info.get("last_request")
+                if last_req and (now - last_req).total_seconds() < self.min_interval_seconds:
+                    # Too recent, try next key
                     self.current_index += 1
                     attempts += 1
                     continue
-                else:
-                    # Cooldown expired, reactivate
-                    key_info["status"] = "active"
-                    key_info["cooldown_until"] = None
-                    key_info["error_count"] = 0
-            
-            # Return active key
-            return key_info["value"]
-        
-        # Nếu tất cả keys in cooldown, return key đầu tiên (sẽ fail)
-        return keys[0]["value"]
+
+                # Mark this key as used now
+                key_info["last_request"] = now
+                # Return active key value
+                return key_info["value"]
+
+            # If no key satisfies the min-interval/cooldown, return None to signal no key available
+            return None
     
     def on_quota_error(self, provider="gemini"):
         """Gọi khi API trả về error quota/rate-limit"""
@@ -113,6 +128,8 @@ class KeyRotationManager:
         current_key["status"] = "cooldown"
         current_key["error_count"] += 1
         current_key["cooldown_until"] = datetime.now() + timedelta(minutes=self.cooldown_duration)
+        # reset last_request so it won't be treated as recently used after cooldown
+        current_key["last_request"] = None
         
         print(f"\n⚠️  API Key quota exceeded!")
         print(f"   Key: {current_key['env_name']}")
@@ -162,6 +179,17 @@ def on_api_quota_error(provider="gemini"):
     """Gọi function này khi API trả về quota/rate-limit error - tự động rotate key"""
     key_manager.on_quota_error(provider)
 
+def get_api_key_info(provider="gemini"):
+    key = key_manager.get_active_key(provider)
+    if not key:
+        return None, None
+
+    for k in API_KEYS.get(provider, []):
+        if k["value"] == key:
+            masked = k["value"][:8] + "..." + k["value"][-4:]
+            return key, f"{k['env_name']} ({masked})"
+
+    return key, "unknown_key"
 
 # ============================================================================
 # 🔧 MODEL CONFIG
@@ -207,7 +235,12 @@ def print_api_status():
     print(f"  Total keys: {len(gemini_keys)}")
     print(f"  Active key index: {key_manager.current_index % len(gemini_keys) if gemini_keys else 'N/A'}")
     print(f"  Model: {GEMINI_CONFIG['model']}")
-    print(f"  Active key: {get_api_key('gemini')[:30]}..." if get_api_key('gemini') else "  Active key: NOT SET")
+    # Show current key env name without triggering key selection side-effects
+    if gemini_keys:
+        active_env = gemini_keys[key_manager.current_index % len(gemini_keys)]["env_name"]
+        print(f"  Active key: {active_env}")
+    else:
+        print("  Active key: NOT SET")
     
     # Key stats
     status_dict = key_manager.get_status("gemini")

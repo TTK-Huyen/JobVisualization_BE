@@ -5,7 +5,6 @@ Usage:
     from input import GEMINI_CONFIG, TIER_CONFIG, load_keywords
 """
 
-import os
 import json
 from pathlib import Path
 
