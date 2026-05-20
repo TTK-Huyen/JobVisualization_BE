@@ -22,3 +22,7 @@ Details
 - Skills are sent to an LLM (OpenAI if `OPENAI_API_KEY` set) using the prompt in `prompts/skill_weight_prompt.md`. If no API key, weights default to uniform distribution.
 - Requests are spaced by 15 seconds to respect rate limits.
 - Results are written to `SkillWeighting/outputs/<search_group>.json` and upserted to `public.job_group_skill_weights` (requires that table to exist). Use `--dry-run` to skip DB writes.
+
+
+Pipeline: 
+Công thức trọng số: TF x IDF x độ IM theo JD x trọng số ONET

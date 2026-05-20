@@ -106,6 +106,46 @@ def pick_keywords(cfg: dict):
     return selected
 
 
+def load_keywords_from_env():
+    for key in ("SELECTED_KEYWORDS_JSON", "CRAWL_KEYWORDS_JSON", "DAILY_KEYWORDS_JSON"):
+        value = os.getenv(key)
+        if value:
+            try:
+                kws = json.loads(value)
+                if isinstance(kws, list) and kws:
+                    return [str(x).strip() for x in kws if str(x).strip()], key
+            except Exception:
+                pass
+
+    for key in ("SELECTED_KEYWORDS", "CRAWL_KEYWORDS", "KEYWORDS"):
+        value = os.getenv(key)
+        if value:
+            kws = [x.strip() for x in value.split(",") if x.strip()]
+            if kws:
+                return kws, key
+
+    for key in ("SELECTED_KEYWORDS_FILE", "CRAWL_KEYWORDS_FILE"):
+        path = os.getenv(key)
+        if path and os.path.exists(path):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+                kws = data.get("keywords", []) if isinstance(data, dict) else data
+                if isinstance(kws, list) and kws:
+                    return [str(x).strip() for x in kws if str(x).strip()], key
+            except Exception:
+                pass
+
+    # Runner-specific env fallback
+    value = os.environ.get("LINKEDIN_KEYWORDS")
+    if value:
+        kws = [x.strip() for x in value.split(",") if x.strip()]
+        if kws:
+            return kws, "LINKEDIN_KEYWORDS"
+
+    return [], None
+
+
 def get_tier_max_jobs(keyword: str, cfg: dict) -> int:
     """Determine max jobs for keyword based on tier"""
     tier_1 = cfg.get("tier_1", [])
@@ -175,9 +215,12 @@ def main():
     location = os.environ.get("LINKEDIN_LOCATION", cfg.get("location", "Vietnam"))
     
     # Get keywords for today
-    keywords_str = os.environ.get("LINKEDIN_KEYWORDS")
-    if keywords_str:
-        keywords_list = keywords_str.split(",")
+    env_keywords, kw_source = load_keywords_from_env()
+    if env_keywords:
+        keywords_list = env_keywords
+        print(f"[KEYWORDS] Loaded {len(keywords_list)} keywords from {kw_source}")
+        for i, kw in enumerate(keywords_list, 1):
+            print(f"[KEYWORDS] {i:02d}. {kw}")
     else:
         keywords_list = pick_keywords(cfg)
 

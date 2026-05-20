@@ -58,8 +58,11 @@ def resolve_pipeline_path(*parts: str) -> Path:
         candidate = PIPELINE_ROOT.joinpath(*parts)
         if candidate.exists():
                 return candidate
-        return BASE_DIR.joinpath(*parts)
+        alt = BASE_DIR.joinpath(*parts)
+        if alt.exists():
+            return alt
 
+        return None
 
 # ============================================================================
 # CONFIGURATION
@@ -114,6 +117,8 @@ ETL_CONFIG = {
     "batch_size": int(os.getenv("ETL_CLEAN_BATCH_SIZE", "60")),  # Batch size for CLEAN step
     "max_threads": int(os.getenv("ETL_MAX_THREADS", "30")),  # Max parallel threads for LLM extraction
     "confidence_threshold": float(os.getenv("ETL_CONFIDENCE_THRESHOLD", "0.7")),  # Min confidence for skills/benefits
+    # Timeout (seconds) for the LLM extract step. Can be overridden with ETL_LLM_TIMEOUT in .env
+    "llm_timeout": int(os.getenv("ETL_LLM_TIMEOUT", "1800")),
 }
 
 KEYWORD_CONFIG = {
@@ -129,11 +134,29 @@ KEYWORD_CONFIG = {
     ),
 }
 
+# If a test keywords file exists and the user asked to use test keywords via
+# `USE_TEST_KEYWORDS` env var, prefer it. Also prefer it when no explicit
+# `KEYWORDS_DAILY_PATH` env var is provided but a `Db/input/test_keywords_daily.json`
+# file is present (convenience for local testing).
+test_candidate_paths = [
+    BASE_DIR / "Db" / "input" / "test_keywords_daily.json",
+    BASE_DIR / "input" / "test_keywords_daily.json",
+]
+use_test_flag = os.getenv("USE_TEST_KEYWORDS", "").strip().lower() in ("1", "true", "yes")
+env_kw_path = os.environ.get("KEYWORDS_DAILY_PATH")
+for tp in test_candidate_paths:
+    if tp.exists():
+        if use_test_flag or not env_kw_path:
+            KEYWORD_CONFIG["keywords_file"] = str(tp.relative_to(BASE_DIR))
+            print(f"Using test keywords file for selection: {KEYWORD_CONFIG['keywords_file']}")
+        break
+
 print(f"\n🔥 ETL CONFIG (from .env):")
 print(f"  → Input file: {ETL_CONFIG['input_file'] or 'AUTO-DETECT'}")
 print(f"  → Batch size: {ETL_CONFIG['batch_size']}")
 print(f"  → Max threads: {ETL_CONFIG['max_threads']}")
 print(f"  → Confidence threshold: {ETL_CONFIG['confidence_threshold']}")
+print(f"  → LLM extract timeout: {ETL_CONFIG['llm_timeout']}s")
 print(f"  → Daily keywords: {KEYWORD_CONFIG['daily_num_keywords']}")
 print(f"  → Keyword method: {KEYWORD_CONFIG['selection_method']}")
 print(f"  → Keyword state: {KEYWORD_CONFIG['rotation_state_path']}")
@@ -312,6 +335,34 @@ def _flatten_keywords_daily(config: dict) -> list:
     return _dedupe_keep_order(keywords)
 
 
+def _flatten_keywords_with_groupnames(config: dict) -> list:
+    """
+    Return a flat list of keywords from the complex daily keywords config,
+    but also include the top-level group names as additional search keywords.
+
+    This preserves the original file format (no file edits) while allowing
+    the pipeline to crawl group-level names (e.g. "Web Developer",
+    "Computer Support Specialist") in addition to the child roles.
+    """
+    # Start from the usual flattened roles/clusters
+    flattened = _flatten_keywords_daily(config)
+
+    # Collect human-friendly group names from the top-level keys
+    groups = config.get("groups", {})
+    group_keywords = []
+    if isinstance(groups, dict):
+        for g in groups.keys():
+            # Convert snake_case to Title Case for readability/search
+            pretty = str(g).replace("_", " ").strip()
+            if pretty:
+                group_keywords.append(pretty.title())
+
+    # Prepend group names so they get considered early in rotation, then
+    # dedupe while preserving order and case-insensitive uniqueness.
+    combined = group_keywords + flattened
+    return _dedupe_keep_order(combined)
+
+
 def select_daily_keywords() -> list:
     """
     Select DAILY_NUM_KEYWORDS sequentially and persist rotation state.
@@ -342,10 +393,30 @@ def select_daily_keywords() -> list:
             log(f"⚠️ Keyword file not found: {keywords_file}")
             return []
 
-    with open(keywords_file, encoding="utf-8") as f:
-        keyword_cfg = json.load(f)
+    # Load keywords file with a tolerant fallback: if ordinary json.load fails
+    # (e.g., due to trailing commas or inline comments), attempt a quick
+    # sanitization and parse again. This avoids forcing edits to the
+    # user's `keywords_daily.json` while keeping the pipeline robust.
+    try:
+        with open(keywords_file, encoding="utf-8") as f:
+            keyword_cfg = json.load(f)
+    except Exception as exc:
+        log(f"⚠️  Failed to parse keywords file as strict JSON: {keywords_file} -> {exc}")
+        try:
+            txt = Path(keywords_file).read_text(encoding="utf-8")
+            # Remove single-line comments (//...) and C-style comments
+            import re
+            txt = re.sub(r"//.*?$", "", txt, flags=re.MULTILINE)
+            txt = re.sub(r"/\*.*?\*/", "", txt, flags=re.DOTALL)
+            # Remove trailing commas before ] or }
+            txt = re.sub(r",\s*(\]|})", r"\1", txt)
+            keyword_cfg = json.loads(txt)
+            log(f"✅ Parsed keywords file after sanitization: {keywords_file}")
+        except Exception as exc2:
+            log(f"❌ Still cannot parse keywords file: {keywords_file} -> {exc2}")
+            return []
 
-    all_keywords = _flatten_keywords_daily(keyword_cfg)
+    all_keywords = _flatten_keywords_with_groupnames(keyword_cfg)
     if not all_keywords:
         log(f"⚠️ No keywords found in: {keywords_file}")
         return []
@@ -469,6 +540,12 @@ Examples:
         help=f"Custom input file for CLEAN step (default: auto-detect, or use ETL_INPUT_FILE from .env)"
     )
     parser.add_argument(
+        "--step",
+        type=str,
+        default=None,
+        help="Run a specific pipeline step only: crawl|clean|extract|import",
+    )
+    parser.add_argument(
         "--extracted",
         type=str,
         default=None,
@@ -502,6 +579,86 @@ Examples:
     )
     
     args = parser.parse_args()
+
+    # If user asked for a specific step via --step, translate to flags where appropriate
+    if args.step:
+        step_arg = str(args.step).strip().lower()
+        if step_arg == 'crawl':
+            args.crawl_only = True
+        elif step_arg == 'clean':
+            args.clean_only = True
+        elif step_arg == 'import':
+            args.import_only = True
+        elif step_arg == 'extract':
+            # We'll handle extract-only mode specially below
+            pass
+        else:
+            log(f"⚠️ Unknown --step value: {args.step}; ignoring")
+
+    # If user requested extract-only, handle it immediately and exit before
+    # creating archive folders or selecting keywords.
+    if args.step and str(args.step).strip().lower() == 'extract':
+        input_path = Path(args.input) if args.input else None
+        if not input_path:
+            log("❌ --input is required for extract mode")
+            return False
+        if not input_path.exists():
+            log(f"❌ Input file not found: {input_path}")
+            return False
+
+        # Count jobs for logging
+        try:
+            raw = input_path.read_text(encoding='utf-8')
+            import json as _json
+            payload = _json.loads(raw)
+            if isinstance(payload, list):
+                total_jobs = len(payload)
+            elif isinstance(payload, dict):
+                # common wrappers
+                for key in ('jobs', 'items', 'data', 'results'):
+                    if isinstance(payload.get(key), list):
+                        total_jobs = len(payload.get(key))
+                        break
+                else:
+                    total_jobs = 1
+            else:
+                total_jobs = 0
+        except Exception:
+            total_jobs = 0
+
+        log("[EXTRACT MODE]")
+        log(f"Input: {input_path}")
+        log(f"Total jobs: {total_jobs}")
+
+        # Resolve extract script
+        extract_script = resolve_pipeline_path('extract', 'process_pending_llm.py')
+        if not extract_script or not extract_script.exists():
+            extract_script = resolve_pipeline_path('process_pending_llm.py')
+        if not extract_script or not extract_script.exists():
+            log(f"❌ Extract script not found: {extract_script}")
+            return False
+
+        output_path = BASE_DIR / 'data' / 'extracted_jobs.json'
+        fallback_path = BASE_DIR / 'data' / 'extract_fallback.json'
+
+        extract_env = os.environ.copy()
+        existing_py = extract_env.get('PYTHONPATH', '')
+        prepend_paths = os.pathsep.join([str(BASE_DIR), str(BASE_DIR.parent)])
+        extract_env['PYTHONPATH'] = prepend_paths + (os.pathsep + existing_py if existing_py else '')
+        extract_cwd = BASE_DIR.parent
+
+        ok = run_step(
+            "LLM EXTRACT",
+            extract_script,
+            args=["--input-path", str(input_path.resolve()), "--output-path", str(output_path.resolve()), "--fallback-path", str(fallback_path.resolve())],
+            timeout=ETL_CONFIG.get('llm_timeout', CLEAN_TIMEOUT),
+            cwd=extract_cwd,
+            env=extract_env,
+        )
+
+        log("DONE")
+        log(f"Output: {output_path}")
+        return ok
     
     # Override PIPELINE_STEPS based on command line flags
     global PIPELINE_STEPS
@@ -630,6 +787,7 @@ Examples:
         log("Skipping CRAWL (STEP_CRAWL=false)\n")
     
     # -------- STEP 2: CLEAN -> PENDING -> EXTRACT -> NORMALIZE -> TRANSFORM --------
+
     if step_clean:
         log("STEP 2: CLEAN DATA (debug clean -> pending_llm -> extracted -> normalized -> import_ready)")
 
@@ -650,10 +808,13 @@ Examples:
         if not raw_combined or not raw_combined.exists():
             pipeline_candidate = resolve_pipeline_path("crawl", "data", f"crawl_{RUN_DATE}", "raw", "jobs_combined.json")
             repo_candidate = BASE_DIR / "data" / f"crawl_{RUN_DATE}" / "raw" / "jobs_combined.json"
-            if pipeline_candidate.exists():
+            if pipeline_candidate and pipeline_candidate.exists():
                 raw_combined = pipeline_candidate
             elif repo_candidate.exists():
                 raw_combined = repo_candidate
+            else:
+                # defensive: resolve_pipeline_path may return None; avoid AttributeError
+                raw_combined = None
 
         # After attempting fallbacks, ensure we have a valid input before running clean flow
         if not raw_combined or not raw_combined.exists():
@@ -676,9 +837,7 @@ Examples:
             if not extract_script.exists():
                 extract_script = resolve_pipeline_path("process_pending_llm.py")
             # transform_for_import.py lives in 2_1_normalized_data; prefer pipeline layout
-            transform_script = resolve_pipeline_path("normalize", "2_1_normalized_data", "transform_for_import.py")
-            if not transform_script.exists():
-                transform_script = BASE_DIR / "2_1_normalized_data" / "transform_for_import.py"
+           
 
             if clean_script.exists():
                 clean_ok = run_step(
@@ -709,7 +868,7 @@ Examples:
                     "LLM EXTRACT",
                     extract_script,
                     args=["--input-path", str(pending_file), "--output-path", str(extracted_file), "--fallback-path", str(extract_fallback_file)],
-                    timeout=CLEAN_TIMEOUT,
+                    timeout=ETL_CONFIG.get('llm_timeout', CLEAN_TIMEOUT),
                     cwd=extract_cwd,
                     env=extract_env,
                 )
@@ -765,36 +924,49 @@ Examples:
     else:
         log("Skipping CLEAN (STEP_CLEAN=false)\n")
 
-    # -------- STEP 3: IMPORT --------
+   # -------- STEP 3: IMPORT --------
     if step_import:
         log("STEP 3: IMPORT TO DATABASE")
+
         # Prefer pipeline/import_db then pipeline/import for import step
         import_script = resolve_pipeline_path("import_db", "3_import", "import.py")
-        if not import_script.exists():
-            import_script = resolve_pipeline_path("import", "3_import", "import.py")
-        import_input = CLEAN_FOLDER / "normalized.json"
 
-        if import_input.exists():
-            log(f"Using normalized output: {import_input.name}")
-            import_args = ["--input", str(import_input)]
-            import_ok = run_step(
-                "IMPORT",
-                import_script,
-                args=import_args,
-                timeout=IMPORT_TIMEOUT,
-                cwd=import_script.parent
-            )
-            if not import_ok:
-                log("Import failed")
-        else:
-            log("❌ No normalized data found for import")
+        if import_script is None or not import_script.exists():
+            import_script = resolve_pipeline_path("import", "3_import", "import.py")
+
+        if import_script is None or not import_script.exists():
+            log("❌ Import script not found")
             import_ok = False
+        else:
+            import_input = CLEAN_FOLDER / "normalized.json"
+
+            if import_input.exists():
+                log(f"Using normalized output: {import_input.name}")
+                import_args = [
+                    "--input", str(import_input),
+                    "--fallback", str(FALLBACK_FOLDER / "import_fallback.json")
+                ]
+
+                import_ok = run_step(
+                    "IMPORT",
+                    import_script,
+                    args=import_args,
+                    timeout=IMPORT_TIMEOUT,
+                    cwd=import_script.parent
+                )
+
+                if not import_ok:
+                    log("Import failed")
+            else:
+                log("❌ No normalized data found for import")
+                import_ok = False
     else:
         log("Skipping IMPORT (STEP_IMPORT=false)\n")
     
     # -------- SUMMARY --------
     cleanup_ok = True
-    should_cleanup = step_clean and step_import and crawl_ok and clean_ok and import_ok
+    should_cleanup = False
+    # should_cleanup = step_clean and step_import and crawl_ok and clean_ok and import_ok
     if should_cleanup:
         log("Running retention cleanup for transient artifacts...")
         cleanup_ok = cleanup_retention_artifacts()

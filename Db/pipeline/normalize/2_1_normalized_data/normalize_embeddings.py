@@ -17,11 +17,18 @@ import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
+import csv
+import re
 
+import math
 try:
     from sentence_transformers import SentenceTransformer
 except Exception as e:
     raise RuntimeError("Please install sentence-transformers: pip install sentence-transformers") from e
+try:
+    from sentence_transformers import CrossEncoder
+except Exception:
+    CrossEncoder = None
 
 import numpy as np
 from sqlalchemy import create_engine, text
@@ -31,7 +38,37 @@ import pickle
 import json as _json
 import time
 
+# Ensure project root is on sys.path so `from Db...` imports work
+THIS_FILE = Path(__file__).resolve()
+PROJECT_ROOT = None
 
+for parent in THIS_FILE.parents:
+    if (parent / "Db").exists():
+        PROJECT_ROOT = parent
+        break
+
+if PROJECT_ROOT and str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+    
+from Db.llm.debug_llm_adapter import call_llm
+from Db.llm import llm_config
+from Db.input import config_api
+
+# Bảng ánh xạ cứng để bảo vệ các kỹ năng quan trọng
+CORE_ALIASES = {
+    "sql": "SQL (Programming Language)",
+    "python": "Python (Programming Language)",
+    "java": "Java (Programming Language)",
+    "scrum": "Scrum (Software Development)"
+}
+
+
+    
+def is_independent_word(query, candidate):
+    """Kiểm tra query có đứng độc lập trong candidate không (tránh SQL trong U-SQL)"""
+    import re
+    pattern = rf"\b{re.escape(query)}\b"
+    return bool(re.search(pattern, candidate, re.IGNORECASE))
 def find_project_root() -> Path:
     p = Path(__file__).resolve()
     for parent in p.parents:
@@ -40,6 +77,39 @@ def find_project_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 BASE_DIR = find_project_root()
+
+# Load environment configuration (optional .env in project root)
+try:
+    from dotenv import load_dotenv
+    load_dotenv(BASE_DIR / ".env")
+except Exception:
+    # dotenv not installed or file missing; fall back to os.environ
+    pass
+
+# Normalization thresholds from environment with defaults
+KW_EXACT_CONFIDENCE = float(os.getenv("KW_EXACT_CONFIDENCE", "1.0"))
+# More conservative / safer defaults for matching
+# Accept strong bi-encoder matches (>= 0.75) immediately to avoid
+# relying on cross-encoder raw logits which can be negative.
+BI_AUTO_ACCEPT_THRESHOLD = float(os.getenv("BI_AUTO_ACCEPT_THRESHOLD", "0.75"))
+# Lower minimum similarity to consider candidates
+BI_MIN_SIMILARITY = float(os.getenv("BI_MIN_SIMILARITY", "0.45"))
+# Cross-encoder raw logits (ms-marco) are unbounded; use 0.0 as accept threshold
+# and apply sigmoid to convert raw logits -> probability in (0,1) before decisions.
+CE_AUTO_ACCEPT_THRESHOLD = float(os.getenv("CE_AUTO_ACCEPT_THRESHOLD", "0.10"))
+CE_NEED_REVIEW_THRESHOLD = float(os.getenv("CE_NEED_REVIEW_THRESHOLD", "0.55"))
+# Domain boost applied after CE score is calculated (added to raw logit before sigmoid)
+DOMAIN_BOOST_SCORE = float(os.getenv("DOMAIN_BOOST_SCORE", "0.10"))
+
+# Initialize CrossEncoder globally for cross-encoder stage (best-effort)
+cross_encoder = None
+if CrossEncoder is not None:
+    try:
+        cross_encoder = CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')
+        print("Loaded CrossEncoder: cross-encoder/ms-marco-MiniLM-L-6-v2")
+    except Exception as e:
+        print(f"[WARN] failed to load CrossEncoder: {e}")
+        cross_encoder = None
 
 
 def atomic_write(path: Path, obj: Any) -> None:
@@ -108,6 +178,181 @@ def compute_embeddings(model: SentenceTransformer, texts: List[str], batch_size:
     emb = model.encode(texts, normalize_embeddings=True, batch_size=batch_size, show_progress_bar=False)
     return np.asarray(emb, dtype=float)
 
+def normalize_skill_key(text: str) -> str:
+    if not text:
+        return ""
+    text = str(text).lower()
+    text = re.sub(r"\([^)]*\)", "", text)  # Docker (Software) -> Docker
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def load_prompt_template(filename: str) -> str:
+    prompt_path = BASE_DIR / "pipeline" / "normalize" / "2_1_normalized_data" / filename
+    return prompt_path.read_text(encoding="utf-8")
+
+
+
+def llm_rerank_job_skills(job_title: str, skill_items: List[Dict[str, Any]], delay_seconds: int = 0, max_retries: int = 0):
+    """Batch LLM rerank for all skills in a job. Returns mappings list or None on failure.
+
+    Uses existing call_llm and config_api.get_api_key/on_api_quota_error.
+    Does not implement SDK retry loop; single call only (per requirements).
+    """
+    try:
+        # Try to get API key; if none, optionally wait once (delay_seconds) then retry once
+        api_key = config_api.get_api_key("gemini")
+        if not api_key:
+            print("[LLM_KEY] no key available")
+            if delay_seconds and delay_seconds > 0:
+                time.sleep(delay_seconds)
+                api_key = config_api.get_api_key("gemini")
+            if not api_key:
+                return None
+
+        # Build prompt
+        skills_json = json.dumps(skill_items, ensure_ascii=False, indent=2)
+        prompt = (
+            "You are a skill normalization verifier.\n\n"
+            "Job title:\n" f"{job_title}\n\n"
+
+            "For each skill, choose the candidate that has EXACT SAME meaning.\n\n"
+
+            "Rules:\n"
+            "- You MUST return mapping for EVERY skill.\n"
+            "- Always include raw_skill in output.\n"
+            "- If a correct candidate exists, DO NOT return NO_MATCH.\n"
+            "- Prefer general/base technology over specific tools.\n"
+
+            "Examples:\n"
+            "- Docker → Docker (Software)\n"
+            "- Python → Python (Programming Language)\n"
+            "- Node.js → Node.js (JavaScript Runtime)\n"
+            "- React → React (JavaScript Library)\n\n"
+
+            "Input:\n"
+            f"{skills_json}\n\n"
+
+            "Return JSON only:\n"
+            "{\n"
+            "  \"mappings\": [\n"
+            "    {\n"
+            "      \"raw_skill\": \"Docker\",\n"
+            "      \"selected_candidate\": \"Docker (Software)\",\n"
+            "      \"confidence\": 0.95,\n"
+            "      \"match_type\": \"EXACT\",\n"
+            "      \"reason\": \"Docker general technology\"\n"
+            "    }\n"
+            "  ]\n"
+            "}"
+        )
+
+        text = None
+        attempts = max(1, int(max_retries or 0) + 1)
+
+        for attempt in range(attempts):
+            api_key = config_api.get_api_key("gemini")
+
+            if not api_key:
+                print("[LLM_KEY] no key available")
+                if attempt < attempts - 1 and delay_seconds > 0:
+                    print(f"[LLM_RETRY] no key, wait={delay_seconds}s")
+                    time.sleep(delay_seconds)
+                    continue
+                return None
+
+            try:
+                text = call_llm(
+                    prompt,
+                    api_key,
+                    timeout_seconds=llm_config.LLM_CALL_TIMEOUT_SECONDS
+                )
+
+                if text:
+                    break
+
+            except Exception as e:
+                msg = str(e).lower()
+
+                if "quota" in msg or "rate" in msg or "429" in msg or "limit" in msg:
+                    try:
+                        config_api.on_api_quota_error("gemini")
+                    except Exception:
+                        pass
+
+                if attempt < attempts - 1 and delay_seconds > 0:
+                    print(f"[LLM_RETRY] attempt={attempt+1}/{attempts}, wait={delay_seconds}s")
+                    time.sleep(delay_seconds)
+                    continue
+
+                return None
+
+        if not text:
+            return None
+
+        try:
+            j = json.loads(text)
+        except Exception:
+            # try extract JSON
+            start = text.find("{")
+            end = text.rfind("}")
+            if start >= 0 and end > start:
+                try:
+                    j = json.loads(text[start:end+1])
+                except Exception:
+                    return None
+            else:
+                return None
+
+        mappings = j.get("mappings")
+        if not isinstance(mappings, list):
+            return None
+        return mappings
+    except Exception as e:
+        msg = str(e).lower()
+        if "quota" in msg or "rate" in msg or "429" in msg or "limit" in msg:
+            try:
+                config_api.on_api_quota_error("gemini")
+            except Exception:
+                pass
+        return None
+
+def find_best_evidence(raw_skill: str, requirements_text: str) -> str | None:
+    """Find a short evidence sentence/line containing raw_skill.
+    Never return the full requirements_text.
+    """
+    import re
+
+    if not raw_skill or not requirements_text:
+        return None
+
+    text = str(requirements_text)
+    skill = str(raw_skill).strip()
+    if not skill:
+        return None
+
+    # Split by common JD separators
+    parts = re.split(r"[\n\r]+|•|;|\.|\u2022", text)
+
+    # 1) Exact phrase match
+    pattern = re.compile(rf"(?<![\w+#.-]){re.escape(skill)}(?![\w+#.-])", re.IGNORECASE)
+    for part in parts:
+        sentence = re.sub(r"\s+", " ", part).strip()
+        if not sentence:
+            continue
+        if pattern.search(sentence):
+            return sentence[:300]
+
+    # 2) Fallback contains match for special names like Node.js, CI/CD
+    skill_lower = skill.lower()
+    for part in parts:
+        sentence = re.sub(r"\s+", " ", part).strip()
+        if not sentence:
+            continue
+        if skill_lower in sentence.lower():
+            return sentence[:300]
+
+    return None
 
 def normalize_job(
     job: Dict[str, Any],
@@ -119,58 +364,345 @@ def normalize_job(
     benefit_map: List[Tuple[int, str]],
     model: SentenceTransformer,
     threshold: float = 0.5,
-) -> Tuple[Dict[str, Any], None]:
-    """Return (normalized_record, None) or raise Exception on per-job failure."""
+    top_k: int = 5,
+    disable_llm_rerank: bool = False,
+    llm_delay: int = 15,
+    llm_max_retries: int = 2,
+    llm_batch_size: int = 10,
+    keyword_index: Dict[str, str] | None = None,
+) -> Dict[str, Any]:
+    """Normalize skills for a job using a 3-stage pipeline (keyword, bi-encoder, cross-encoder).
+
+    Produces a list `normalized_skills` matching existing output schema and appends
+    an entry for each skill to `normalization_trace.csv` for auditing.
+    """
     normalized_skills = []
     normalized_benefits = []
+    keyword_index = keyword_index or {}
+    skill_id_by_name = {name: sid for sid, name in skill_map}
 
-    # Skills: expected as list of dicts with 'skill_name'
-    skills_in = job.get("extracted_skills") or []
-    skill_queries = []
-    for s in skills_in:
-        if isinstance(s, dict):
-            name = s.get("skill_name") or s.get("name") or ""
+    # Prepare job fields
+    job_title = job.get("title") or job.get("job", {}).get("title") or job.get("raw", {}).get("job_title") or job.get("search_keyword") or ""
+    # Normalize job_title to plain string if upstream stores dicts like {"value":..}
+    if isinstance(job_title, dict):
+        jt = job_title.get("value") or job_title.get("title") or job_title.get("text")
+        job_title = str(jt) if jt is not None else str(job_title)
+    job_title = (str(job_title) or "").strip()
+    job_id = job.get("id") or job.get("job", {}).get("id") or job.get("job_id") or job.get("raw", {}).get("id") or hashlib.sha256(json.dumps(job, ensure_ascii=False).encode("utf-8")).hexdigest()[:12]
+
+    # Helper to safely extract raw skill text from various extracted formats
+    def _extract_raw_skill(item: Any) -> tuple[str, str]:
+        """Return (raw_skill_str, evidence_text_or_empty).
+        Handles nested dicts and multiple key variants.
+        """
+        raw = None
+        evidence = None
+        if isinstance(item, dict):
+            # Common keys used by upstream extractors
+            for k in ("skill_name", "skill_name_eng", "name", "skill", "original", "raw"):
+                if k in item and item.get(k) is not None:
+                    raw = item.get(k)
+                    break
+            # If raw is nested dict, try nested name/value
+            if isinstance(raw, dict):
+                for nk in ("name", "skill_name", "value", "text"):
+                    if nk in raw and raw.get(nk) is not None:
+                        raw = raw.get(nk)
+                        break
+            evidence = item.get("evidence_text") or item.get("evidence") or item.get("context")
         else:
-            name = str(s)
-        name = str(name).strip()
-        if name:
-            skill_queries.append(name)
+            raw = item
 
-    # Benefits: expected as list of strings
+        raw = "" if raw is None else str(raw).strip()
+        evidence = "" if evidence is None else str(evidence).strip()
+        return raw, evidence
+
+    # Gather input skills
+    skills_in = job.get("extracted_skills") or []
+    skill_entries: List[Dict[str, Any]] = []
+    requirements_text = (
+        job.get("raw", {}).get("requirements_text")
+        or job.get("requirements_text")
+        or job.get("job", {}).get("skills_desc", {}).get("value")
+        or ""
+    )
+
+    for s in skills_in:
+        raw_skill, evidence_text = _extract_raw_skill(s)
+        if not evidence_text:
+            evidence_text = find_best_evidence(raw_skill, requirements_text) or ""
+        if raw_skill:
+            skill_entries.append({"raw": raw_skill, "evidence": evidence_text})
+
+    # Unique queries to compute embeddings once (preserve order)
+    uniq_skill_q = []
+    seen = set()
+    for e in skill_entries:
+        q = e.get("raw") or ""
+        if q and q not in seen:
+            seen.add(q)
+            uniq_skill_q.append(q)
+
+    # Gather benefits (dedupe, preserve order)
     benefits_in = job.get("benefits") or []
-    benefit_queries = [str(b).strip() for b in benefits_in if str(b).strip()]
+    uniq_benefit_q = []
+    seen_b = set()
+    for b in benefits_in:
+        if isinstance(b, dict):
+            bstr = b.get("value") or b.get("name") or b.get("benefit_name") or ""
+        else:
+            bstr = str(b)
+        bstr = (bstr or "").strip()
+        if bstr and bstr not in seen_b:
+            seen_b.add(bstr)
+            uniq_benefit_q.append(bstr)
 
-    # Batch encode unique queries for efficiency
-    uniq_skill_q = list(dict.fromkeys(skill_queries))
-    uniq_benefit_q = list(dict.fromkeys(benefit_queries))
+    # Prepare trace CSV
+    trace_path = BASE_DIR / "data" / "normalization_trace.csv"
+    trace_path.parent.mkdir(parents=True, exist_ok=True)
+    trace_header = ["job_id", "original_skill", "job_title", "evidence_text", "stage_reached", "final_method", "final_score", "mapped_name", "status"]
+    if not trace_path.exists():
+        try:
+            with trace_path.open("w", encoding="utf-8", newline="") as fh:
+                writer = csv.writer(fh)
+                writer.writerow(trace_header)
+        except Exception:
+            pass
 
-    # Map skill queries
+    # Helper: simple domain-match heuristic
+    def domain_match(candidate: str, title: str, evidence: str) -> bool:
+        c = candidate.lower()
+        t = (title or "").lower()
+        e = (evidence or "").lower()
+        # token-based heuristic: if main candidate token appears in title or evidence
+        tokens = re.split(r"\W+", c)
+        tokens = [tk for tk in tokens if tk]
+        for tk in tokens:
+            if tk and (tk in t or tk in e):
+                return True
+        return False
+
     if uniq_skill_q:
         q_emb = compute_embeddings(model, uniq_skill_q)
-        # dot product since embeddings normalized -> cosine similarity
         sims = np.dot(q_emb, skill_emb.T) if skill_emb.shape[0] > 0 else np.zeros((q_emb.shape[0], 0))
+
         for i, q in enumerate(uniq_skill_q):
+            evidence = next((entry.get("evidence") for entry in skill_entries if entry.get("raw") == q), "")
+            stage = "start"
+            final_method = None
+            final_score = 0.0
+            mapped_name = None
+            mapped_id = None
+            status = "unmatched"
+
+            # Stage 1: Keyword exact
+            keyword_key = normalize_skill_key(q)
+            if keyword_key in keyword_index and is_independent_word(q, keyword_index[keyword_key]):
+                canonical = keyword_index[keyword_key]
+                sid = skill_id_by_name.get(canonical)
+                if sid:
+                    stage = "keyword_exact"
+                    final_method = "keyword_exact"
+                    final_score = KW_EXACT_CONFIDENCE
+                    mapped_name = canonical
+                    mapped_id = sid
+                    status = "auto_accepted"
+                    # write normalized and trace
+                    normalized_skills.append({
+                        "original": q,
+                        "mapped_name": mapped_name,
+                        "skill_id": mapped_id,
+                        "confidence": round(final_score, 4),
+                        "status": status,
+                        "method": final_method,
+                        "evidence": evidence,
+                        "candidates": [],
+                    })
+                    try:
+                        with trace_path.open("a", encoding="utf-8", newline="") as fh:
+                            writer = csv.writer(fh)
+                            writer.writerow([job_id, q, job_title, evidence, stage, final_method, round(final_score, 4), mapped_name or "", status])
+                    except Exception:
+                        pass
+                    continue
+
+            # Stage 2: Bi-encoder similarity
             if sims.shape[1] == 0:
-                best_sim = 0.0
-                best_idx = -1
+                top_score = 0.0
+                top_idx = -1
             else:
-                best_idx = int(np.argmax(sims[i]))
-                best_sim = float(sims[i, best_idx])
-            if best_idx >= 0 and best_sim >= threshold:
-                sid, sname = skill_map[best_idx]
+                top_idx = int(np.argmax(sims[i]))
+                top_score = float(sims[i, top_idx])
+
+            if top_score >= BI_AUTO_ACCEPT_THRESHOLD:
+                mapped_name = skill_map[top_idx][1]
+                mapped_id = skill_map[top_idx][0]
+                final_method = "bi_encoder_auto"
+                final_score = top_score
+                status = "auto_accepted"
+                stage = "bi_encoder"
                 normalized_skills.append({
                     "original": q,
-                    "mapped_name": sname,
-                    "skill_id": sid,
-                    "confidence": round(best_sim, 4),
+                    "mapped_name": mapped_name,
+                    "skill_id": mapped_id,
+                    "confidence": round(final_score, 4),
+                    "status": status,
+                    "method": final_method,
+                    "evidence": evidence,
+                    "candidates": [],
                 })
-            else:
+                try:
+                    with trace_path.open("a", encoding="utf-8", newline="") as fh:
+                        writer = csv.writer(fh)
+                        writer.writerow([job_id, q, job_title, evidence, stage, final_method, round(final_score, 4), mapped_name or "", status])
+                except Exception:
+                    pass
+                continue
+
+            # If top score below minimum similarity -> unmatched
+            if top_score < BI_MIN_SIMILARITY:
+                stage = "bi_encoder"
+                final_method = "no_candidate"
+                final_score = top_score
+                status = "unmatched"
                 normalized_skills.append({
                     "original": q,
                     "mapped_name": None,
                     "skill_id": None,
-                    "confidence": round(best_sim if 'best_sim' in locals() else 0.0, 4),
+                    "confidence": round(final_score, 4),
+                    "status": status,
+                    "method": final_method,
+                    "evidence": evidence,
+                    "candidates": [],
                 })
+                try:
+                    with trace_path.open("a", encoding="utf-8", newline="") as fh:
+                        writer = csv.writer(fh)
+                        writer.writerow([job_id, q, job_title, evidence, stage, final_method, round(final_score, 4), "", status])
+                except Exception:
+                    pass
+                continue
+
+            # Stage 2 continued: keep top-K candidates for CE
+            # get top_k indices sorted desc
+            if sims.shape[1] == 0:
+                top_indices = []
+            else:
+                top_indices = [int(x) for x in np.argsort(sims[i])[-top_k:][::-1]]
+            candidates = []
+            for rank, idx in enumerate(top_indices, start=1):
+                c_sim = float(sims[i, idx])
+                sid, sname = skill_map[idx]
+                candidates.append({"skill_id": sid, "name": sname, "embedding_score": round(c_sim, 6), "rank": rank})
+
+            # Stage 3: Cross-encoder ranking among candidates
+            stage = "cross_encoder"
+            if cross_encoder is None:
+                # fallback: pick top embedding candidate as need_review
+                best = candidates[0] if candidates else None
+                if best:
+                    mapped_name = best.get("name")
+                    mapped_id = best.get("skill_id")
+                    final_score = float(best.get("embedding_score") or 0.0)
+                    final_method = "ce_fallback_top_embedding"
+                    status = "need_review"
+                else:
+                    final_method = "no_candidate"
+                    final_score = 0.0
+                    status = "unmatched"
+            else:
+                # Build input pairs for cross-encoder
+                inputA = f"Job Title: {job_title}. Context: {evidence}"
+                pairs = [(inputA, c["name"]) for c in candidates]
+                try:
+                    ce_scores = cross_encoder.predict(pairs)
+                except Exception:
+                    ce_scores = [0.0] * len(candidates)
+                # CE scoring: support sigmoid normalization while preserving
+                # the option to compare raw logits when CE_AUTO_ACCEPT_THRESHOLD <= 0.0
+                def _sigmoid(x: float) -> float:
+                    try:
+                        return 1.0 / (1.0 + math.exp(-float(x)))
+                    except Exception:
+                        return 0.0
+
+                # detect if job title looks like an engineering role for traffic disambiguation
+                title_is_it = bool(re.search(r"\b(engineer|backend|developer)\b", job_title or "", re.IGNORECASE))
+
+                raw_scores = []
+                probs = []
+                for idx_c, c in enumerate(candidates):
+                    base = float(ce_scores[idx_c]) if idx_c < len(ce_scores) else 0.0
+                    # domain boost applies after CE raw score calculation
+                    boost = DOMAIN_BOOST_SCORE if domain_match(c.get("name"), job_title, evidence) else 0.0
+                    # disambiguation: penalize candidates that mention traffic/transport for IT roles
+                    cname = (c.get("name") or "").lower()
+                    if title_is_it and ("traffic" in cname or "transport" in cname or "traffic operations" in cname):
+                        boost -= DOMAIN_BOOST_SCORE * 1.5
+
+                    raw = base + boost
+                    prob = _sigmoid(raw)
+                    raw_scores.append(raw)
+                    probs.append(prob)
+
+                # Choose best candidate by probability
+                if probs:
+                    best_i = int(np.argmax(probs))
+                    best_raw = float(raw_scores[best_i])
+                    best_prob = float(probs[best_i])
+                    best_c = candidates[best_i]
+                    mapped_name = best_c.get("name")
+                    mapped_id = best_c.get("skill_id")
+
+                    # Decision logic: if CE_AUTO_ACCEPT_THRESHOLD <= 0, interpret as raw-logit threshold
+                    if CE_AUTO_ACCEPT_THRESHOLD <= 0.0:
+                        # use raw logits for accept/need_review decisions
+                        if best_raw >= CE_AUTO_ACCEPT_THRESHOLD:
+                            status = "auto_accepted"
+                            final_method = "ce_auto"
+                        elif best_raw >= CE_NEED_REVIEW_THRESHOLD:
+                            status = "need_review"
+                            final_method = "ce_need_review"
+                        else:
+                            status = "unmatched"
+                            final_method = "ce_unmatched"
+                    else:
+                        # use sigmoid probability for decision
+                        if best_prob >= CE_AUTO_ACCEPT_THRESHOLD:
+                            status = "auto_accepted"
+                            final_method = "ce_auto"
+                        elif best_prob >= CE_NEED_REVIEW_THRESHOLD:
+                            status = "need_review"
+                            final_method = "ce_need_review"
+                        else:
+                            status = "unmatched"
+                            final_method = "ce_unmatched"
+
+                    # Store confidence as sigmoid probability for easier interpretation
+                    final_score = best_prob
+                else:
+                    final_method = "ce_no_candidates"
+                    final_score = 0.0
+                    status = "unmatched"
+
+            normalized_skills.append({
+                "original": q,
+                "mapped_name": mapped_name,
+                "skill_id": mapped_id,
+                "confidence": round(final_score, 4),
+                "status": status,
+                "method": final_method,
+                "evidence": evidence,
+                "candidates": candidates,
+            })
+
+            # Append trace row
+            try:
+                with trace_path.open("a", encoding="utf-8", newline="") as fh:
+                    writer = csv.writer(fh)
+                    writer.writerow([job_id, q, job_title, evidence, stage, final_method, round(final_score, 4), mapped_name or "", status])
+            except Exception:
+                pass
 
     # Map benefits
     if uniq_benefit_q:
@@ -229,6 +761,12 @@ def main() -> int:
     parser.add_argument("--benefit-table", type=str, default="benefits")
     parser.add_argument("--threshold", type=float, default=0.5)
     parser.add_argument("--model-name", type=str, default="all-MiniLM-L6-v2")
+    parser.add_argument("--top-k", type=int, default=10)
+    parser.add_argument("--disable-llm-rerank", action="store_true", default=False)
+    parser.add_argument("--llm-rerank-delay", type=int, default=15)
+    parser.add_argument("--llm-rerank-max-retries", type=int, default=2)
+    parser.add_argument("--llm-batch-size", type=int, default=10)
+       
     args = parser.parse_args()
 
     if not args.db_url:
@@ -271,10 +809,42 @@ def main() -> int:
     print("Connecting to DB and loading dictionaries...")
     skills = load_dictionary_from_db(args.db_url, args.skill_table)
     benefits = load_dictionary_from_db(args.db_url, args.benefit_table)
-
     skill_map = skills
     benefit_map = benefits
-
+    # Log total counts for comparison with previous normalizer library
+    try:
+        print(f"Total skills/keywords loaded from DB: {len(skill_map)}")
+        print(f"Total benefits loaded from DB: {len(benefit_map)}")
+    except Exception:
+        # defensive: do not fail startup for logging issues
+        print("Total skills/benefits: (count unavailable)")
+    # Lightweight specialized_skill breakdown using `category` as sub-category
+    try:
+        engine = create_engine(args.db_url)
+        with engine.connect() as conn:
+            # match type case-insensitively and allow variants like 'Specialized Skill'
+            q = text(
+                f"SELECT COALESCE(category, '') AS category, COUNT(*) AS cnt"
+                f" FROM {args.skill_table} WHERE lower(COALESCE(type, '')) LIKE 'specialized%' GROUP BY COALESCE(category, '') ORDER BY cnt DESC"
+            )
+            res = conn.execute(q)
+            rows = res.fetchall()
+            if rows:
+                print("specialized_skill breakdown by category:")
+                for r in rows:
+                    sub = r[0] or "[unknown]"
+                    cnt = int(r[1])
+                    print(f"specialized_skill [{sub}]: {cnt} skills")
+            else:
+                print("specialized_skill breakdown: no rows found")
+    except Exception as e:
+        # Do not fail startup for stats; log and continue
+        print(f"[STATS_WARN] failed to compute specialized_skill breakdown: {e}")
+    keyword_index = {
+        normalize_skill_key(name): name
+        for _, name in skill_map
+        if normalize_skill_key(name)
+    }
     skill_names = [n for (_, n) in skill_map]
     benefit_names = [n for (_, n) in benefit_map]
 
@@ -385,6 +955,8 @@ def main() -> int:
         "benefits_mapped": 0,
         "benefits_unmatched": 0,
     }
+    # method-level counters for final summary
+    totals_methods: Dict[str, int] = {}
 
     for job in tqdm(jobs, desc="Normalizing jobs", unit="job"):
         totals["jobs"] += 1
@@ -399,11 +971,21 @@ def main() -> int:
                 benefit_map,
                 model,
                 threshold=args.threshold,
+                top_k=args.top_k,
+                disable_llm_rerank=args.disable_llm_rerank,
+                llm_delay=args.llm_rerank_delay,
+                llm_max_retries=args.llm_rerank_max_retries,
+                llm_batch_size=args.llm_batch_size,
+                keyword_index=keyword_index,
             )
+            # preserve full normalized skills for debugging/review before trimming
+            rec["normalized_skills_debug"] = list(rec.get("normalized_skills", []))
             rec = remove_unmapped_items(rec)
-            # update counts
-            ss = rec.get("normalized_skills", [])
-            for s in ss:
+            # update counts from debug view (before trimming)
+            ss_debug = rec.get("normalized_skills_debug", [])
+            for s in ss_debug:
+                method = s.get("method") or "unknown"
+                totals_methods[method] = totals_methods.get(method, 0) + 1
                 if s.get("mapped_name"):
                     totals["skills_mapped"] += 1
                 else:
@@ -437,6 +1019,10 @@ def main() -> int:
     print(f"Total skills unmatched: {totals['skills_unmatched']}")
     print(f"Total benefits mapped: {totals['benefits_mapped']}")
     print(f"Total benefits unmatched: {totals['benefits_unmatched']}")
+    print("")
+    print("Method counts:")
+    for method, cnt in sorted(totals_methods.items(), key=lambda x: -x[1]):
+        print(f"  {method}: {cnt}")
 
     # Show sample normalized output if available
     if normalized_out:

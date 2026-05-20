@@ -128,6 +128,56 @@ def pick_keywords(cfg: dict):
     return selected
 
 
+def load_keywords_from_env():
+    """Load keywords from environment with priority.
+
+    Priority order (first match wins):
+      - SELECTED_KEYWORDS_JSON, CRAWL_KEYWORDS_JSON, DAILY_KEYWORDS_JSON (JSON list)
+      - SELECTED_KEYWORDS, CRAWL_KEYWORDS, KEYWORDS (comma-separated)
+      - SELECTED_KEYWORDS_FILE, CRAWL_KEYWORDS_FILE (JSON file with 'keywords')
+      - ITVIEC_KEYWORDS (runner-specific fallback)
+
+    Returns (list[str], source_key) or ([], None)
+    """
+    for key in ("SELECTED_KEYWORDS_JSON", "CRAWL_KEYWORDS_JSON", "DAILY_KEYWORDS_JSON"):
+        value = os.getenv(key)
+        if value:
+            try:
+                kws = json.loads(value)
+                if isinstance(kws, list) and kws:
+                    return [str(x).strip() for x in kws if str(x).strip()], key
+            except Exception:
+                pass
+
+    for key in ("SELECTED_KEYWORDS", "CRAWL_KEYWORDS", "KEYWORDS"):
+        value = os.getenv(key)
+        if value:
+            kws = [x.strip() for x in value.split(",") if x.strip()]
+            if kws:
+                return kws, key
+
+    for key in ("SELECTED_KEYWORDS_FILE", "CRAWL_KEYWORDS_FILE"):
+        path = os.getenv(key)
+        if path and os.path.exists(path):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+                kws = data.get("keywords", []) if isinstance(data, dict) else data
+                if isinstance(kws, list) and kws:
+                    return [str(x).strip() for x in kws if str(x).strip()], key
+            except Exception:
+                pass
+
+    # Runner-specific env as last-resort (backward compatibility)
+    value = os.environ.get("ITVIEC_KEYWORDS")
+    if value:
+        kws = [x.strip() for x in value.split(",") if x.strip()]
+        if kws:
+            return kws, "ITVIEC_KEYWORDS"
+
+    return [], None
+
+
 def print_crawl_config(keywords_list: list, cfg: dict, source: str = "iTviec"):
     """Display crawler configuration before starting"""
     tier_1 = cfg.get("tier_1", [])
@@ -211,10 +261,13 @@ def main():
         print(f"[ERROR] Failed to create output_dir: {e}")
         raise
     
-    # Get keywords for today
-    keywords = os.environ.get("ITVIEC_KEYWORDS")
-    if keywords:
-        keywords_list = keywords.split(",")
+    # Get keywords for today — prefer env values passed by orchestrator
+    env_keywords, kw_source = load_keywords_from_env()
+    if env_keywords:
+        keywords_list = env_keywords
+        print(f"[KEYWORDS] Loaded {len(keywords_list)} keywords from {kw_source}")
+        for i, kw in enumerate(keywords_list, 1):
+            print(f"[KEYWORDS] {i:02d}. {kw}")
     else:
         keywords_list = pick_keywords(cfg)
     

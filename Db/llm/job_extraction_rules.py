@@ -13,8 +13,35 @@ def load_job_extraction_prompt(config_path) -> str:
         alt = Path(__file__).parent / "2_clean_data" / "clean_config.yaml"
         p = alt if alt.exists() else p
     try:
-        cfg = yaml.safe_load(p.read_text(encoding='utf-8'))
-        return cfg.get('prompt_extraction', '') if isinstance(cfg, dict) else ''
+        raw = p.read_text(encoding='utf-8')
+    except Exception:
+        try:
+            raw = p.read_text(encoding='utf-8-sig')
+        except Exception:
+            return ''
+    try:
+        # Diagnostics immediately around YAML parse
+        prompt_path = p
+        print("=" * 80)
+        print("CONFIG PATH:", prompt_path.resolve())
+
+        cfg = yaml.safe_load(raw)
+
+        print("CFG TYPE:", type(cfg))
+        print("CFG KEYS:", list(cfg.keys()) if isinstance(cfg, dict) else None)
+
+        prompt = cfg.get("prompt_extraction") if isinstance(cfg, dict) else None
+
+        print("PROMPT TYPE:", type(prompt))
+        print("PROMPT IS NONE:", prompt is None)
+
+        if isinstance(prompt, str):
+            print("PROMPT LEN:", len(prompt))
+            print("PROMPT HEAD:", repr(prompt[:300]))
+
+        print("=" * 80)
+
+        return prompt or ''
     except Exception:
         return ''
 

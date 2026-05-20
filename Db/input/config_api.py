@@ -140,7 +140,12 @@ class KeyRotationManager:
         next_key = self.get_active_key(provider)
         
         if next_key:
-            print(f"✅ Switched to next key: {current_key['env_name']}")
+            next_env = "unknown"
+            for k in self.api_keys.get(provider, []):
+                if k["value"] == next_key:
+                    next_env = k["env_name"]
+                    break
+            print(f"✅ Switched to next key: {next_env}")
         else:
             print(f"❌ No active keys available!")
     

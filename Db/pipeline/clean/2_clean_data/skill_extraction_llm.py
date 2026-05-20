@@ -26,7 +26,19 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from gemini_request_options import build_request_options
+# Ensure workspace parent (the folder that contains `Db`) is on sys.path
+try:
+    _p = Path(__file__).resolve()
+    workspace_parent = None
+    for anc in _p.parents:
+        if anc.name == 'Db':
+            workspace_parent = str(anc.parent)
+            break
+    if workspace_parent and workspace_parent not in sys.path:
+        sys.path.insert(0, workspace_parent)
+except Exception:
+    pass
+
 from Db.llm.job_extraction_rules import (
     build_job_extraction_generation_config_kwargs,
     load_job_extraction_prompt,
@@ -40,6 +52,28 @@ if sys.stdout.encoding != 'utf-8':
 env_path = Path(__file__).parent.parent / '.env'
 if env_path.exists():
     load_dotenv(env_path)
+
+
+def _build_request_options(**kwargs):
+    """Inline replacement for missing `build_request_options`.
+
+    Returns a simple dict of options suitable for passing to the Gemini/GenAI
+    client. The original project sometimes returned an object; we normalize
+    to a dict and include sensible defaults (no retry, timeout from config).
+    """
+    opts = {}
+    # Ensure no SDK retries by default
+    opts['retry'] = None
+    try:
+        from Db.llm.llm_config import LLM_CALL_TIMEOUT_SECONDS
+        opts['timeout'] = int(LLM_CALL_TIMEOUT_SECONDS)
+    except Exception:
+        # Fallback to 60s
+        opts['timeout'] = 60
+    # Pass-through any explicit kwargs
+    for k, v in kwargs.items():
+        opts[k] = v
+    return opts
 
 
 def enable_http_debug_logging():
@@ -586,7 +620,9 @@ class SkillExtractor:
                 print(f"      ⚠️  [SECTION] Requirements section not found; aborting extraction")
                 return {'is_it_job': False, 'extracted_skills': [], 'error': 'NO_REQUIREMENTS_SECTION', 'message': 'requirements section not found', 'raw_requirements_text': None}
 
-            prompt = self.SKILL_EXTRACTION_PROMPT.format(requirements_text=req_section)
+            # Safely insert the requirements text into the prompt template using literal
+            # replacement to avoid interpreting any other braces in the static prompt.
+            prompt = self.SKILL_EXTRACTION_PROMPT.replace('{requirements_text}', req_section)
             
             if not prompt or len(prompt.strip()) == 0:
                 print(f"      [ERROR] Prompt is empty after formatting!")
@@ -626,7 +662,7 @@ class SkillExtractor:
                 provider_cached_id = None
 
             # Build request options and attach cached content id if provider supports it
-            request_opts = build_request_options() or {}
+            request_opts = _build_request_options() or {}
             # Ensure SDK-level retries are disabled and RPC timeout set
             try:
                 if isinstance(request_opts, dict):
@@ -663,14 +699,76 @@ class SkillExtractor:
                 ),
                 request_options=request_opts
             )
-            trace_log(f"[EXTRACT] generate_content() returned with {len(response.text)} chars")
+            # DEBUG: capture raw provider response before any normalization/parsing
+            try:
+                raw_log_path = Path(__file__).parent / 'logs' / 'raw_response_debug.txt'
+                raw_log_path.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    raw_txt = getattr(response, 'text', None)
+                except Exception:
+                    raw_txt = None
+                if raw_txt is None:
+                    try:
+                        raw_txt = json.dumps(response.to_dict(), ensure_ascii=False)
+                    except Exception:
+                        raw_txt = str(response)
+                print(f"      [RAW DEBUG] response type: {type(response)}")
+                print(f"      [RAW DEBUG] response.text preview: {str(raw_txt)[:5000]}")
+                try:
+                    raw_log_path.write_text(str(raw_txt), encoding='utf-8')
+                    print(f"      [RAW DEBUG] written to {raw_log_path}")
+                except Exception as e:
+                    print(f"      [RAW DEBUG] failed to write raw response: {e}")
+            except Exception as e:
+                print(f"      [RAW DEBUG] debug capture failed: {e}")
+
+            trace_log(f"[EXTRACT] generate_content() returned with {len(getattr(response, 'text', '') or str(response))} chars")
             
-            response_text = response.text.strip()
+            response_text = (getattr(response, 'text', None) or '').strip()
             print(f"      [API] Real response received: {len(response_text)} chars")
 
             try:
-                result = normalize_job_extraction_output(response_text, job_text=req_section)
-                extracted_skills = result.get('extracted_skills', [])
+                try:
+                    result = normalize_job_extraction_output(response_text, job_text=req_section)
+                    extracted_skills = result.get('extracted_skills', [])
+                except Exception as _norm_exc:
+                    # Capture full traceback and context to assist debugging parser/schema path
+                    try:
+                        import traceback as _tb, datetime as _dt
+                        dbg_dir = Path(__file__).parent / 'logs'
+                        dbg_dir.mkdir(parents=True, exist_ok=True)
+                        dbg_file = dbg_dir / 'exception_stack_debug.txt'
+                        with open(dbg_file, 'a', encoding='utf-8') as _f:
+                            _f.write(f"\n--- Exception captured at {_dt.datetime.utcnow().isoformat()} UTC ---\n")
+                            _f.write("Error repr: " + repr(_norm_exc) + "\n\n")
+                            try:
+                                _f.write("Full traceback:\n")
+                                _f.write(_tb.format_exc())
+                            except Exception:
+                                _f.write("(failed to write traceback)\n")
+                            try:
+                                _f.write("\nResponse preview (first 10000 chars):\n")
+                                _f.write((response_text or '')[:10000] + "\n")
+                            except Exception:
+                                _f.write("(failed to write response_text)\n")
+                            try:
+                                _f.write("\nResponse.to_dict() (if available):\n")
+                                _f.write(json.dumps(getattr(response, 'to_dict', lambda: {})(), ensure_ascii=False) + "\n")
+                            except Exception:
+                                try:
+                                    _f.write(str(response) + "\n")
+                                except Exception:
+                                    _f.write("(failed to write response object)\n")
+                            try:
+                                _f.write("\nContext: job_id=" + str(job_id) + "\n")
+                            except Exception:
+                                pass
+                            _f.write("--- end exception ---\n")
+                        print(f"      [EXC DEBUG] Wrote exception stack to {dbg_file}")
+                    except Exception as _e:
+                        print(f"      [EXC DEBUG] Failed to write exception debug file: {_e}")
+                    # Re-raise to preserve existing error handling upstream
+                    raise
 
                 # Post-process extracted_skills: mark `is_direct_skill` only when the
                 # skill appears explicitly in the provided job text (requirements_text).
@@ -1118,6 +1216,84 @@ class SkillExtractor:
                 except Exception as e:
                     print(f"      [POST-PROCESS] Benefits translation failed: {e}")
 
+                # Ensure each extracted skill includes `evidence_text` (keep if LLM provided,
+                # otherwise create a heuristic from the requirements section). Also keep
+                # existing fields for backward compatibility.
+                try:
+                    skills_list = result.get('extracted_skills') or []
+                    def _skill_name_of_item(it):
+                        if isinstance(it, dict):
+                            return (it.get('skill_name') or it.get('skill_name_eng') or '').strip()
+                        if isinstance(it, str):
+                            return it.strip()
+                        return ''
+
+                    def _find_evidence(skill_name, text_section):
+                        if not skill_name or not text_section:
+                            return None
+                        # search line-by-line for exact word-boundary match
+                        lines = [ln.strip() for ln in re.split(r"\r?\n", text_section) if ln.strip()]
+                        try:
+                            pat = r'\\b' + re.escape(skill_name) + r'\\b'
+                            for ln in lines:
+                                if re.search(pat, ln, flags=re.IGNORECASE):
+                                    return ln
+                        except Exception:
+                            pass
+                        # fallback: match any longer token from skill_name
+                        tokens = [t for t in re.split(r"\s+", skill_name) if len(t) >= 4]
+                        if tokens:
+                            for ln in lines:
+                                for t in tokens:
+                                    if re.search(r'\\b' + re.escape(t) + r'\\b', ln, flags=re.IGNORECASE):
+                                        return ln
+                        return None
+
+                    evidence_count = 0
+                    no_evidence_count = 0
+                    for i, itm in enumerate(skills_list):
+                        # Normalize string items into dicts (backward compatibility)
+                        if isinstance(itm, str):
+                            new_it = {'skill_name': itm.strip(), 'confidence': 100, 'is_direct_skill': True}
+                        else:
+                            new_it = dict(itm) if isinstance(itm, dict) else {'skill_name': str(itm)}
+
+                        # Preserve existing evidence_text if provided by LLM
+                        if new_it.get('evidence_text'):
+                            evidence_count += 1
+                        else:
+                            # Attempt heuristic extraction from req_section (job requirements)
+                            skill_nm = _skill_name_of_item(new_it)
+                            ev = None
+                            try:
+                                ev = _find_evidence(skill_nm, req_section)
+                            except Exception:
+                                ev = None
+                            if ev:
+                                new_it['evidence_text'] = ev
+                                evidence_count += 1
+                            else:
+                                new_it['evidence_text'] = None
+                                no_evidence_count += 1
+
+                        # Ensure confidence exists and is int
+                        try:
+                            if 'confidence' in new_it:
+                                new_it['confidence'] = int(new_it.get('confidence') or 0)
+                            else:
+                                new_it['confidence'] = 100
+                        except Exception:
+                            new_it['confidence'] = 100
+
+                        # Write back normalized item
+                        skills_list[i] = new_it
+
+                    # Put back into result
+                    result['extracted_skills'] = skills_list
+                    print(f"      [EVIDENCE] skills_with_evidence={evidence_count}, skills_without_evidence={no_evidence_count}")
+                except Exception as e:
+                    print(f"      [EVIDENCE] evidence attachment failed: {e}")
+
                 print(f"      [JSON] ✓ Parsed successfully. Skills: {len(extracted_skills)} {translation_status}")
                 key_name = get_key_name_by_index(self.current_key_idx)
                 print(f"      ✅ [SUCCESS] {key_name} is WORKING - returned valid skills")
@@ -1135,6 +1311,41 @@ class SkillExtractor:
             error_str = str(e).lower()
             print(f"      [ERROR] Exception type: {type(e).__name__}")
             print(f"      [ERROR] Message: {str(e)[:150]}")
+            # Capture full traceback and context for any top-level exception during extraction
+            try:
+                import traceback as _tb, datetime as _dt
+                dbg_dir = Path(__file__).parent / 'logs'
+                dbg_dir.mkdir(parents=True, exist_ok=True)
+                dbg_file = dbg_dir / 'exception_stack_debug.txt'
+                with open(dbg_file, 'a', encoding='utf-8') as _f:
+                    _f.write(f"\n=== TOP-LEVEL Exception captured at {_dt.datetime.utcnow().isoformat()} UTC ===\n")
+                    _f.write("Error repr: " + repr(e) + "\n\n")
+                    try:
+                        _f.write("Full traceback:\n")
+                        _f.write(_tb.format_exc())
+                    except Exception:
+                        _f.write("(failed to write traceback)\n")
+                    try:
+                        _f.write("\nResponse preview (first 10000 chars):\n")
+                        _f.write((response_text or '')[:10000] + "\n")
+                    except Exception:
+                        _f.write("(failed to write response_text)\n")
+                    try:
+                        _f.write("\nResponse.to_dict() (if available):\n")
+                        _f.write(json.dumps(getattr(response, 'to_dict', lambda: {})(), ensure_ascii=False) + "\n")
+                    except Exception:
+                        try:
+                            _f.write(str(response) + "\n")
+                        except Exception:
+                            _f.write("(failed to write response object)\n")
+                    try:
+                        _f.write("\nContext: job_id=" + str(job_id) + "\n")
+                    except Exception:
+                        pass
+                    _f.write("=== end top-level exception ===\n")
+                print(f"      [EXC DEBUG] Wrote top-level exception stack to {dbg_file}")
+            except Exception:
+                pass
             
             # Auto-rotate on quota error (429 = daily quota exhausted)
             if '429' in error_str or 'quota' in error_str:
@@ -1211,7 +1422,7 @@ Output only the cleaned text, nothing else."""
             
             trace_log(f"[STEP1B] ABOUT TO CALL generate_content() with prompt {len(prompt)} chars")
             # Build request options and ensure no SDK retry + timeout
-            _step1b_req_opts = build_request_options()
+            _step1b_req_opts = _build_request_options()
             try:
                 if isinstance(_step1b_req_opts, dict):
                     _step1b_req_opts.setdefault('retry', None)

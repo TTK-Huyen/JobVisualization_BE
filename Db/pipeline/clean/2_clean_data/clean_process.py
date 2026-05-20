@@ -508,12 +508,46 @@ def step_2_extract_sections(input_file, output_file="clean/extracted.json"):
             else:
                 print(f"   ├─ SUB-STEP 2: Regex-only mode, skipping Gemini extraction ({len(batch_jobs)} jobs)...")
             
-            # Prepare batch: pass full cleaned requirements_text (no pre-splitting)
+            # Prepare batch: choose extraction input according to priority
+            # Priority (first non-empty):
+            # 1) job.skills_desc.value (or job.skills_desc)
+            # 2) raw.requirements_text
+            # 3) requirements_text
+            # 4) fallback: full cleaned text (description / description_html)
             batch_for_extraction = []
             for job in batch_jobs:
-                # Create a copy for extraction (to avoid modifying original)
+                # Create a shallow copy for extraction (avoid modifying original)
                 job_copy = job.copy()
-                job_copy['requirements_text'] = job.get('requirements_text', '') or ''
+
+                def _pick_skill_input(j):
+                    # 1) nested job.skills_desc
+                    job_block = j.get('job') or {}
+                    skills_desc = job_block.get('skills_desc') or j.get('skills_desc')
+                    if isinstance(skills_desc, dict):
+                        val = skills_desc.get('value')
+                        if val and str(val).strip():
+                            return str(val), 'job.skills_desc.value'
+                    if isinstance(skills_desc, str) and skills_desc.strip():
+                        return skills_desc, 'job.skills_desc'
+
+                    # 2) raw.requirements_text
+                    raw_req = (j.get('raw') or {}).get('requirements_text')
+                    if raw_req and str(raw_req).strip():
+                        return str(raw_req), 'raw.requirements_text'
+
+                    # 3) requirements_text
+                    req = j.get('requirements_text')
+                    if req and str(req).strip():
+                        return str(req), 'requirements_text'
+
+                    # 4) fallback to cleaned full text
+                    fallback = j.get('description') or j.get('description_html') or j.get('requirements_text') or ''
+                    return str(fallback), 'fallback.cleaned_full_text'
+
+                chosen_text, chosen_src = _pick_skill_input(job)
+                job_copy['requirements_text'] = chosen_text
+                # Annotate source used so we can report/debug later
+                job_copy['_skill_input_source'] = chosen_src
                 batch_for_extraction.append(job_copy)
 
             print(f"   ├─ DEBUG: batch_for_extraction size = {len(batch_for_extraction)}")

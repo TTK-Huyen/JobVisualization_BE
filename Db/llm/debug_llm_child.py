@@ -33,6 +33,12 @@ def main():
         payload = json.loads(raw)
         prompt = payload.get("prompt")
         api_key = payload.get("api_key")
+        # Debug prints to stderr so stdout remains valid JSON for the parent
+        try:
+            print("CHILD API:", bool(api_key), file=sys.stderr)
+            print("CHILD PROMPT:", bool(prompt), file=sys.stderr)
+        except Exception:
+            pass
         if not api_key or not prompt:
             print(json.dumps({"success": False, "error": "missing prompt or api_key"}))
             return

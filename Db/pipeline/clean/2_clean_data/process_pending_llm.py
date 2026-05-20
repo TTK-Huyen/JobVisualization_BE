@@ -101,6 +101,11 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_CONFIG_PATH,
         help="Path to clean_config.yaml that contains prompt_extraction.",
     )
+    parser.add_argument(
+        "--ignore-retry-queue",
+        action="store_true",
+        help="Ignore existing retry queue and process only the current pending file.",
+    )
     return parser.parse_args()
 
 
@@ -161,7 +166,8 @@ def _load_api_keys(prefix: str = "GEMINI_API_KEY_") -> List[str]:
 
 def _build_prompt(job: Dict[str, Any], config_path: Path) -> str:
     prompt_template = load_job_extraction_prompt(config_path)
-    requirements_text = _normalize_text(job.get("requirements_text"))
+    # Prefer `cleaned_text` when available (more complete cleaned HTML->text)
+    requirements_text = _normalize_text(job.get("cleaned_text") or job.get("requirements_text"))
     # Use a safe single-placeholder replacement because templates may contain
     # JSON examples with braces that would break str.format().
     if requirements_text is None:
@@ -272,8 +278,8 @@ def build_llm_input_text(job: Dict[str, Any], max_chars: int = 8000) -> str:
         if txt:
             parts.append(txt)
 
-    # Requirements / cleaned text
-    req = _safe_get('requirements_text', 'requirements', 'requirements_raw')
+    # Prefer explicit `cleaned_text` if present; else fall back to requirements
+    req = _safe_get('cleaned_text', 'requirements_text', 'requirements', 'requirements_raw')
     if isinstance(req, list):
         req = ' '.join(str(x) for x in req)
     if req:
@@ -826,6 +832,11 @@ def main() -> int:
 
     # Build queues: active_queue for immediate processing, delayed_retry_queue for future retries
     retry_jobs = load_retry_queue() or []
+    # Optionally ignore previously-scheduled retry queue entries for testing.
+    ignore_flag = args.ignore_retry_queue or os.getenv('IGNORE_RETRY_QUEUE', '').lower() in ('1', 'true', 'yes')
+    if ignore_flag:
+        logger.info("IGNORE_RETRY_QUEUE enabled: skipping merge of existing retry queue and processing only current pending file")
+        retry_jobs = []
     delayed_retry_jobs: List[Dict[str, Any]] = []
     # in-memory queue for jobs deferred because no key was available within the short-wait window
     no_key_wait_queue: List[Dict[str, Any]] = []

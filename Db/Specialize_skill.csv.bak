@@ -1,0 +1,2291 @@
+NAME,SUBCATEGORY_NAME,CATEGORY_NAME,TYPE
+Agile Software Development,Agile Software Development,Information Technology,Specialized Skill
+JIRA,Agile Software Development,Information Technology,Specialized Skill
+Behavior-Driven Development,Agile Software Development,Information Technology,Specialized Skill
+Scrum (Software Development),Agile Software Development,Information Technology,Specialized Skill
+Test-Driven Development (TDD),Agile Software Development,Information Technology,Specialized Skill
+Agile Software Development,Agile Software Development,Information Technology,Specialized Skill
+Social Media APIs,Application Programming Interface (API),Information Technology,Specialized Skill
+WCF/Web API,Application Programming Interface (API),Information Technology,Specialized Skill
+Mobile Rich Media Ad Interface Definitions (MRAID),Application Programming Interface (API),Information Technology,Specialized Skill
+REST API Development,Application Programming Interface (API),Information Technology,Specialized Skill
+Graphics APIs,Application Programming Interface (API),Information Technology,Specialized Skill
+FastAPI,Application Programming Interface (API),Information Technology,Specialized Skill
+Amazon API Gateway,Application Programming Interface (API),Information Technology,Specialized Skill
+Azure API Apps,Application Programming Interface (API),Information Technology,Specialized Skill
+AWS AppSync,Application Programming Interface (API),Information Technology,Specialized Skill
+Apollo Server,Application Programming Interface (API),Information Technology,Specialized Skill
+OpenAPI Specification,Application Programming Interface (API),Information Technology,Specialized Skill
+Azure API Management,Application Programming Interface (API),Information Technology,Specialized Skill
+Apollo Client,Application Programming Interface (API),Information Technology,Specialized Skill
+Vulkan Graphics API,Application Programming Interface (API),Information Technology,Specialized Skill
+Application Programming Interface (API),Application Programming Interface (API),Information Technology,Specialized Skill
+Core Audio,Application Programming Interface (API),Information Technology,Specialized Skill
+Direct3D,Application Programming Interface (API),Information Technology,Specialized Skill
+Facebook Graph API,Application Programming Interface (API),Information Technology,Specialized Skill
+Java Persistence API,Application Programming Interface (API),Information Technology,Specialized Skill
+Java Remote Method Invocation,Application Programming Interface (API),Information Technology,Specialized Skill
+Java Transaction API,Application Programming Interface (API),Information Technology,Specialized Skill
+JavaMail,Application Programming Interface (API),Information Technology,Specialized Skill
+Java API For RESTful Web Services,Application Programming Interface (API),Information Technology,Specialized Skill
+Java API For XML Processing,Application Programming Interface (API),Information Technology,Specialized Skill
+Content Repository API For Java,Application Programming Interface (API),Information Technology,Specialized Skill
+Libvirt,Application Programming Interface (API),Information Technology,Specialized Skill
+Location APIs,Application Programming Interface (API),Information Technology,Specialized Skill
+Mbeans (Java APIs),Application Programming Interface (API),Information Technology,Specialized Skill
+Microsoft UI Automation,Application Programming Interface (API),Information Technology,Specialized Skill
+Windows API,Application Programming Interface (API),Information Technology,Specialized Skill
+Object Linking And Embedding - Database (OLE DB),Application Programming Interface (API),Information Technology,Specialized Skill
+OpenMP,Application Programming Interface (API),Information Technology,Specialized Skill
+OpenCL,Application Programming Interface (API),Information Technology,Specialized Skill
+OpenMAX,Application Programming Interface (API),Information Technology,Specialized Skill
+Pluggable Authentication Module (PAM),Application Programming Interface (API),Information Technology,Specialized Skill
+POSIX Threads,Application Programming Interface (API),Information Technology,Specialized Skill
+Swagger UI,Application Programming Interface (API),Information Technology,Specialized Skill
+RESTEasy (JBoss),Application Programming Interface (API),Information Technology,Specialized Skill
+RESTful API,Application Programming Interface (API),Information Technology,Specialized Skill
+Task Parallel Library (.NET Framework),Application Programming Interface (API),Information Technology,Specialized Skill
+WebRTC,Application Programming Interface (API),Information Technology,Specialized Skill
+Postman API Platform,Application Programming Interface (API),Information Technology,Specialized Skill
+Hateoas,Application Programming Interface (API),Information Technology,Specialized Skill
+API Throttling,Application Programming Interface (API),Information Technology,Specialized Skill
+OpenAPI,Application Programming Interface (API),Information Technology,Specialized Skill
+Aspose,Application Programming Interface (API),Information Technology,Specialized Skill
+Wiremock,Application Programming Interface (API),Information Technology,Specialized Skill
+API Design,Application Programming Interface (API),Information Technology,Specialized Skill
+API Gateway,Application Programming Interface (API),Information Technology,Specialized Skill
+API Management,Application Programming Interface (API),Information Technology,Specialized Skill
+Hasura GraphQL Engine,Application Programming Interface (API),Information Technology,Specialized Skill
+AdonisJS,Application Programming Interface (API),Information Technology,Specialized Skill
+Experience API (xAPI),Application Programming Interface (API),Information Technology,Specialized Skill
+Open Commerce API (OCAPI),Application Programming Interface (API),Information Technology,Specialized Skill
+oneAPI,Application Programming Interface (API),Information Technology,Specialized Skill
+Data Plane Development Kit (DPDK),Application Programming Interface (API),Information Technology,Specialized Skill
+ReadyAPI,Application Programming Interface (API),Information Technology,Specialized Skill
+Application Programming Interface (API),Application Programming Interface (API),Information Technology,Specialized Skill
+Nvidia Jetson,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Dask (Software),Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Seq2Seq,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Watson Studio,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Vowpal Wabbit,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Kaldi,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Dlib (C++ Library),Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Automated Machine Learning,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+AWS SageMaker,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Amazon Textract,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Voice User Interface,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Convolutional Neural Networks,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Azure Machine Learning,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Transfer Learning,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Long Short-Term Memory (LSTM),Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Adversarial Machine Learning,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Fast.ai,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Ensemble Methods,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Speech Synthesis,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Autoencoders,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Intelligent Virtual Assistant,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Voice Assistant Technology,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Gradient Boosting,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Microsoft LUIS,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Apache MXNet,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Open Neural Network Exchange (ONNX),Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Azure Cognitive Services,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Bot Framework,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Gesture Recognition,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+3D Reconstruction,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Multi-Agent Systems,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Artificial Intelligence,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Amazon Alexa,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Artificial Neural Networks,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Classification And Regression Tree (CART),Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Dialog Systems,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Expert Systems,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Genetic Algorithm,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Hidden Markov Model,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Intelligent Agent,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Intelligent Control,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Cognitive Robotics,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+K-Nearest Neighbors Algorithm,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Knowledge Engineering,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Knowledge-Based Systems,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Language Model,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+LibSVM,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Machine Learning,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Natural Language User Interface,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+OpenCV,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Recommender Systems,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+TensorFlow,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Speech Recognition Software,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Supervised Learning,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Support Vector Machine,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Feature Selection,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Weka,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Reinforcement Learning,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Feature Engineering,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Chatbot,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Collaborative Filtering,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Voice Interaction,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Random Forest Algorithm,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Deep Learning,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+AdaBoost (Adaptive Boosting),Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Keras (Neural Network Library),Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Deeplearning4j,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Scikit-Learn (Python Package),Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Xgboost,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Cudnn,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Recurrent Neural Network (RNN),Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Game Ai,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Feature Extraction,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+PyTorch (Machine Learning Library),Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Unsupervised Learning,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Activity Recognition,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+MLflow,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+PaddlePaddle,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Google AutoML,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+H2O.ai,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+OpenVINO,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+MLOps (Machine Learning Operations),Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+OpenAI Gym,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Kubeflow,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+AIOps (Artificial Intelligence For IT Operations),Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Text-To-Speech,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Explainable AI (XAI),Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Generative Adversarial Networks,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+AI/ML Inference,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Machine Learning Model Monitoring And Evaluation,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Transformer (Machine Learning Model),Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Variational Autoencoders,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+ChatGPT,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Large Language Modeling,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+PyTorch Lightning,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Attention Mechanisms,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Generative Artificial Intelligence,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Prompt Engineering,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+ModelOps,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Operationalizing AI,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Ethical AI,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+AI Copywriting,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Artificial Intelligence Risk,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+DALL-E Image Generator,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Stable Diffusion,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+LightGBM,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Intelligent Automation,Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Artificial Intelligence and Machine Learning (AI/ML),Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Artificial Intelligence and Machine Learning (AI/ML),Artificial Intelligence and Machine Learning (AI/ML),Information Technology,Specialized Skill
+Interactive 3D,Augmented and Virtual Reality (AR/VR),Information Technology,Specialized Skill
+ARCore,Augmented and Virtual Reality (AR/VR),Information Technology,Specialized Skill
+Matterport,Augmented and Virtual Reality (AR/VR),Information Technology,Specialized Skill
+WebVR,Augmented and Virtual Reality (AR/VR),Information Technology,Specialized Skill
+Virtual Reality,Augmented and Virtual Reality (AR/VR),Information Technology,Specialized Skill
+Extended Reality,Augmented and Virtual Reality (AR/VR),Information Technology,Specialized Skill
+Mixed Reality,Augmented and Virtual Reality (AR/VR),Information Technology,Specialized Skill
+Enscape (VR Rendering Software),Augmented and Virtual Reality (AR/VR),Information Technology,Specialized Skill
+Augmented Reality,Augmented and Virtual Reality (AR/VR),Information Technology,Specialized Skill
+ARKit,Augmented and Virtual Reality (AR/VR),Information Technology,Specialized Skill
+Vuforia,Augmented and Virtual Reality (AR/VR),Information Technology,Specialized Skill
+Kinect,Augmented and Virtual Reality (AR/VR),Information Technology,Specialized Skill
+Hololens (VR Technology),Augmented and Virtual Reality (AR/VR),Information Technology,Specialized Skill
+Leap Motion,Augmented and Virtual Reality (AR/VR),Information Technology,Specialized Skill
+Oculus,Augmented and Virtual Reality (AR/VR),Information Technology,Specialized Skill
+Augmented and Virtual Reality (AR/VR),Augmented and Virtual Reality (AR/VR),Information Technology,Specialized Skill
+Augmented and Virtual Reality (AR/VR),Augmented and Virtual Reality (AR/VR),Information Technology,Specialized Skill
+EMC Avamar,Backup Software,Information Technology,Specialized Skill
+CommVault,Backup Software,Information Technology,Specialized Skill
+AWS Backup,Backup Software,Information Technology,Specialized Skill
+IBM Tivoli Storage Manager,Backup Software,Information Technology,Specialized Skill
+Symantec Backup Exec,Backup Software,Information Technology,Specialized Skill
+Bacula,Backup Software,Information Technology,Specialized Skill
+EMC NetWorker,Backup Software,Information Technology,Specialized Skill
+HP Data Protector,Backup Software,Information Technology,Specialized Skill
+Network Data Management Protocol,Backup Software,Information Technology,Specialized Skill
+NetBackup,Backup Software,Information Technology,Specialized Skill
+RecoverPoint,Backup Software,Information Technology,Specialized Skill
+Recovery Manager (RMAN),Backup Software,Information Technology,Specialized Skill
+ShadowProtect,Backup Software,Information Technology,Specialized Skill
+Percona Xtrabackup (Software),Backup Software,Information Technology,Specialized Skill
+Zerto,Backup Software,Information Technology,Specialized Skill
+Backup Software,Backup Software,Information Technology,Specialized Skill
+Backup Software,Backup Software,Information Technology,Specialized Skill
+Computer Maintenance,Basic Technical Knowledge,Information Technology,Specialized Skill
+Basic Technical Knowledge,Basic Technical Knowledge,Information Technology,Specialized Skill
+Basic Technical Knowledge,Basic Technical Knowledge,Information Technology,Specialized Skill
+Truffle (Software),Blockchain,Information Technology,Specialized Skill
+Solidity (Programming Language),Blockchain,Information Technology,Specialized Skill
+Hyperledger,Blockchain,Information Technology,Specialized Skill
+Ethereum,Blockchain,Information Technology,Specialized Skill
+Smart Contracts,Blockchain,Information Technology,Specialized Skill
+Blockchain Security,Blockchain,Information Technology,Specialized Skill
+Non-Fungible Tokens (NFT),Blockchain,Information Technology,Specialized Skill
+OpenZeppelin,Blockchain,Information Technology,Specialized Skill
+Chainlink,Blockchain,Information Technology,Specialized Skill
+Blockchain,Blockchain,Information Technology,Specialized Skill
+Blockchain,Blockchain,Information Technology,Specialized Skill
+C (Programming Language),C and C++,Information Technology,Specialized Skill
+Boost (C++ Libraries),C and C++,Information Technology,Specialized Skill
+C++ (Programming Language),C and C++,Information Technology,Specialized Skill
+Clang,C and C++,Information Technology,Specialized Skill
+Cython,C and C++,Information Technology,Specialized Skill
+Embedded C++,C and C++,Information Technology,Specialized Skill
+Embedded C,C and C++,Information Technology,Specialized Skill
+Microsoft Foundation Class Library (C++ Libraries),C and C++,Information Technology,Specialized Skill
+MISRA C (C Programming Language),C and C++,Information Technology,Specialized Skill
+Objective-C (Programming Language),C and C++,Information Technology,Specialized Skill
+OpenFrameworks,C and C++,Information Technology,Specialized Skill
+SystemC,C and C++,Information Technology,Specialized Skill
+WxWidgets,C and C++,Information Technology,Specialized Skill
+Standard Template Library (STL),C and C++,Information Technology,Specialized Skill
+Cppcheck,C and C++,Information Technology,Specialized Skill
+C and C++,C and C++,Information Technology,Specialized Skill
+C and C++,C and C++,Information Technology,Specialized Skill
+Cloud Strategy,Cloud Computing,Information Technology,Specialized Skill
+Cloud-Native Architecture,Cloud Computing,Information Technology,Specialized Skill
+Hybrid Cloud Computing,Cloud Computing,Information Technology,Specialized Skill
+Cloud Administration,Cloud Computing,Information Technology,Specialized Skill
+Cloud-Native Infrastructure,Cloud Computing,Information Technology,Specialized Skill
+Cloud Governance,Cloud Computing,Information Technology,Specialized Skill
+Virtual Private Cloud,Cloud Computing,Information Technology,Specialized Skill
+Cloud Migration,Cloud Computing,Information Technology,Specialized Skill
+Cloud Operations,Cloud Computing,Information Technology,Specialized Skill
+Private Cloud,Cloud Computing,Information Technology,Specialized Skill
+Serverless Computing,Cloud Computing,Information Technology,Specialized Skill
+Cloud Computing Architecture,Cloud Computing,Information Technology,Specialized Skill
+Cloud Security,Cloud Computing,Information Technology,Specialized Skill
+Cloud Engineering,Cloud Computing,Information Technology,Specialized Skill
+Cloud Infrastructure,Cloud Computing,Information Technology,Specialized Skill
+Apache CloudStack,Cloud Computing,Information Technology,Specialized Skill
+OpenStack,Cloud Computing,Information Technology,Specialized Skill
+Public Cloud,Cloud Computing,Information Technology,Specialized Skill
+Autoscaling,Cloud Computing,Information Technology,Specialized Skill
+AWS Cloud Development Kit (CDK),Cloud Computing,Information Technology,Specialized Skill
+Cloud-Native Development,Cloud Computing,Information Technology,Specialized Skill
+HashiStack (Software),Cloud Computing,Information Technology,Specialized Skill
+Cloud Computing,Cloud Computing,Information Technology,Specialized Skill
+Cloud Computing,Cloud Computing,Information Technology,Specialized Skill
+QualysGuard,Cloud Solutions,Information Technology,Specialized Skill
+Firebase Cloud Messaging (FCM),Cloud Solutions,Information Technology,Specialized Skill
+Google Cloud Build,Cloud Solutions,Information Technology,Specialized Skill
+Oracle Unified Directory (OUD),Cloud Solutions,Information Technology,Specialized Skill
+WSO2 ESB,Cloud Solutions,Information Technology,Specialized Skill
+Database As A Service (DBaaS),Cloud Solutions,Information Technology,Specialized Skill
+Google Cloud Composer,Cloud Solutions,Information Technology,Specialized Skill
+Google Compute Engine (GCE),Cloud Solutions,Information Technology,Specialized Skill
+AWS Auto Scaling,Cloud Solutions,Information Technology,Specialized Skill
+Dell Boomi (Integration Platform),Cloud Solutions,Information Technology,Specialized Skill
+Amazon Elastic Container Service,Cloud Solutions,Information Technology,Specialized Skill
+SnapLogic,Cloud Solutions,Information Technology,Specialized Skill
+Azure Command-Line Interface (Azure CLI),Cloud Solutions,Information Technology,Specialized Skill
+Amazon ElastiCache,Cloud Solutions,Information Technology,Specialized Skill
+AWS Kinesis,Cloud Solutions,Information Technology,Specialized Skill
+Azure Data Lake,Cloud Solutions,Information Technology,Specialized Skill
+Spring Cloud,Cloud Solutions,Information Technology,Specialized Skill
+Amazon Elastic File System,Cloud Solutions,Information Technology,Specialized Skill
+Google Cloud Dataproc,Cloud Solutions,Information Technology,Specialized Skill
+Amazon Route 53,Cloud Solutions,Information Technology,Specialized Skill
+Azure Monitor,Cloud Solutions,Information Technology,Specialized Skill
+Multi-Cloud,Cloud Solutions,Information Technology,Specialized Skill
+SOASTA CloudTest,Cloud Solutions,Information Technology,Specialized Skill
+Azure Batch,Cloud Solutions,Information Technology,Specialized Skill
+Amazon Virtual Private Cloud (VPC),Cloud Solutions,Information Technology,Specialized Skill
+FinancialForce,Cloud Solutions,Information Technology,Specialized Skill
+Azure Kubernetes Service,Cloud Solutions,Information Technology,Specialized Skill
+RemedyForce (Ticket Management Software),Cloud Solutions,Information Technology,Specialized Skill
+Aspera (Software),Cloud Solutions,Information Technology,Specialized Skill
+Amazon Elastic Kubernetes Service,Cloud Solutions,Information Technology,Specialized Skill
+AWS CloudFormation,Cloud Solutions,Information Technology,Specialized Skill
+AWS Directory Service,Cloud Solutions,Information Technology,Specialized Skill
+Google Cloud Platform (GCP),Cloud Solutions,Information Technology,Specialized Skill
+Oracle Cloud,Cloud Solutions,Information Technology,Specialized Skill
+AWS Batch,Cloud Solutions,Information Technology,Specialized Skill
+AWS CodeBuild,Cloud Solutions,Information Technology,Specialized Skill
+Azure Automation,Cloud Solutions,Information Technology,Specialized Skill
+AWS Cost Management,Cloud Solutions,Information Technology,Specialized Skill
+VMWare Workspace ONE,Cloud Solutions,Information Technology,Specialized Skill
+Alibaba Cloud,Cloud Solutions,Information Technology,Specialized Skill
+Amazon Cloudfront,Cloud Solutions,Information Technology,Specialized Skill
+Amazon Elastic Compute Cloud,Cloud Solutions,Information Technology,Specialized Skill
+Amazon S3,Cloud Solutions,Information Technology,Specialized Skill
+Google App Engines,Cloud Solutions,Information Technology,Specialized Skill
+Microsoft Azure,Cloud Solutions,Information Technology,Specialized Skill
+BigTable,Cloud Solutions,Information Technology,Specialized Skill
+BigQuery,Cloud Solutions,Information Technology,Specialized Skill
+Software As A Service (SaaS),Cloud Solutions,Information Technology,Specialized Skill
+Cloud Foundry,Cloud Solutions,Information Technology,Specialized Skill
+Data As A Service (DaaS),Cloud Solutions,Information Technology,Specialized Skill
+Dataflow,Cloud Solutions,Information Technology,Specialized Skill
+GlusterFS,Cloud Solutions,Information Technology,Specialized Skill
+Google Storage,Cloud Solutions,Information Technology,Specialized Skill
+Infrastructure As A Service (IaaS),Cloud Solutions,Information Technology,Specialized Skill
+IBM Cloud Computing,Cloud Solutions,Information Technology,Specialized Skill
+IBM Storage,Cloud Solutions,Information Technology,Specialized Skill
+Integration Platform As A Service (IPaaS),Cloud Solutions,Information Technology,Specialized Skill
+Jitterbit Integration Servers,Cloud Solutions,Information Technology,Specialized Skill
+MicroStrategy Web,Cloud Solutions,Information Technology,Specialized Skill
+NetApp Applications,Cloud Solutions,Information Technology,Specialized Skill
+Nimsoft,Cloud Solutions,Information Technology,Specialized Skill
+OpenAM,Cloud Solutions,Information Technology,Specialized Skill
+OpenShift,Cloud Solutions,Information Technology,Specialized Skill
+OpenSSO,Cloud Solutions,Information Technology,Specialized Skill
+Platform As A Service (PaaS),Cloud Solutions,Information Technology,Specialized Skill
+Plesk,Cloud Solutions,Information Technology,Specialized Skill
+Rackspace Cloud,Cloud Solutions,Information Technology,Specialized Skill
+Cloudhub,Cloud Solutions,Information Technology,Specialized Skill
+Amazon Simple Notification Service (SNS),Cloud Solutions,Information Technology,Specialized Skill
+Twilio,Cloud Solutions,Information Technology,Specialized Skill
+Datadog,Cloud Solutions,Information Technology,Specialized Skill
+TIBCO Designer,Cloud Solutions,Information Technology,Specialized Skill
+Infinispan,Cloud Solutions,Information Technology,Specialized Skill
+Informatica Cloud,Cloud Solutions,Information Technology,Specialized Skill
+Browserstack,Cloud Solutions,Information Technology,Specialized Skill
+Cloudera Manager,Cloud Solutions,Information Technology,Specialized Skill
+AWS Lambda,Cloud Solutions,Information Technology,Specialized Skill
+Apigee,Cloud Solutions,Information Technology,Specialized Skill
+Heroku,Cloud Solutions,Information Technology,Specialized Skill
+Onelogin,Cloud Solutions,Information Technology,Specialized Skill
+Weebly,Cloud Solutions,Information Technology,Specialized Skill
+Joyent,Cloud Solutions,Information Technology,Specialized Skill
+Colocation,Cloud Solutions,Information Technology,Specialized Skill
+Gooddata,Cloud Solutions,Information Technology,Specialized Skill
+Cloudbees,Cloud Solutions,Information Technology,Specialized Skill
+Loggly,Cloud Solutions,Information Technology,Specialized Skill
+Amazon CloudWatch,Cloud Solutions,Information Technology,Specialized Skill
+Linode,Cloud Solutions,Information Technology,Specialized Skill
+Ringcentral,Cloud Solutions,Information Technology,Specialized Skill
+Elastic (ELK) Stack,Cloud Solutions,Information Technology,Specialized Skill
+Cloudify,Cloud Solutions,Information Technology,Specialized Skill
+Gcloud,Cloud Solutions,Information Technology,Specialized Skill
+Red Hat CloudForms,Cloud Solutions,Information Technology,Specialized Skill
+Zuora,Cloud Solutions,Information Technology,Specialized Skill
+DigitalOcean,Cloud Solutions,Information Technology,Specialized Skill
+Convox,Cloud Solutions,Information Technology,Specialized Skill
+AWS Outposts,Cloud Solutions,Information Technology,Specialized Skill
+Nutanix,Cloud Solutions,Information Technology,Specialized Skill
+Amazon Linux Amazon Machine Image (AMI),Cloud Solutions,Information Technology,Specialized Skill
+Frontify (Software),Cloud Solutions,Information Technology,Specialized Skill
+Cloud Solutions,Cloud Solutions,Information Technology,Specialized Skill
+Cloud Solutions,Cloud Solutions,Information Technology,Specialized Skill
+Atlassian Confluence,Collaborative Software,Information Technology,Specialized Skill
+IBM Rational Team Concert (Collaboration Tool),Collaborative Software,Information Technology,Specialized Skill
+Microsoft SharePoint,Collaborative Software,Information Technology,Specialized Skill
+Zimbra,Collaborative Software,Information Technology,Specialized Skill
+Miro,Collaborative Software,Information Technology,Specialized Skill
+Citrix ShareFile,Collaborative Software,Information Technology,Specialized Skill
+Digital.ai,Collaborative Software,Information Technology,Specialized Skill
+Notion (Software),Collaborative Software,Information Technology,Specialized Skill
+FigJam (Software),Collaborative Software,Information Technology,Specialized Skill
+Zeroheight (Software),Collaborative Software,Information Technology,Specialized Skill
+Collaborative Software,Collaborative Software,Information Technology,Specialized Skill
+Collaborative Software,Collaborative Software,Information Technology,Specialized Skill
+Endpoint Devices,Computer Hardware,Information Technology,Specialized Skill
+Zebra Printers,Computer Hardware,Information Technology,Specialized Skill
+Master Boot Records,Computer Hardware,Information Technology,Specialized Skill
+X86-64,Computer Hardware,Information Technology,Specialized Skill
+Macintosh Hardware,Computer Hardware,Information Technology,Specialized Skill
+CompactRIO,Computer Hardware,Information Technology,Specialized Skill
+Computer Displays,Computer Hardware,Information Technology,Specialized Skill
+DDR SDRAM,Computer Hardware,Information Technology,Specialized Skill
+HP Printers,Computer Hardware,Information Technology,Specialized Skill
+Dual In-Line Memory Module (DIMM),Computer Hardware,Information Technology,Specialized Skill
+Disk Subsystems,Computer Hardware,Information Technology,Specialized Skill
+Video Cards,Computer Hardware,Information Technology,Specialized Skill
+Disk Controller,Computer Hardware,Information Technology,Specialized Skill
+HP 3000,Computer Hardware,Information Technology,Specialized Skill
+Electronic Displays,Computer Hardware,Information Technology,Specialized Skill
+Gaming Machines,Computer Hardware,Information Technology,Specialized Skill
+HP Thin Clients,Computer Hardware,Information Technology,Specialized Skill
+HP Workstations,Computer Hardware,Information Technology,Specialized Skill
+Intel Architecture 32-Bit (I386),Computer Hardware,Information Technology,Specialized Skill
+Midrange Computer,Computer Hardware,Information Technology,Specialized Skill
+Laser Printers,Computer Hardware,Information Technology,Specialized Skill
+Linux-Powered Devices,Computer Hardware,Information Technology,Specialized Skill
+Memory Controller,Computer Hardware,Information Technology,Specialized Skill
+Magnetoresistive Random-Access Memory,Computer Hardware,Information Technology,Specialized Skill
+Peripheral Component Interconnect (PCI),Computer Hardware,Information Technology,Specialized Skill
+RISC System/6000,Computer Hardware,Information Technology,Specialized Skill
+Serial Port,Computer Hardware,Information Technology,Specialized Skill
+Sound Cards,Computer Hardware,Information Technology,Specialized Skill
+Touchscreen,Computer Hardware,Information Technology,Specialized Skill
+Motherboard,Computer Hardware,Information Technology,Specialized Skill
+I/O Processor,Computer Hardware,Information Technology,Specialized Skill
+Multiplexers,Computer Hardware,Information Technology,Specialized Skill
+Programmable Logic Controller Control Panel,Computer Hardware,Information Technology,Specialized Skill
+Plotters,Computer Hardware,Information Technology,Specialized Skill
+Itanium,Computer Hardware,Information Technology,Specialized Skill
+Xeon Phi,Computer Hardware,Information Technology,Specialized Skill
+Surface Pro,Computer Hardware,Information Technology,Specialized Skill
+IBM RAD,Computer Hardware,Information Technology,Specialized Skill
+Wire Harnesses,Computer Hardware,Information Technology,Specialized Skill
+Dell Wyse Thin Clients,Computer Hardware,Information Technology,Specialized Skill
+IBM POWER9 Microprocessors,Computer Hardware,Information Technology,Specialized Skill
+IBM POWER8 Microprocessors,Computer Hardware,Information Technology,Specialized Skill
+IBM POWER7 Microprocessors,Computer Hardware,Information Technology,Specialized Skill
+IBM POWER10 Microprocessors,Computer Hardware,Information Technology,Specialized Skill
+Network Printers,Computer Hardware,Information Technology,Specialized Skill
+Data Center Hardware,Computer Hardware,Information Technology,Specialized Skill
+Data Center Cooling,Computer Hardware,Information Technology,Specialized Skill
+X86 Architecture,Computer Hardware,Information Technology,Specialized Skill
+IBM System I,Computer Hardware,Information Technology,Specialized Skill
+ARM Architecture Microprocessors,Computer Hardware,Information Technology,Specialized Skill
+CompactPCI,Computer Hardware,Information Technology,Specialized Skill
+Data Processing Unit,Computer Hardware,Information Technology,Specialized Skill
+Microprocessor,Computer Hardware,Information Technology,Specialized Skill
+Disk Arrays,Computer Hardware,Information Technology,Specialized Skill
+PIC Microcontrollers,Computer Hardware,Information Technology,Specialized Skill
+Erasable Programmable Read Only Memory (EPROM),Computer Hardware,Information Technology,Specialized Skill
+Serial Advanced Technology Attachment (SATA),Computer Hardware,Information Technology,Specialized Skill
+KVM Switch,Computer Hardware,Information Technology,Specialized Skill
+TI MSP430,Computer Hardware,Information Technology,Specialized Skill
+Non-Volatile Random-Access Memory,Computer Hardware,Information Technology,Specialized Skill
+PCI Express,Computer Hardware,Information Technology,Specialized Skill
+Raspberry Pi,Computer Hardware,Information Technology,Specialized Skill
+Cortex M,Computer Hardware,Information Technology,Specialized Skill
+Stm32,Computer Hardware,Information Technology,Specialized Skill
+Powerpc,Computer Hardware,Information Technology,Specialized Skill
+Reduced Instruction Set Computing,Computer Hardware,Information Technology,Specialized Skill
+Serial Attached SCSI,Computer Hardware,Information Technology,Specialized Skill
+System On A Chip,Computer Hardware,Information Technology,Specialized Skill
+Texas Instruments TMS320,Computer Hardware,Information Technology,Specialized Skill
+Universal Asynchronous Receiver/Transmitter,Computer Hardware,Information Technology,Specialized Skill
+USB,Computer Hardware,Information Technology,Specialized Skill
+VMEbus,Computer Hardware,Information Technology,Specialized Skill
+Graphics Processing Unit (GPU),Computer Hardware,Information Technology,Specialized Skill
+Usart,Computer Hardware,Information Technology,Specialized Skill
+MicroBlaze,Computer Hardware,Information Technology,Specialized Skill
+Microcontrollers,Computer Hardware,Information Technology,Specialized Skill
+Multi-Core Processors,Computer Hardware,Information Technology,Specialized Skill
+Data Center Design,Computer Hardware,Information Technology,Specialized Skill
+Mainframe Storage,Computer Hardware,Information Technology,Specialized Skill
+Computer Hardware,Computer Hardware,Information Technology,Specialized Skill
+Computer Hardware,Computer Hardware,Information Technology,Specialized Skill
+Network Infrastructure,Computer Science,Information Technology,Specialized Skill
+Computer Architecture,Computer Science,Information Technology,Specialized Skill
+IT Infrastructure,Computer Science,Information Technology,Specialized Skill
+Algorithms,Computer Science,Information Technology,Specialized Skill
+ARM Architecture,Computer Science,Information Technology,Specialized Skill
+Automation,Computer Science,Information Technology,Specialized Skill
+Data Compression,Computer Science,Information Technology,Specialized Skill
+Nvidia CUDA,Computer Science,Information Technology,Specialized Skill
+Information Systems,Computer Science,Information Technology,Specialized Skill
+Data Architecture,Computer Science,Information Technology,Specialized Skill
+Data Centers,Computer Science,Information Technology,Specialized Skill
+Data Flow Diagram,Computer Science,Information Technology,Specialized Skill
+Serialization,Computer Science,Information Technology,Specialized Skill
+Data Structures,Computer Science,Information Technology,Specialized Skill
+Operating Systems,Computer Science,Information Technology,Specialized Skill
+Memory Management,Computer Science,Information Technology,Specialized Skill
+Embedded Systems,Computer Science,Information Technology,Specialized Skill
+Embedded Software,Computer Science,Information Technology,Specialized Skill
+Formal Verification,Computer Science,Information Technology,Specialized Skill
+Information Retrieval,Computer Science,Information Technology,Specialized Skill
+Information Technology Architecture,Computer Science,Information Technology,Specialized Skill
+Loose Coupling,Computer Science,Information Technology,Specialized Skill
+Message Passing Interface,Computer Science,Information Technology,Specialized Skill
+Multiprocessing,Computer Science,Information Technology,Specialized Skill
+Object-Relational Mapping,Computer Science,Information Technology,Specialized Skill
+Parsing,Computer Science,Information Technology,Specialized Skill
+Pattern Matching,Computer Science,Information Technology,Specialized Skill
+Physical Computing,Computer Science,Information Technology,Specialized Skill
+Real-Time Computing,Computer Science,Information Technology,Specialized Skill
+Regular Expressions,Computer Science,Information Technology,Specialized Skill
+Cryptanalysis,Computer Science,Information Technology,Specialized Skill
+Inverted Index,Computer Science,Information Technology,Specialized Skill
+Semantic Web,Computer Science,Information Technology,Specialized Skill
+SIMD,Computer Science,Information Technology,Specialized Skill
+Stored Procedure,Computer Science,Information Technology,Specialized Skill
+Transaction Processing (Computing),Computer Science,Information Technology,Specialized Skill
+Multithreading,Computer Science,Information Technology,Specialized Skill
+High Performance Computing,Computer Science,Information Technology,Specialized Skill
+Event Bus,Computer Science,Information Technology,Specialized Skill
+Bare Metal,Computer Science,Information Technology,Specialized Skill
+Data Pipelines,Computer Science,Information Technology,Specialized Skill
+Boolean Search,Computer Science,Information Technology,Specialized Skill
+Computer Clusters,Computer Science,Information Technology,Specialized Skill
+Computer Science,Computer Science,Information Technology,Specialized Skill
+Computer Science,Computer Science,Information Technology,Specialized Skill
+Micro Focus UCMDB,Configuration Management,Information Technology,Specialized Skill
+WebConfig,Configuration Management,Information Technology,Specialized Skill
+Server Configuration,Configuration Management,Information Technology,Specialized Skill
+Chef (Configuration Management Tool),Configuration Management,Information Technology,Specialized Skill
+Puppet (Configuration Management Tool),Configuration Management,Information Technology,Specialized Skill
+Desired State Configuration,Configuration Management,Information Technology,Specialized Skill
+AccuRev SCM,Configuration Management,Information Technology,Specialized Skill
+CA Harvest Software Change Manager,Configuration Management,Information Technology,Specialized Skill
+Apple Configurator,Configuration Management,Information Technology,Specialized Skill
+CFEngines,Configuration Management,Information Technology,Specialized Skill
+Configuration Management Databases,Configuration Management,Information Technology,Specialized Skill
+Configuration Item,Configuration Management,Information Technology,Specialized Skill
+Ifconfig,Configuration Management,Information Technology,Specialized Skill
+Ipconfig,Configuration Management,Information Technology,Specialized Skill
+System Center Configuration Manager,Configuration Management,Information Technology,Specialized Skill
+Network Configuration And Change Management,Configuration Management,Information Technology,Specialized Skill
+Physical Configuration Audit,Configuration Management,Information Technology,Specialized Skill
+Product Configuration,Configuration Management,Information Technology,Specialized Skill
+SAP Configuration,Configuration Management,Information Technology,Specialized Skill
+Software Configuration Management,Configuration Management,Information Technology,Specialized Skill
+XML Configuration Access Protocols,Configuration Management,Information Technology,Specialized Skill
+Multitopology Routing Configuration,Configuration Management,Information Technology,Specialized Skill
+Config Files,Configuration Management,Information Technology,Specialized Skill
+AWS OpsWorks,Configuration Management,Information Technology,Specialized Skill
+Properties File,Configuration Management,Information Technology,Specialized Skill
+Hardware Configuration Management,Configuration Management,Information Technology,Specialized Skill
+ANTS Profiler,Configuration Management,Information Technology,Specialized Skill
+Annotation Processing,Configuration Management,Information Technology,Specialized Skill
+Dimensions CM,Configuration Management,Information Technology,Specialized Skill
+Configuration Management,Configuration Management,Information Technology,Specialized Skill
+Configuration Management,Configuration Management,Information Technology,Specialized Skill
+Hyland OnBase,Content Management Systems,Information Technology,Specialized Skill
+WordPress Admin,Content Management Systems,Information Technology,Specialized Skill
+OpenDeploy,Content Management Systems,Information Technology,Specialized Skill
+Adobe CQ,Content Management Systems,Information Technology,Specialized Skill
+IBM Content Manager,Content Management Systems,Information Technology,Specialized Skill
+FatWire,Content Management Systems,Information Technology,Specialized Skill
+Sitecore (Software),Content Management Systems,Information Technology,Specialized Skill
+Microsoft Stream,Content Management Systems,Information Technology,Specialized Skill
+Adobe Experience Manager,Content Management Systems,Information Technology,Specialized Skill
+Concrete5,Content Management Systems,Information Technology,Specialized Skill
+Microsoft Content Management Servers,Content Management Systems,Information Technology,Specialized Skill
+DotNetNuke,Content Management Systems,Information Technology,Specialized Skill
+Documentum,Content Management Systems,Information Technology,Specialized Skill
+Drupal,Content Management Systems,Information Technology,Specialized Skill
+EZ Publish,Content Management Systems,Information Technology,Specialized Skill
+Google Search Appliance,Content Management Systems,Information Technology,Specialized Skill
+Joomla (Content Management System),Content Management Systems,Information Technology,Specialized Skill
+MODX,Content Management Systems,Information Technology,Specialized Skill
+Omeka,Content Management Systems,Information Technology,Specialized Skill
+Plone,Content Management Systems,Information Technology,Specialized Skill
+TYPO3,Content Management Systems,Information Technology,Specialized Skill
+Umbraco,Content Management Systems,Information Technology,Specialized Skill
+WordPress,Content Management Systems,Information Technology,Specialized Skill
+Zope (CMS),Content Management Systems,Information Technology,Specialized Skill
+Wix,Content Management Systems,Information Technology,Specialized Skill
+Kentico,Content Management Systems,Information Technology,Specialized Skill
+Teamsite,Content Management Systems,Information Technology,Specialized Skill
+Day Cq,Content Management Systems,Information Technology,Specialized Skill
+Tridion,Content Management Systems,Information Technology,Specialized Skill
+Sitefinity,Content Management Systems,Information Technology,Specialized Skill
+FileNet,Content Management Systems,Information Technology,Specialized Skill
+Schema Markup,Content Management Systems,Information Technology,Specialized Skill
+Content Management Systems,Content Management Systems,Information Technology,Specialized Skill
+Content Management Systems,Content Management Systems,Information Technology,Specialized Skill
+HCL AppScan,Cybersecurity,Information Technology,Specialized Skill
+ThreatConnect,Cybersecurity,Information Technology,Specialized Skill
+HackerOne,Cybersecurity,Information Technology,Specialized Skill
+Application Security Testing,Cybersecurity,Information Technology,Specialized Skill
+McAfee Enterprise Security Manager,Cybersecurity,Information Technology,Specialized Skill
+Data Encryption,Cybersecurity,Information Technology,Specialized Skill
+Netskope,Cybersecurity,Information Technology,Specialized Skill
+IBM Guardium,Cybersecurity,Information Technology,Specialized Skill
+Computer Security Incident Response,Cybersecurity,Information Technology,Specialized Skill
+Xacta,Cybersecurity,Information Technology,Specialized Skill
+ICD 503,Cybersecurity,Information Technology,Specialized Skill
+Rapid7,Cybersecurity,Information Technology,Specialized Skill
+Plan Of Action And Milestones (POA&M),Cybersecurity,Information Technology,Specialized Skill
+Claroty,Cybersecurity,Information Technology,Specialized Skill
+Static Application Security Testing (SAST),Cybersecurity,Information Technology,Specialized Skill
+Vormetric Transparent Encryption (VTE),Cybersecurity,Information Technology,Specialized Skill
+Dynamic Application Security Testing (DAST),Cybersecurity,Information Technology,Specialized Skill
+Operational Technology (OT) Security,Cybersecurity,Information Technology,Specialized Skill
+Salesforce Security,Cybersecurity,Information Technology,Specialized Skill
+Fortinet,Cybersecurity,Information Technology,Specialized Skill
+FedRAMP,Cybersecurity,Information Technology,Specialized Skill
+Digital Guardian,Cybersecurity,Information Technology,Specialized Skill
+Splunk Enterprise Security,Cybersecurity,Information Technology,Specialized Skill
+IBM Resilient,Cybersecurity,Information Technology,Specialized Skill
+Microservices Security,Cybersecurity,Information Technology,Specialized Skill
+Amazon Macie,Cybersecurity,Information Technology,Specialized Skill
+Cyber Governance,Cybersecurity,Information Technology,Specialized Skill
+Cyber Incident Response,Cybersecurity,Information Technology,Specialized Skill
+Cyber Defense,Cybersecurity,Information Technology,Specialized Skill
+Virtualization Security,Cybersecurity,Information Technology,Specialized Skill
+AWS CloudHSM,Cybersecurity,Information Technology,Specialized Skill
+Cyber Operations,Cybersecurity,Information Technology,Specialized Skill
+Azure Security,Cybersecurity,Information Technology,Specialized Skill
+Defense In Depth,Cybersecurity,Information Technology,Specialized Skill
+AWS Key Management Service (KMS),Cybersecurity,Information Technology,Specialized Skill
+Cyber Security Strategy,Cybersecurity,Information Technology,Specialized Skill
+Host Based Security System (HBSS),Cybersecurity,Information Technology,Specialized Skill
+Content Filtering,Cybersecurity,Information Technology,Specialized Skill
+Enterprise Mission Assurance Support Service (eMASS),Cybersecurity,Information Technology,Specialized Skill
+Privacy Impact Assessments,Cybersecurity,Information Technology,Specialized Skill
+Endpoint Detection And Response,Cybersecurity,Information Technology,Specialized Skill
+Container Security,Cybersecurity,Information Technology,Specialized Skill
+Azure Policy,Cybersecurity,Information Technology,Specialized Skill
+Acunetix,Cybersecurity,Information Technology,Specialized Skill
+AWS CloudTrail,Cybersecurity,Information Technology,Specialized Skill
+NIST 800-37,Cybersecurity,Information Technology,Specialized Skill
+ArcSight Enterprise Security Manager,Cybersecurity,Information Technology,Specialized Skill
+Amazon GuardDuty,Cybersecurity,Information Technology,Specialized Skill
+Azure Sentinel,Cybersecurity,Information Technology,Specialized Skill
+Snort (Intrusion Detection System),Cybersecurity,Information Technology,Specialized Skill
+Cyber Security Policies,Cybersecurity,Information Technology,Specialized Skill
+Software Security,Cybersecurity,Information Technology,Specialized Skill
+Endpoint Security,Cybersecurity,Information Technology,Specialized Skill
+Cross-Domain Solutions,Cybersecurity,Information Technology,Specialized Skill
+Threat Detection,Cybersecurity,Information Technology,Specialized Skill
+AlienVault,Cybersecurity,Information Technology,Specialized Skill
+Cyber Security Assessment,Cybersecurity,Information Technology,Specialized Skill
+NIST 800-53,Cybersecurity,Information Technology,Specialized Skill
+Information Assurance Vulnerability Management (IAVM),Cybersecurity,Information Technology,Specialized Skill
+Cyber Kill Chain Framework,Cybersecurity,Information Technology,Specialized Skill
+Server Hardening,Cybersecurity,Information Technology,Specialized Skill
+IBM QRadar (SIEM Software),Cybersecurity,Information Technology,Specialized Skill
+Ghidra (Reverse Engineering Software),Cybersecurity,Information Technology,Specialized Skill
+Attack Surface Management,Cybersecurity,Information Technology,Specialized Skill
+Amazon Inspector,Cybersecurity,Information Technology,Specialized Skill
+Cyber Threat Hunting,Cybersecurity,Information Technology,Specialized Skill
+Cyber Risk,Cybersecurity,Information Technology,Specialized Skill
+IT Security Architecture,Cybersecurity,Information Technology,Specialized Skill
+Department Of Defense (DoD) 8510,Cybersecurity,Information Technology,Specialized Skill
+Infrastructure Security,Cybersecurity,Information Technology,Specialized Skill
+Assessment And Authorization,Cybersecurity,Information Technology,Specialized Skill
+Department Of Defense (DoD) 8500 Series,Cybersecurity,Information Technology,Specialized Skill
+Spring Security,Cybersecurity,Information Technology,Specialized Skill
+Anomaly Detection,Cybersecurity,Information Technology,Specialized Skill
+Anti-Spam Techniques,Cybersecurity,Information Technology,Specialized Skill
+Penetration Testing,Cybersecurity,Information Technology,Specialized Skill
+Application Security,Cybersecurity,Information Technology,Specialized Skill
+Public Key Cryptography,Cybersecurity,Information Technology,Specialized Skill
+Code Signing,Cybersecurity,Information Technology,Specialized Skill
+Information Systems Security,Cybersecurity,Information Technology,Specialized Skill
+Buffer Overflow,Cybersecurity,Information Technology,Specialized Skill
+Burp Suite,Cybersecurity,Information Technology,Specialized Skill
+Certificate Authority,Cybersecurity,Information Technology,Specialized Skill
+Control Objectives For Information And Related Technology (COBIT),Cybersecurity,Information Technology,Specialized Skill
+Common Criteria (IT Framework),Cybersecurity,Information Technology,Specialized Skill
+Communications Security,Cybersecurity,Information Technology,Specialized Skill
+Cryptography,Cybersecurity,Information Technology,Specialized Skill
+Cross-Site Request Forgery,Cybersecurity,Information Technology,Specialized Skill
+Common Vulnerability Scoring System (CVSS),Cybersecurity,Information Technology,Specialized Skill
+Data Loss Prevention,Cybersecurity,Information Technology,Specialized Skill
+Information Privacy,Cybersecurity,Information Technology,Specialized Skill
+Data Security,Cybersecurity,Information Technology,Specialized Skill
+Database Encryption,Cybersecurity,Information Technology,Specialized Skill
+Database Security,Cybersecurity,Information Technology,Specialized Skill
+DDoS Mitigation,Cybersecurity,Information Technology,Specialized Skill
+Encryption,Cybersecurity,Information Technology,Specialized Skill
+Digital Signature,Cybersecurity,Information Technology,Specialized Skill
+Domainkeys Identified Mail,Cybersecurity,Information Technology,Specialized Skill
+Elliptic Curve Cryptography,Cybersecurity,Information Technology,Specialized Skill
+Email Filtering,Cybersecurity,Information Technology,Specialized Skill
+Incident Response,Cybersecurity,Information Technology,Specialized Skill
+Cryptographic Protocols,Cybersecurity,Information Technology,Specialized Skill
+Ethical Hacking,Cybersecurity,Information Technology,Specialized Skill
+Event Monitoring,Cybersecurity,Information Technology,Specialized Skill
+Federal Information Processing Standards (FIPS),Cybersecurity,Information Technology,Specialized Skill
+Federal Information Security Management Act,Cybersecurity,Information Technology,Specialized Skill
+Microsoft Forefront,Cybersecurity,Information Technology,Specialized Skill
+Hardware Security Module,Cybersecurity,Information Technology,Specialized Skill
+Intrusion Prevention Systems,Cybersecurity,Information Technology,Specialized Skill
+Information Assurance,Cybersecurity,Information Technology,Specialized Skill
+Security Engineering,Cybersecurity,Information Technology,Specialized Skill
+Insider Threat,Cybersecurity,Information Technology,Specialized Skill
+ISO/IEC 27002,Cybersecurity,Information Technology,Specialized Skill
+ISO/IEC 27001,Cybersecurity,Information Technology,Specialized Skill
+Java Security,Cybersecurity,Information Technology,Specialized Skill
+Kali Linux,Cybersecurity,Information Technology,Specialized Skill
+Key Management,Cybersecurity,Information Technology,Specialized Skill
+Messaging Security,Cybersecurity,Information Technology,Specialized Skill
+Vulnerability Scanning,Cybersecurity,Information Technology,Specialized Skill
+Nikto Web Scanner,Cybersecurity,Information Technology,Specialized Skill
+Offensive Security,Cybersecurity,Information Technology,Specialized Skill
+OpenSSL,Cybersecurity,Information Technology,Specialized Skill
+OpenVAS,Cybersecurity,Information Technology,Specialized Skill
+Open Web Application Security Project (OWASP),Cybersecurity,Information Technology,Specialized Skill
+Password Cracking,Cybersecurity,Information Technology,Specialized Skill
+Peoplesoft Security,Cybersecurity,Information Technology,Specialized Skill
+Public Key Infrastructure,Cybersecurity,Information Technology,Specialized Skill
+Privilege Escalation,Cybersecurity,Information Technology,Specialized Skill
+Radware,Cybersecurity,Information Technology,Specialized Skill
+Registration Authority,Cybersecurity,Information Technology,Specialized Skill
+Phishing,Cybersecurity,Information Technology,Specialized Skill
+RSA (Cryptosystem),Cybersecurity,Information Technology,Specialized Skill
+SAP Security,Cybersecurity,Information Technology,Specialized Skill
+Secure Coding,Cybersecurity,Information Technology,Specialized Skill
+Secure Messaging,Cybersecurity,Information Technology,Specialized Skill
+Secure Operating Systems,Cybersecurity,Information Technology,Specialized Skill
+Web Application Security,Cybersecurity,Information Technology,Specialized Skill
+Security Content Automation Protocol,Cybersecurity,Information Technology,Specialized Skill
+Security Requirements Analysis,Cybersecurity,Information Technology,Specialized Skill
+Security Testing,Cybersecurity,Information Technology,Specialized Skill
+Security Information And Event Management (SIEM),Cybersecurity,Information Technology,Specialized Skill
+Mobile Security,Cybersecurity,Information Technology,Specialized Skill
+Secure/Multipurpose Internet Mail Extensions (S/MIME),Cybersecurity,Information Technology,Specialized Skill
+Social Engineering,Cybersecurity,Information Technology,Specialized Skill
+SQL Injection,Cybersecurity,Information Technology,Specialized Skill
+Web Filtering,Cybersecurity,Information Technology,Specialized Skill
+Threat Management,Cybersecurity,Information Technology,Specialized Skill
+Threat Modeling,Cybersecurity,Information Technology,Specialized Skill
+Trusted Computing,Cybersecurity,Information Technology,Specialized Skill
+Trusted Platform Module,Cybersecurity,Information Technology,Specialized Skill
+Unix Security,Cybersecurity,Information Technology,Specialized Skill
+Vulnerability Assessments,Cybersecurity,Information Technology,Specialized Skill
+Vulnerability Discovery,Cybersecurity,Information Technology,Specialized Skill
+Vulnerability Management,Cybersecurity,Information Technology,Specialized Skill
+Content Security Policy,Cybersecurity,Information Technology,Specialized Skill
+HP WebInspect,Cybersecurity,Information Technology,Specialized Skill
+WS-Security,Cybersecurity,Information Technology,Specialized Skill
+Advanced Encryption Standard (AES),Cybersecurity,Information Technology,Specialized Skill
+Cloudflare,Cybersecurity,Information Technology,Specialized Skill
+Pretty Good Privacy (PGP),Cybersecurity,Information Technology,Specialized Skill
+Hardening,Cybersecurity,Information Technology,Specialized Skill
+Copy Protection,Cybersecurity,Information Technology,Specialized Skill
+Checkmarx,Cybersecurity,Information Technology,Specialized Skill
+Selinux,Cybersecurity,Information Technology,Specialized Skill
+Metasploit,Cybersecurity,Information Technology,Specialized Skill
+Honeypots (Computing),Cybersecurity,Information Technology,Specialized Skill
+Ssh Keys,Cybersecurity,Information Technology,Specialized Skill
+Sqlmap,Cybersecurity,Information Technology,Specialized Skill
+Big Ip,Cybersecurity,Information Technology,Specialized Skill
+Cross-Site Scripting,Cybersecurity,Information Technology,Specialized Skill
+Serverless Security,Cybersecurity,Information Technology,Specialized Skill
+Firmware Security,Cybersecurity,Information Technology,Specialized Skill
+Mobile Application Penetration Testing,Cybersecurity,Information Technology,Specialized Skill
+Hardware Security,Cybersecurity,Information Technology,Specialized Skill
+Thick Client Penetration Testing,Cybersecurity,Information Technology,Specialized Skill
+Cloud Penetration Testing,Cybersecurity,Information Technology,Specialized Skill
+Software Security Architecture,Cybersecurity,Information Technology,Specialized Skill
+Web Application Penetration Testing,Cybersecurity,Information Technology,Specialized Skill
+Wireless Penetration Testing,Cybersecurity,Information Technology,Specialized Skill
+Wireless Security Testing,Cybersecurity,Information Technology,Specialized Skill
+Security Operations (SecOps),Cybersecurity,Information Technology,Specialized Skill
+Kenna Security,Cybersecurity,Information Technology,Specialized Skill
+InsightVM (Vulnerability Scanning Software),Cybersecurity,Information Technology,Specialized Skill
+Red Teaming,Cybersecurity,Information Technology,Specialized Skill
+YARA (Software),Cybersecurity,Information Technology,Specialized Skill
+Prisma Cloud,Cybersecurity,Information Technology,Specialized Skill
+Cortex XDR,Cybersecurity,Information Technology,Specialized Skill
+Product Security,Cybersecurity,Information Technology,Specialized Skill
+AI Security,Cybersecurity,Information Technology,Specialized Skill
+Cybersecurity,Cybersecurity,Information Technology,Specialized Skill
+Cybersecurity,Cybersecurity,Information Technology,Specialized Skill
+Data Acquisition,Data Collection,Information Technology,Specialized Skill
+Data Extraction,Data Collection,Information Technology,Specialized Skill
+Web Scraping,Data Collection,Information Technology,Specialized Skill
+Nutch,Data Collection,Information Technology,Specialized Skill
+Scrapy (Web Crawler),Data Collection,Information Technology,Specialized Skill
+Sensor Fusion,Data Collection,Information Technology,Specialized Skill
+Web Crawling,Data Collection,Information Technology,Specialized Skill
+Data Ingestion,Data Collection,Information Technology,Specialized Skill
+Beautifulsoup,Data Collection,Information Technology,Specialized Skill
+Telegraf,Data Collection,Information Technology,Specialized Skill
+Segment (Software),Data Collection,Information Technology,Specialized Skill
+Data Collection,Data Collection,Information Technology,Specialized Skill
+Data Collection,Data Collection,Information Technology,Specialized Skill
+DataFlux,Data Management,Information Technology,Specialized Skill
+OSIsoft,Data Management,Information Technology,Specialized Skill
+Data Taxonomy,Data Management,Information Technology,Specialized Skill
+Complex Event Processing,Data Management,Information Technology,Specialized Skill
+Datacap,Data Management,Information Technology,Specialized Skill
+Reltio (Master Data Management Software),Data Management,Information Technology,Specialized Skill
+Data Management Platforms,Data Management,Information Technology,Specialized Skill
+IBM Master Data Management,Data Management,Information Technology,Specialized Skill
+Data Wrangling,Data Management,Information Technology,Specialized Skill
+Master Data Management,Data Management,Information Technology,Specialized Skill
+Test Data Management,Data Management,Information Technology,Specialized Skill
+IBM Optim,Data Management,Information Technology,Specialized Skill
+Apache Atlas,Data Management,Information Technology,Specialized Skill
+Signiant (File Transfer Software),Data Management,Information Technology,Specialized Skill
+Informatica Master Data Management,Data Management,Information Technology,Specialized Skill
+Data Curation,Data Management,Information Technology,Specialized Skill
+Apache Accumulo,Data Management,Information Technology,Specialized Skill
+Alembic (Data Migration Tool),Data Management,Information Technology,Specialized Skill
+Data Dictionary,Data Management,Information Technology,Specialized Skill
+Data Domain,Data Management,Information Technology,Specialized Skill
+Data Governance,Data Management,Information Technology,Specialized Skill
+Data Hub,Data Management,Information Technology,Specialized Skill
+Data Integrity,Data Management,Information Technology,Specialized Skill
+Data Mapping,Data Management,Information Technology,Specialized Skill
+Data Masking,Data Management,Information Technology,Specialized Skill
+Data Migration,Data Management,Information Technology,Specialized Skill
+Data Quality,Data Management,Information Technology,Specialized Skill
+Data Recovery,Data Management,Information Technology,Specialized Skill
+Data Retention,Data Management,Information Technology,Specialized Skill
+Data Synchronization,Data Management,Information Technology,Specialized Skill
+Data Virtualization,Data Management,Information Technology,Specialized Skill
+IBM DB2,Data Management,Information Technology,Specialized Skill
+Oracle Essbase,Data Management,Information Technology,Specialized Skill
+FastExport,Data Management,Information Technology,Specialized Skill
+Hierarchical Data Format,Data Management,Information Technology,Specialized Skill
+IDoc,Data Management,Information Technology,Specialized Skill
+Information Lifecycle Management,Data Management,Information Technology,Specialized Skill
+Legacy System Migration Workbench,Data Management,Information Technology,Specialized Skill
+Meter Data Management,Data Management,Information Technology,Specialized Skill
+Metadata Management,Data Management,Information Technology,Specialized Skill
+Navicat,Data Management,Information Technology,Specialized Skill
+National Information Exchange Model,Data Management,Information Technology,Specialized Skill
+Rsync,Data Management,Information Technology,Specialized Skill
+SAP NetWeaver Data Management,Data Management,Information Technology,Specialized Skill
+SQL Server Master Data Services,Data Management,Information Technology,Specialized Skill
+Trifacta,Data Management,Information Technology,Specialized Skill
+Kapacitor,Data Management,Information Technology,Specialized Skill
+Dfsort,Data Management,Information Technology,Specialized Skill
+Oracle Coherence,Data Management,Information Technology,Specialized Skill
+Data Classification,Data Management,Information Technology,Specialized Skill
+Attunity,Data Management,Information Technology,Specialized Skill
+Marklogic,Data Management,Information Technology,Specialized Skill
+Syncsort,Data Management,Information Technology,Specialized Skill
+Stream Processing,Data Management,Information Technology,Specialized Skill
+SAP Information Steward,Data Management,Information Technology,Specialized Skill
+Data Localization,Data Management,Information Technology,Specialized Skill
+DataHub (Software),Data Management,Information Technology,Specialized Skill
+Sequel Pro,Data Management,Information Technology,Specialized Skill
+NLog (Software),Data Management,Information Technology,Specialized Skill
+AWS Big Data,Data Management,Information Technology,Specialized Skill
+Data Management,Data Management,Information Technology,Specialized Skill
+Data Management,Data Management,Information Technology,Specialized Skill
+Storage Architecture,Data Storage,Information Technology,Specialized Skill
+Data Lakes,Data Storage,Information Technology,Specialized Skill
+Amazon S3 Glacier,Data Storage,Information Technology,Specialized Skill
+Azure Blob Storage,Data Storage,Information Technology,Specialized Skill
+Amazon Elastic Block Stores,Data Storage,Information Technology,Specialized Skill
+Cloud Storage,Data Storage,Information Technology,Specialized Skill
+Dimensional Modeling,Data Storage,Information Technology,Specialized Skill
+RAID,Data Storage,Information Technology,Specialized Skill
+File Systems,Data Storage,Information Technology,Specialized Skill
+Ehcache,Data Storage,Information Technology,Specialized Skill
+Web Cache,Data Storage,Information Technology,Specialized Skill
+Logical Volume Manager,Data Storage,Information Technology,Specialized Skill
+Memcached,Data Storage,Information Technology,Specialized Skill
+NetApp Data Storage,Data Storage,Information Technology,Specialized Skill
+Network Attached Storage (Server Appliance),Data Storage,Information Technology,Specialized Skill
+Veritas Storage Foundation,Data Storage,Information Technology,Specialized Skill
+Zettabyte File System (ZFS),Data Storage,Information Technology,Specialized Skill
+Synology,Data Storage,Information Technology,Specialized Skill
+Local Storage,Data Storage,Information Technology,Specialized Skill
+Persistent Storage,Data Storage,Information Technology,Specialized Skill
+Object Storage,Data Storage,Information Technology,Specialized Skill
+Block Storage,Data Storage,Information Technology,Specialized Skill
+Amazon Redshift,Data Storage,Information Technology,Specialized Skill
+Data Caching,Data Storage,Information Technology,Specialized Skill
+Data Storage,Data Storage,Information Technology,Specialized Skill
+Data Storage,Data Storage,Information Technology,Specialized Skill
+Peoplesoft Administration,Database Architecture and Administration,Information Technology,Specialized Skill
+Database Activity Monitoring,Database Architecture and Administration,Information Technology,Specialized Skill
+Oracle Database Vault,Database Architecture and Administration,Information Technology,Specialized Skill
+Database Architecture,Database Architecture and Administration,Information Technology,Specialized Skill
+Database Modeling,Database Architecture and Administration,Information Technology,Specialized Skill
+Oracle Database Administration (DBA),Database Architecture and Administration,Information Technology,Specialized Skill
+SharePlex,Database Architecture and Administration,Information Technology,Specialized Skill
+Relational Database Design,Database Architecture and Administration,Information Technology,Specialized Skill
+Oracle Applications DBA,Database Architecture and Administration,Information Technology,Specialized Skill
+Change Data Capture (CDC),Database Architecture and Administration,Information Technology,Specialized Skill
+Apache Ranger,Database Architecture and Administration,Information Technology,Specialized Skill
+SQL Tuning,Database Architecture and Administration,Information Technology,Specialized Skill
+Atomicity Consistency Isolation Durability (ACID),Database Architecture and Administration,Information Technology,Specialized Skill
+Automatic Storage Management,Database Architecture and Administration,Information Technology,Specialized Skill
+Database Normalization,Database Architecture and Administration,Information Technology,Specialized Skill
+Data Vaults,Database Architecture and Administration,Information Technology,Specialized Skill
+Database Administration,Database Architecture and Administration,Information Technology,Specialized Skill
+Database Design,Database Architecture and Administration,Information Technology,Specialized Skill
+Database Development,Database Architecture and Administration,Information Technology,Specialized Skill
+Database Testing,Database Architecture and Administration,Information Technology,Specialized Skill
+Database Tuning,Database Architecture and Administration,Information Technology,Specialized Skill
+Oracle Data Guard,Database Architecture and Administration,Information Technology,Specialized Skill
+MySQL Workbench,Database Architecture and Administration,Information Technology,Specialized Skill
+Oracle Exadata,Database Architecture and Administration,Information Technology,Specialized Skill
+SQL Server Management Studio,Database Architecture and Administration,Information Technology,Specialized Skill
+Oracle Rac,Database Architecture and Administration,Information Technology,Specialized Skill
+PHPMyAdmin,Database Architecture and Administration,Information Technology,Specialized Skill
+Query Optimization,Database Architecture and Administration,Information Technology,Specialized Skill
+Oracle GoldenGate,Database Architecture and Administration,Information Technology,Specialized Skill
+Dbeaver,Database Architecture and Administration,Information Technology,Specialized Skill
+SQL Server Reporting Services,Database Architecture and Administration,Information Technology,Specialized Skill
+SQL Server Agent,Database Architecture and Administration,Information Technology,Specialized Skill
+SQL Server Integration Services (SSIS),Database Architecture and Administration,Information Technology,Specialized Skill
+DbVisualizer,Database Architecture and Administration,Information Technology,Specialized Skill
+Oracle Enterprise Manager,Database Architecture and Administration,Information Technology,Specialized Skill
+Transactional Replication,Database Architecture and Administration,Information Technology,Specialized Skill
+Database Partitioning,Database Architecture and Administration,Information Technology,Specialized Skill
+Denormalization,Database Architecture and Administration,Information Technology,Specialized Skill
+Pgbouncer,Database Architecture and Administration,Information Technology,Specialized Skill
+Database Permissions,Database Architecture and Administration,Information Technology,Specialized Skill
+Data Strategy,Database Architecture and Administration,Information Technology,Specialized Skill
+Data Build Tool,Database Architecture and Administration,Information Technology,Specialized Skill
+TimeXtender,Database Architecture and Administration,Information Technology,Specialized Skill
+Data Lineage,Database Architecture and Administration,Information Technology,Specialized Skill
+Database Architecture and Administration,Database Architecture and Administration,Information Technology,Specialized Skill
+Database Architecture and Administration,Database Architecture and Administration,Information Technology,Specialized Skill
+ClickHouse DBMS,Databases,Information Technology,Specialized Skill
+Oracle Toad,Databases,Information Technology,Specialized Skill
+RocksDB,Databases,Information Technology,Specialized Skill
+JanusGraph,Databases,Information Technology,Specialized Skill
+DataStax Enterprise,Databases,Information Technology,Specialized Skill
+Sybase (Software),Databases,Information Technology,Specialized Skill
+IBM Informix,Databases,Information Technology,Specialized Skill
+Apache Avro,Databases,Information Technology,Specialized Skill
+Apache Phoenix,Databases,Information Technology,Specialized Skill
+Amazon Neptune,Databases,Information Technology,Specialized Skill
+Amazon Athena,Databases,Information Technology,Specialized Skill
+Apache Parquet,Databases,Information Technology,Specialized Skill
+Apache Drill,Databases,Information Technology,Specialized Skill
+Apache Impala,Databases,Information Technology,Specialized Skill
+Amazon Aurora,Databases,Information Technology,Specialized Skill
+Cloud Firestore,Databases,Information Technology,Specialized Skill
+Knowledge Graph,Databases,Information Technology,Specialized Skill
+Amazon DocumentDB,Databases,Information Technology,Specialized Skill
+Database Mirroring,Databases,Information Technology,Specialized Skill
+Apache Ignite,Databases,Information Technology,Specialized Skill
+Azure Cosmos DB,Databases,Information Technology,Specialized Skill
+DB2/400,Databases,Information Technology,Specialized Skill
+ADABAS,Databases,Information Technology,Specialized Skill
+SAP Sybase Adaptive Server Enterprise,Databases,Information Technology,Specialized Skill
+AllegroGraph,Databases,Information Technology,Specialized Skill
+Amazon Relational Database Services,Databases,Information Technology,Specialized Skill
+Berkeley DB,Databases,Information Technology,Specialized Skill
+Cloudera Impala,Databases,Information Technology,Specialized Skill
+Couchbase Servers,Databases,Information Technology,Specialized Skill
+CouchDB,Databases,Information Technology,Specialized Skill
+Operational Historian,Databases,Information Technology,Specialized Skill
+Relational Databases,Databases,Information Technology,Specialized Skill
+Distributed Database,Databases,Information Technology,Specialized Skill
+Document-Oriented Databases,Databases,Information Technology,Specialized Skill
+Amazon DynamoDB,Databases,Information Technology,Specialized Skill
+Embedded Databases,Databases,Information Technology,Specialized Skill
+Epic Clarity,Databases,Information Technology,Specialized Skill
+Graph Database,Databases,Information Technology,Specialized Skill
+Apache HBase,Databases,Information Technology,Specialized Skill
+Hyper SQL Database (HSQLDB),Databases,Information Technology,Specialized Skill
+Rocket U2,Databases,Information Technology,Specialized Skill
+Ingres Database,Databases,Information Technology,Specialized Skill
+Intersystems Cache,Databases,Information Technology,Specialized Skill
+PostgreSQL,Databases,Information Technology,Specialized Skill
+MariaDB,Databases,Information Technology,Specialized Skill
+Materialized View,Databases,Information Technology,Specialized Skill
+MaxDB,Databases,Information Technology,Specialized Skill
+Multidimensional Database,Databases,Information Technology,Specialized Skill
+Microsoft SQL Servers,Databases,Information Technology,Specialized Skill
+SQL Azure,Databases,Information Technology,Specialized Skill
+MongoDB,Databases,Information Technology,Specialized Skill
+MySQL,Databases,Information Technology,Specialized Skill
+Neo4j,Databases,Information Technology,Specialized Skill
+NonStop SQL,Databases,Information Technology,Specialized Skill
+NoSQL,Databases,Information Technology,Specialized Skill
+Oracle Databases,Databases,Information Technology,Specialized Skill
+Pervasive PSQL,Databases,Information Technology,Specialized Skill
+In-Memory Database,Databases,Information Technology,Specialized Skill
+Redis,Databases,Information Technology,Specialized Skill
+RavenDB,Databases,Information Technology,Specialized Skill
+IndexedDB,Databases,Information Technology,Specialized Skill
+Riak,Databases,Information Technology,Specialized Skill
+SAP HANA,Databases,Information Technology,Specialized Skill
+SQL Anywhere,Databases,Information Technology,Specialized Skill
+SQLite,Databases,Information Technology,Specialized Skill
+SQL*Plus,Databases,Information Technology,Specialized Skill
+SQLAlchemy,Databases,Information Technology,Specialized Skill
+SAP Sybase SQL Anywhere,Databases,Information Technology,Specialized Skill
+Talend,Databases,Information Technology,Specialized Skill
+Teradata SQL,Databases,Information Technology,Specialized Skill
+Unisys DMSII,Databases,Information Technology,Specialized Skill
+Progress Db,Databases,Information Technology,Specialized Skill
+Firebird Database,Databases,Information Technology,Specialized Skill
+OpenTSDB,Databases,Information Technology,Specialized Skill
+GraphDB,Databases,Information Technology,Specialized Skill
+PrestoDB,Databases,Information Technology,Specialized Skill
+Apache Druid,Databases,Information Technology,Specialized Skill
+InfluxDB,Databases,Information Technology,Specialized Skill
+Apache Cassandra,Databases,Information Technology,Specialized Skill
+Aerospike Database,Databases,Information Technology,Specialized Skill
+Datastax,Databases,Information Technology,Specialized Skill
+Apache Kafka,Databases,Information Technology,Specialized Skill
+Pgpool,Databases,Information Technology,Specialized Skill
+Cloudant,Databases,Information Technology,Specialized Skill
+EnterpriseDB,Databases,Information Technology,Specialized Skill
+ArangoDB,Databases,Information Technology,Specialized Skill
+Database Indexes,Databases,Information Technology,Specialized Skill
+Datapump,Databases,Information Technology,Specialized Skill
+OrientDB,Databases,Information Technology,Specialized Skill
+Databases,Databases,Information Technology,Specialized Skill
+Databases,Databases,Information Technology,Specialized Skill
+libp2p,Distributed Computing,Information Technology,Specialized Skill
+Azure Load Balancer,Distributed Computing,Information Technology,Specialized Skill
+gRPC,Distributed Computing,Information Technology,Specialized Skill
+Alluxio,Distributed Computing,Information Technology,Specialized Skill
+F5 Load Balancers,Distributed Computing,Information Technology,Specialized Skill
+Edge Computing,Distributed Computing,Information Technology,Specialized Skill
+Distributed File Systems,Distributed Computing,Information Technology,Specialized Skill
+DFSR,Distributed Computing,Information Technology,Specialized Skill
+Distributed Transaction,Distributed Computing,Information Technology,Specialized Skill
+IBM Parallel Sysplex,Distributed Computing,Information Technology,Specialized Skill
+Global Server Load Balancing,Distributed Computing,Information Technology,Specialized Skill
+Hadoop Distributed File System (HDFS),Distributed Computing,Information Technology,Specialized Skill
+Network File Systems,Distributed Computing,Information Technology,Specialized Skill
+Network Load Balancing,Distributed Computing,Information Technology,Specialized Skill
+Peer-To-Peer,Distributed Computing,Information Technology,Specialized Skill
+Parallel Computing,Distributed Computing,Information Technology,Specialized Skill
+Distributed Cache,Distributed Computing,Information Technology,Specialized Skill
+Remote Procedure Call,Distributed Computing,Information Technology,Specialized Skill
+Parallel Processing,Distributed Computing,Information Technology,Specialized Skill
+Load Balancing,Distributed Computing,Information Technology,Specialized Skill
+Distributed Programming,Distributed Computing,Information Technology,Specialized Skill
+Elastic Load Balancer,Distributed Computing,Information Technology,Specialized Skill
+Distributed Computing,Distributed Computing,Information Technology,Specialized Skill
+Distributed Computing,Distributed Computing,Information Technology,Specialized Skill
+Alfabet (Software),Enterprise Application Management,Information Technology,Specialized Skill
+Apache Servicemix,Enterprise Application Management,Information Technology,Specialized Skill
+Application Integration Architecture,Enterprise Application Management,Information Technology,Specialized Skill
+Application Portfolio Management,Enterprise Application Management,Information Technology,Specialized Skill
+Enterprise Application Integration,Enterprise Application Management,Information Technology,Specialized Skill
+Enterprise Architecture,Enterprise Application Management,Information Technology,Specialized Skill
+Enterprise Architecture Framework,Enterprise Application Management,Information Technology,Specialized Skill
+Enterprise Integration,Enterprise Application Management,Information Technology,Specialized Skill
+Enterprise Service Bus,Enterprise Application Management,Information Technology,Specialized Skill
+Federal Enterprise Architecture,Enterprise Application Management,Information Technology,Specialized Skill
+Fuse ESB,Enterprise Application Management,Information Technology,Specialized Skill
+IBM Websphere Application Server,Enterprise Application Management,Information Technology,Specialized Skill
+IBM Websphere ESB,Enterprise Application Management,Information Technology,Specialized Skill
+IBM WebSphere Message Broker,Enterprise Application Management,Information Technology,Specialized Skill
+JBoss EAP,Enterprise Application Management,Information Technology,Specialized Skill
+JBoss Fuse,Enterprise Application Management,Information Technology,Specialized Skill
+Liferay,Enterprise Application Management,Information Technology,Specialized Skill
+Microsoft Sharepoint Migrations,Enterprise Application Management,Information Technology,Specialized Skill
+Mule (Software),Enterprise Application Management,Information Technology,Specialized Skill
+MuleSoft,Enterprise Application Management,Information Technology,Specialized Skill
+MuleSoft Anypoint,Enterprise Application Management,Information Technology,Specialized Skill
+Oracle BPEL Process Management,Enterprise Application Management,Information Technology,Specialized Skill
+Oracle Service Bus,Enterprise Application Management,Information Technology,Specialized Skill
+Peoplesoft People Tools,Enterprise Application Management,Information Technology,Specialized Skill
+SAP NetWeaver,Enterprise Application Management,Information Technology,Specialized Skill
+SAP Process Integration,Enterprise Application Management,Information Technology,Specialized Skill
+Siebel EIM,Enterprise Application Management,Information Technology,Specialized Skill
+Spring Integration,Enterprise Application Management,Information Technology,Specialized Skill
+Suitetalk,Enterprise Application Management,Information Technology,Specialized Skill
+The Open Group Architecture Framework (TOGAF),Enterprise Application Management,Information Technology,Specialized Skill
+TIBCO Adapters,Enterprise Application Management,Information Technology,Specialized Skill
+TIBCO Administration,Enterprise Application Management,Information Technology,Specialized Skill
+TIBCO Businessworks,Enterprise Application Management,Information Technology,Specialized Skill
+TIBCO Rendezvous,Enterprise Application Management,Information Technology,Specialized Skill
+webMethods,Enterprise Application Management,Information Technology,Specialized Skill
+WebMethods Flow,Enterprise Application Management,Information Technology,Specialized Skill
+WebMethods Integration Server,Enterprise Application Management,Information Technology,Specialized Skill
+Zachman Framework,Enterprise Application Management,Information Technology,Specialized Skill
+Enterprise Application Management,Enterprise Application Management,Information Technology,Specialized Skill
+Enterprise Application Management,Enterprise Application Management,Information Technology,Specialized Skill
+Laserfiche (Content Management Platform),Enterprise Information Management,Information Technology,Specialized Skill
+Oracle B2B,Enterprise Information Management,Information Technology,Specialized Skill
+Azure Logic Apps,Enterprise Information Management,Information Technology,Specialized Skill
+Alation Data Catalog,Enterprise Information Management,Information Technology,Specialized Skill
+Azure Data Factory,Enterprise Information Management,Information Technology,Specialized Skill
+Enterprise Search,Enterprise Information Management,Information Technology,Specialized Skill
+Azure Data Catalog,Enterprise Information Management,Information Technology,Specialized Skill
+Deltek Vision,Enterprise Information Management,Information Technology,Specialized Skill
+Azure Databricks,Enterprise Information Management,Information Technology,Specialized Skill
+Alfresco ECM,Enterprise Information Management,Information Technology,Specialized Skill
+Deltek Costpoint,Enterprise Information Management,Information Technology,Specialized Skill
+Enterprise Content Management,Enterprise Information Management,Information Technology,Specialized Skill
+Electronic Data Interchange,Enterprise Information Management,Information Technology,Specialized Skill
+United Nations/Electronic Data Interchange For Administration Commerce And Transport (UN/EDIFACT),Enterprise Information Management,Information Technology,Specialized Skill
+IBM Information Management System,Enterprise Information Management,Information Technology,Specialized Skill
+Information Governance,Enterprise Information Management,Information Technology,Specialized Skill
+Knowledge Management,Enterprise Information Management,Information Technology,Specialized Skill
+Mirth Connect,Enterprise Information Management,Information Technology,Specialized Skill
+Apache Solr,Enterprise Information Management,Information Technology,Specialized Skill
+Apex Data Loader,Enterprise Information Management,Information Technology,Specialized Skill
+Intelex,Enterprise Information Management,Information Technology,Specialized Skill
+SAP S 4HANA,Enterprise Information Management,Information Technology,Specialized Skill
+ERP Systems Knowledge,Enterprise Information Management,Information Technology,Specialized Skill
+JD Edwards CNC,Enterprise Information Management,Information Technology,Specialized Skill
+Enterprise Information Management,Enterprise Information Management,Information Technology,Specialized Skill
+Enterprise Information Management,Enterprise Information Management,Information Technology,Specialized Skill
+XML Schema,Extensible Languages and XML,Information Technology,Specialized Skill
+Business Process Execution Language,Extensible Languages and XML,Information Technology,Specialized Skill
+Commerce EXtensible Markup Language (CXML),Extensible Languages and XML,Information Technology,Specialized Skill
+XacML,Extensible Languages and XML,Information Technology,Specialized Skill
+Extensible Application Markup Language,Extensible Languages and XML,Information Technology,Specialized Skill
+XBRL (Extensible Business Reporting Language),Extensible Languages and XML,Information Technology,Specialized Skill
+FpML,Extensible Languages and XML,Information Technology,Specialized Skill
+Security Assertion Markup Language (SAML),Extensible Languages and XML,Information Technology,Specialized Skill
+Extensible Markup Language (XML),Extensible Languages and XML,Information Technology,Specialized Skill
+XPath,Extensible Languages and XML,Information Technology,Specialized Skill
+XQuery,Extensible Languages and XML,Information Technology,Specialized Skill
+Extensible Stylesheet Language Transformations (XSLT),Extensible Languages and XML,Information Technology,Specialized Skill
+Extensible Languages and XML,Extensible Languages and XML,Information Technology,Specialized Skill
+Extensible Languages and XML,Extensible Languages and XML,Information Technology,Specialized Skill
+Slowly Changing Dimensions,"Extraction, Transformation, and Loading (ETL)",Information Technology,Specialized Skill
+StreamSets,"Extraction, Transformation, and Loading (ETL)",Information Technology,Specialized Skill
+Matillion,"Extraction, Transformation, and Loading (ETL)",Information Technology,Specialized Skill
+SQL*Loader,"Extraction, Transformation, and Loading (ETL)",Information Technology,Specialized Skill
+Informatica,"Extraction, Transformation, and Loading (ETL)",Information Technology,Specialized Skill
+AWS Glue,"Extraction, Transformation, and Loading (ETL)",Information Technology,Specialized Skill
+Data Integration,"Extraction, Transformation, and Loading (ETL)",Information Technology,Specialized Skill
+Extract Transform Load (ETL),"Extraction, Transformation, and Loading (ETL)",Information Technology,Specialized Skill
+IBM InfoSphere DataStage,"Extraction, Transformation, and Loading (ETL)",Information Technology,Specialized Skill
+IBM InfoSphere (ETL Tools),"Extraction, Transformation, and Loading (ETL)",Information Technology,Specialized Skill
+Pentaho Data Integration,"Extraction, Transformation, and Loading (ETL)",Information Technology,Specialized Skill
+Logstash,"Extraction, Transformation, and Loading (ETL)",Information Technology,Specialized Skill
+Sqoop,"Extraction, Transformation, and Loading (ETL)",Information Technology,Specialized Skill
+Teradata Parallel Transporter,"Extraction, Transformation, and Loading (ETL)",Information Technology,Specialized Skill
+Informatica Powercenter,"Extraction, Transformation, and Loading (ETL)",Information Technology,Specialized Skill
+Dataweave,"Extraction, Transformation, and Loading (ETL)",Information Technology,Specialized Skill
+"Extraction, Transformation, and Loading (ETL)","Extraction, Transformation, and Loading (ETL)",Information Technology,Specialized Skill
+"Extraction, Transformation, and Loading (ETL)","Extraction, Transformation, and Loading (ETL)",Information Technology,Specialized Skill
+Embedded Firmware,Firmware,Information Technology,Specialized Skill
+BIOS,Firmware,Information Technology,Specialized Skill
+Boot Loaders,Firmware,Information Technology,Specialized Skill
+Unified Extensible Firmware Interface,Firmware,Information Technology,Specialized Skill
+Das U-Boot,Firmware,Information Technology,Specialized Skill
+Motor Control Firmware,Firmware,Information Technology,Specialized Skill
+Board Support Package (Software),Firmware,Information Technology,Specialized Skill
+Firmware,Firmware,Information Technology,Specialized Skill
+Firmware,Firmware,Information Technology,Specialized Skill
+Network Testing,General Networking,Information Technology,Specialized Skill
+Cisco Switching,General Networking,Information Technology,Specialized Skill
+Application Delivery Controller,General Networking,Information Technology,Specialized Skill
+Network Traffic Management,General Networking,Information Technology,Specialized Skill
+Cisco Networking,General Networking,Information Technology,Specialized Skill
+Juniper Network Technologies,General Networking,Information Technology,Specialized Skill
+Mobile Edge Computing (MEC),General Networking,Information Technology,Specialized Skill
+Software Defined Networking (SDN),General Networking,Information Technology,Specialized Skill
+Link Aggregation (Ethernet),General Networking,Information Technology,Specialized Skill
+Wireless LAN,General Networking,Information Technology,Specialized Skill
+Access Network,General Networking,Information Technology,Specialized Skill
+Anycast,General Networking,Information Technology,Specialized Skill
+Bandwidth Management,General Networking,Information Technology,Specialized Skill
+Network Bridging,General Networking,Information Technology,Specialized Skill
+Classless Inter-Domain Routing,General Networking,Information Technology,Specialized Skill
+Network Sockets,General Networking,Information Technology,Specialized Skill
+Dynamic DNS (Domain Name System),General Networking,Information Technology,Specialized Skill
+Network Address Translation,General Networking,Information Technology,Specialized Skill
+Domain Name System,General Networking,Information Technology,Specialized Skill
+Differentiated Services Code Point,General Networking,Information Technology,Specialized Skill
+Element Management Systems,General Networking,Information Technology,Specialized Skill
+Ethernet,General Networking,Information Technology,Specialized Skill
+EtherChannel,General Networking,Information Technology,Specialized Skill
+Trunking,General Networking,Information Technology,Specialized Skill
+Ethernet Private Lines,General Networking,Information Technology,Specialized Skill
+Extranet,General Networking,Information Technology,Specialized Skill
+Failover Clustering,General Networking,Information Technology,Specialized Skill
+Fibre Channel Over Ethernet,General Networking,Information Technology,Specialized Skill
+Network Topology,General Networking,Information Technology,Specialized Skill
+InfiniBand,General Networking,Information Technology,Specialized Skill
+IP Addressing,General Networking,Information Technology,Specialized Skill
+IP Address Management (IPAM),General Networking,Information Technology,Specialized Skill
+Network Mapping,General Networking,Information Technology,Specialized Skill
+IP Multicasting,General Networking,Information Technology,Specialized Skill
+IP Routing,General Networking,Information Technology,Specialized Skill
+Storage Area Network (SAN),General Networking,Information Technology,Specialized Skill
+Internet Transit,General Networking,Information Technology,Specialized Skill
+OSI Models,General Networking,Information Technology,Specialized Skill
+Local Area Networks,General Networking,Information Technology,Specialized Skill
+LAN Switching,General Networking,Information Technology,Specialized Skill
+Network Troubleshooting,General Networking,Information Technology,Specialized Skill
+Mesh Networking,General Networking,Information Technology,Specialized Skill
+Wireless Mesh Networks,General Networking,Information Technology,Specialized Skill
+Metropolitan Area Networks,General Networking,Information Technology,Specialized Skill
+Metro Ethernet,General Networking,Information Technology,Specialized Skill
+Microsoft DNS,General Networking,Information Technology,Specialized Skill
+Multicasting,General Networking,Information Technology,Specialized Skill
+Multihoming,General Networking,Information Technology,Specialized Skill
+Network Architecture,General Networking,Information Technology,Specialized Skill
+Network Planning And Design,General Networking,Information Technology,Specialized Skill
+Network Discovery,General Networking,Information Technology,Specialized Skill
+Network Engineering,General Networking,Information Technology,Specialized Skill
+Network Monitoring,General Networking,Information Technology,Specialized Skill
+Network Performance Management,General Networking,Information Technology,Specialized Skill
+Network Provisioning,General Networking,Information Technology,Specialized Skill
+Network Segmentation,General Networking,Information Technology,Specialized Skill
+Network Management System,General Networking,Information Technology,Specialized Skill
+Peering (Computer Networking),General Networking,Information Technology,Specialized Skill
+Private VLAN,General Networking,Information Technology,Specialized Skill
+Port Mirroring,General Networking,Information Technology,Specialized Skill
+Remote Direct Memory Access,General Networking,Information Technology,Specialized Skill
+Reverse Proxy,General Networking,Information Technology,Specialized Skill
+Service Discovery,General Networking,Information Technology,Specialized Skill
+Socket Programming,General Networking,Information Technology,Specialized Skill
+Switch Virtual Interface,General Networking,Information Technology,Specialized Skill
+Traffic Shaping,General Networking,Information Technology,Specialized Skill
+Virtual Local Area Network (VLAN),General Networking,Information Technology,Specialized Skill
+Variable-Length Subnet Masking (VLSM),General Networking,Information Technology,Specialized Skill
+Wide Area Networks,General Networking,Information Technology,Specialized Skill
+WAN Optimization,General Networking,Information Technology,Specialized Skill
+Wireless WAN,General Networking,Information Technology,Specialized Skill
+Wireless Networks,General Networking,Information Technology,Specialized Skill
+Wireless Planning,General Networking,Information Technology,Specialized Skill
+Network Routing,General Networking,Information Technology,Specialized Skill
+Automatically Switched Optical Network,General Networking,Information Technology,Specialized Skill
+Infoblox IPAM,General Networking,Information Technology,Specialized Skill
+General Networking,General Networking,Information Technology,Specialized Skill
+General Networking,General Networking,Information Technology,Specialized Skill
+Geospatial Databases,Geospatial Information and Technology,Information Technology,Specialized Skill
+Arcpy,Geospatial Information and Technology,Information Technology,Specialized Skill
+Keyhole Markup Language,Geospatial Information and Technology,Information Technology,Specialized Skill
+Geographic Information Systems,Geospatial Information and Technology,Information Technology,Specialized Skill
+ArcGIS (GIS Software),Geospatial Information and Technology,Information Technology,Specialized Skill
+ArcGIS Servers,Geospatial Information and Technology,Information Technology,Specialized Skill
+ArcMap,Geospatial Information and Technology,Information Technology,Specialized Skill
+ECognition,Geospatial Information and Technology,Information Technology,Specialized Skill
+Erdas Imagine,Geospatial Information and Technology,Information Technology,Specialized Skill
+Geospatial Data Abstraction Library (GDAL),Geospatial Information and Technology,Information Technology,Specialized Skill
+Geocoding,Geospatial Information and Technology,Information Technology,Specialized Skill
+Geospatial Intelligence,Geospatial Information and Technology,Information Technology,Specialized Skill
+GeoMedia,Geospatial Information and Technology,Information Technology,Specialized Skill
+Geoprocessing,Geospatial Information and Technology,Information Technology,Specialized Skill
+Geospatial Analysis,Geospatial Information and Technology,Information Technology,Specialized Skill
+Global Positioning Systems,Geospatial Information and Technology,Information Technology,Specialized Skill
+Google Earth,Geospatial Information and Technology,Information Technology,Specialized Skill
+Location-Based Services,Geospatial Information and Technology,Information Technology,Specialized Skill
+Location Intelligence,Geospatial Information and Technology,Information Technology,Specialized Skill
+Mapbox,Geospatial Information and Technology,Information Technology,Specialized Skill
+MapInfo Professional,Geospatial Information and Technology,Information Technology,Specialized Skill
+Web Map Service,Geospatial Information and Technology,Information Technology,Specialized Skill
+Web Mapping,Geospatial Information and Technology,Information Technology,Specialized Skill
+PostGIS,Geospatial Information and Technology,Information Technology,Specialized Skill
+Quantum GIS (QGIS),Geospatial Information and Technology,Information Technology,Specialized Skill
+Satellite Imagery,Geospatial Information and Technology,Information Technology,Specialized Skill
+Spatial Analysis,Geospatial Information and Technology,Information Technology,Specialized Skill
+Spatial Data Infrastructures,Geospatial Information and Technology,Information Technology,Specialized Skill
+Tracking Systems (Geolocation),Geospatial Information and Technology,Information Technology,Specialized Skill
+Oracle Spatial,Geospatial Information and Technology,Information Technology,Specialized Skill
+Mapserver,Geospatial Information and Technology,Information Technology,Specialized Skill
+Geojson,Geospatial Information and Technology,Information Technology,Specialized Skill
+Shapefile,Geospatial Information and Technology,Information Technology,Specialized Skill
+Mapkit,Geospatial Information and Technology,Information Technology,Specialized Skill
+Global Mapper,Geospatial Information and Technology,Information Technology,Specialized Skill
+Geospatial Information and Technology,Geospatial Information and Technology,Information Technology,Specialized Skill
+Geospatial Information and Technology,Geospatial Information and Technology,Information Technology,Specialized Skill
+ForgeRock,Identity and Access Management,Information Technology,Specialized Skill
+CyberArk,Identity and Access Management,Information Technology,Specialized Skill
+RSA SecurID,Identity and Access Management,Information Technology,Specialized Skill
+Oracle Identity Manager,Identity and Access Management,Information Technology,Specialized Skill
+CA Identity Manager,Identity and Access Management,Information Technology,Specialized Skill
+Okta,Identity and Access Management,Information Technology,Specialized Skill
+IdentityIQ,Identity and Access Management,Information Technology,Specialized Skill
+Azure Active Directory,Identity and Access Management,Information Technology,Specialized Skill
+Amazon Cognito,Identity and Access Management,Information Technology,Specialized Skill
+Azure MFA,Identity and Access Management,Information Technology,Specialized Skill
+AWS Identity And Access Management (IAM),Identity and Access Management,Information Technology,Specialized Skill
+Access Control List,Identity and Access Management,Information Technology,Specialized Skill
+Authentications,Identity and Access Management,Information Technology,Specialized Skill
+Integrated Windows Authentication,Identity and Access Management,Information Technology,Specialized Skill
+Multi-Factor Authentication,Identity and Access Management,Information Technology,Specialized Skill
+Federated Identity Management,Identity and Access Management,Information Technology,Specialized Skill
+Microsoft Forefront Identity Manager,Identity and Access Management,Information Technology,Specialized Skill
+Identity Verification,Identity and Access Management,Information Technology,Specialized Skill
+IBM Tivoli Directory Servers,Identity and Access Management,Information Technology,Specialized Skill
+NetIQ Identity Manager,Identity and Access Management,Information Technology,Specialized Skill
+OAuth,Identity and Access Management,Information Technology,Specialized Skill
+OpenDJ,Identity and Access Management,Information Technology,Specialized Skill
+OpenID,Identity and Access Management,Information Technology,Specialized Skill
+Password Management,Identity and Access Management,Information Technology,Specialized Skill
+IBM Resource Access Control Facility,Identity and Access Management,Information Technology,Specialized Skill
+Role-Based Access Control (RBAC),Identity and Access Management,Information Technology,Specialized Skill
+Shibboleth,Identity and Access Management,Information Technology,Specialized Skill
+Single Sign-On (SSO),Identity and Access Management,Information Technology,Specialized Skill
+Terminal Access Controller Access-Control System (TACACS),Identity and Access Management,Information Technology,Specialized Skill
+User Provisioning,Identity and Access Management,Information Technology,Specialized Skill
+Web Access Management,Identity and Access Management,Information Technology,Specialized Skill
+Authorization (Computing),Identity and Access Management,Information Technology,Specialized Skill
+Oracle Access Manager,Identity and Access Management,Information Technology,Specialized Skill
+Network Access Control,Identity and Access Management,Information Technology,Specialized Skill
+Password Policy,Identity and Access Management,Information Technology,Specialized Skill
+Keycloak,Identity and Access Management,Information Technology,Specialized Skill
+Siteminder,Identity and Access Management,Information Technology,Specialized Skill
+Auth0,Identity and Access Management,Information Technology,Specialized Skill
+Pingfederate,Identity and Access Management,Information Technology,Specialized Skill
+Freeipa,Identity and Access Management,Information Technology,Specialized Skill
+Tivoli Identity Manager,Identity and Access Management,Information Technology,Specialized Skill
+Privileged Access Management,Identity and Access Management,Information Technology,Specialized Skill
+Identity and Access Management,Identity and Access Management,Information Technology,Specialized Skill
+Identity and Access Management,Identity and Access Management,Information Technology,Specialized Skill
+IDA Pro,Integrated Development Environments (IDEs),Information Technology,Specialized Skill
+Apple Xcode,Integrated Development Environments (IDEs),Information Technology,Specialized Skill
+Delphi (Programming Language),Integrated Development Environments (IDEs),Information Technology,Specialized Skill
+Code Composer Studio,Integrated Development Environments (IDEs),Information Technology,Specialized Skill
+Eclipse (Software),Integrated Development Environments (IDEs),Information Technology,Specialized Skill
+IntelliJ IDEA,Integrated Development Environments (IDEs),Information Technology,Specialized Skill
+Oracle JDeveloper,Integrated Development Environments (IDEs),Information Technology,Specialized Skill
+MPLAB IDE,Integrated Development Environments (IDEs),Information Technology,Specialized Skill
+NetBeans,Integrated Development Environments (IDEs),Information Technology,Specialized Skill
+Oracle SQL Developer,Integrated Development Environments (IDEs),Information Technology,Specialized Skill
+PhpStorm,Integrated Development Environments (IDEs),Information Technology,Specialized Skill
+PowerBuilder,Integrated Development Environments (IDEs),Information Technology,Specialized Skill
+QT Creator,Integrated Development Environments (IDEs),Information Technology,Specialized Skill
+WebStorm,Integrated Development Environments (IDEs),Information Technology,Specialized Skill
+Cloud9 (Software),Integrated Development Environments (IDEs),Information Technology,Specialized Skill
+SharePoint Framework (SPFx),Integrated Development Environments (IDEs),Information Technology,Specialized Skill
+IAR Embedded Workbench,Integrated Development Environments (IDEs),Information Technology,Specialized Skill
+Integrated Development Environments (IDEs),Integrated Development Environments (IDEs),Information Technology,Specialized Skill
+Integrated Development Environments (IDEs),Integrated Development Environments (IDEs),Information Technology,Specialized Skill
+Machine-To-Machine (M2M),Internet of Things (IoT),Information Technology,Specialized Skill
+AWS Internet Of Things (IoT),Internet of Things (IoT),Information Technology,Specialized Skill
+Azure Internet Of Things (IoT),Internet of Things (IoT),Information Technology,Specialized Skill
+Industrial Internet Of Things (IIoT),Internet of Things (IoT),Information Technology,Specialized Skill
+Internet Of Things (IoT),Internet of Things (IoT),Information Technology,Specialized Skill
+Wearables,Internet of Things (IoT),Information Technology,Specialized Skill
+Internet of Things (IoT),Internet of Things (IoT),Information Technology,Specialized Skill
+Internet of Things (IoT),Internet of Things (IoT),Information Technology,Specialized Skill
+Apple HealthKit,iOS Development,Information Technology,Specialized Skill
+Apple CarPlay,iOS Development,Information Technology,Specialized Skill
+watchOS,iOS Development,Information Technology,Specialized Skill
+IOS Development,iOS Development,Information Technology,Specialized Skill
+Core Data (Software),iOS Development,Information Technology,Specialized Skill
+Cocoa Touch,iOS Development,Information Technology,Specialized Skill
+Apple Push Notification Service,iOS Development,Information Technology,Specialized Skill
+Core Location Manager (Apple IOS),iOS Development,Information Technology,Specialized Skill
+IOS SDK,iOS Development,Information Technology,Specialized Skill
+Testflight,iOS Development,Information Technology,Specialized Skill
+Alamofire,iOS Development,Information Technology,Specialized Skill
+UIKit (Apple App Framework),iOS Development,Information Technology,Specialized Skill
+WKWebView,iOS Development,Information Technology,Specialized Skill
+Watchkit,iOS Development,Information Technology,Specialized Skill
+Applepay,iOS Development,Information Technology,Specialized Skill
+CocoaPods,iOS Development,Information Technology,Specialized Skill
+Cloudkit,iOS Development,Information Technology,Specialized Skill
+iOS Development,iOS Development,Information Technology,Specialized Skill
+iOS Development,iOS Development,Information Technology,Specialized Skill
+SAP Business Workflow,IT Automation,Information Technology,Specialized Skill
+WorkFusion,IT Automation,Information Technology,Specialized Skill
+Electricflow,IT Automation,Information Technology,Specialized Skill
+XLDeploy,IT Automation,Information Technology,Specialized Skill
+BladeLogic,IT Automation,Information Technology,Specialized Skill
+ChatOps,IT Automation,Information Technology,Specialized Skill
+Pega Robotics Software,IT Automation,Information Technology,Specialized Skill
+Robotic Process Automation,IT Automation,Information Technology,Specialized Skill
+Control-M (Batch Scheduling Software),IT Automation,Information Technology,Specialized Skill
+Server Automation,IT Automation,Information Technology,Specialized Skill
+Automation Anywhere (RPA Software),IT Automation,Information Technology,Specialized Skill
+Infrastructure Automation,IT Automation,Information Technology,Specialized Skill
+Oracle Workflow,IT Automation,Information Technology,Specialized Skill
+BluePrism (RPA Software),IT Automation,Information Technology,Specialized Skill
+Cloud Automation,IT Automation,Information Technology,Specialized Skill
+Atlassian Bamboo,IT Automation,Information Technology,Specialized Skill
+Microsoft Power Automate/Flow,IT Automation,Information Technology,Specialized Skill
+Google Kubernetes Engine (GKE),IT Automation,Information Technology,Specialized Skill
+Network Automation,IT Automation,Information Technology,Specialized Skill
+Apache Ant,IT Automation,Information Technology,Specialized Skill
+Application Release Automation,IT Automation,Information Technology,Specialized Skill
+Build Automation,IT Automation,Information Technology,Specialized Skill
+CA Workload Automation Ae,IT Automation,Information Technology,Specialized Skill
+Batch Processing,IT Automation,Information Technology,Specialized Skill
+CMake,IT Automation,Information Technology,Specialized Skill
+Make (Software),IT Automation,Information Technology,Specialized Skill
+Gradle,IT Automation,Information Technology,Specialized Skill
+Apache Maven,IT Automation,Information Technology,Specialized Skill
+MSBuild,IT Automation,Information Technology,Specialized Skill
+Octopus Deploy,IT Automation,Information Technology,Specialized Skill
+Ansible,IT Automation,Information Technology,Specialized Skill
+Ansible Tower,IT Automation,Information Technology,Specialized Skill
+Job/Batch Scheduling,IT Automation,Information Technology,Specialized Skill
+Travis Ci,IT Automation,Information Technology,Specialized Skill
+Bazel,IT Automation,Information Technology,Specialized Skill
+Salt Stack,IT Automation,Information Technology,Specialized Skill
+Ansible Playbook,IT Automation,Information Technology,Specialized Skill
+Suitescript,IT Automation,Information Technology,Specialized Skill
+Appveyor,IT Automation,Information Technology,Specialized Skill
+UiPath (RPA Software),IT Automation,Information Technology,Specialized Skill
+Kubernetes,IT Automation,Information Technology,Specialized Skill
+Rancher (Software),IT Automation,Information Technology,Specialized Skill
+Slurm (Batch Scheduling Software),IT Automation,Information Technology,Specialized Skill
+Teamcity,IT Automation,Information Technology,Specialized Skill
+Rundeck,IT Automation,Information Technology,Specialized Skill
+Camunda,IT Automation,Information Technology,Specialized Skill
+Jenkins,IT Automation,Information Technology,Specialized Skill
+Cisco Intersight,IT Automation,Information Technology,Specialized Skill
+Nutanix Calm,IT Automation,Information Technology,Specialized Skill
+VMware Aria Automation,IT Automation,Information Technology,Specialized Skill
+VMware Aria Automation Orchestrator,IT Automation,Information Technology,Specialized Skill
+VMware VRealize Orchestrator,IT Automation,Information Technology,Specialized Skill
+Flux CD,IT Automation,Information Technology,Specialized Skill
+IT Automation,IT Automation,Information Technology,Specialized Skill
+IT Automation,IT Automation,Information Technology,Specialized Skill
+Hardware Asset Management,IT Management,Information Technology,Specialized Skill
+Availability Management,IT Management,Information Technology,Specialized Skill
+Cyber Security Management,IT Management,Information Technology,Specialized Skill
+Desktop Management,IT Management,Information Technology,Specialized Skill
+Digital Rights Management,IT Management,Information Technology,Specialized Skill
+Incident Response Management,IT Management,Information Technology,Specialized Skill
+Azure Cost Management,IT Management,Information Technology,Specialized Skill
+IT Asset Disposition (ITAD),IT Management,Information Technology,Specialized Skill
+Digital Transformation,IT Management,Information Technology,Specialized Skill
+Infrastructure as Code (IaC),IT Management,Information Technology,Specialized Skill
+Management Information Systems,IT Management,Information Technology,Specialized Skill
+IT Capacity Management,IT Management,Information Technology,Specialized Skill
+Mobile Device Management,IT Management,Information Technology,Specialized Skill
+Device Management,IT Management,Information Technology,Specialized Skill
+Fault Management,IT Management,Information Technology,Specialized Skill
+Incident Management,IT Management,Information Technology,Specialized Skill
+Information Security Management,IT Management,Information Technology,Specialized Skill
+Information Security Management Systems,IT Management,Information Technology,Specialized Skill
+IT Asset Management,IT Management,Information Technology,Specialized Skill
+Information Technology Controls,IT Management,Information Technology,Specialized Skill
+Information Technology Infrastructure Library,IT Management,Information Technology,Specialized Skill
+Information Technology Operations,IT Management,Information Technology,Specialized Skill
+Infrastructure Management,IT Management,Information Technology,Specialized Skill
+ISO/IEC 20000,IT Management,Information Technology,Specialized Skill
+IT Service Management,IT Management,Information Technology,Specialized Skill
+IT General Controls (ITGC),IT Management,Information Technology,Specialized Skill
+IT Portfolio Management,IT Management,Information Technology,Specialized Skill
+Problem Management,IT Management,Information Technology,Specialized Skill
+Technology Roadmaps,IT Management,Information Technology,Specialized Skill
+System Migration,IT Management,Information Technology,Specialized Skill
+Release Management,IT Management,Information Technology,Specialized Skill
+Airwatch,IT Management,Information Technology,Specialized Skill
+Remote Infrastructure Management,IT Management,Information Technology,Specialized Skill
+Service Provisioning,IT Management,Information Technology,Specialized Skill
+Software Asset Management,IT Management,Information Technology,Specialized Skill
+Software Licensing Audit,IT Management,Information Technology,Specialized Skill
+Microsoft Intune (Mobile Device Management Software),IT Management,Information Technology,Specialized Skill
+Storage Management,IT Management,Information Technology,Specialized Skill
+Mobileiron,IT Management,Information Technology,Specialized Skill
+Software Estimation,IT Management,Information Technology,Specialized Skill
+Availability Monitoring,IT Management,Information Technology,Specialized Skill
+ServiceNow,IT Management,Information Technology,Specialized Skill
+Symantec Altiris,IT Management,Information Technology,Specialized Skill
+Snow (Software),IT Management,Information Technology,Specialized Skill
+Service Integration And Management,IT Management,Information Technology,Specialized Skill
+Hybrid Integration,IT Management,Information Technology,Specialized Skill
+JFrog,IT Management,Information Technology,Specialized Skill
+IT Change Management,IT Management,Information Technology,Specialized Skill
+VMware Aria Operations,IT Management,Information Technology,Specialized Skill
+ServiceNow Discovery,IT Management,Information Technology,Specialized Skill
+VMware vRealize Automation (vRA),IT Management,Information Technology,Specialized Skill
+IT Management,IT Management,Information Technology,Specialized Skill
+IT Management,IT Management,Information Technology,Specialized Skill
+RxJava,Java,Information Technology,Specialized Skill
+Java 11,Java,Information Technology,Specialized Skill
+Java (Programming Language),Java,Information Technology,Specialized Skill
+Enterprise JavaBeans,Java,Information Technology,Specialized Skill
+Java Platform Enterprise Edition (J2EE),Java,Information Technology,Specialized Skill
+Google Guice,Java,Information Technology,Specialized Skill
+Google Gson (Java Library),Java,Information Technology,Specialized Skill
+Hibernate (Java),Java,Information Technology,Specialized Skill
+Java Development Kit,Java,Information Technology,Specialized Skill
+JavaBeans,Java,Information Technology,Specialized Skill
+Java Collections Framework,Java,Information Technology,Specialized Skill
+Java Concurrency,Java,Information Technology,Specialized Skill
+Java Database Connectivity,Java,Information Technology,Specialized Skill
+JavaFX,Java,Information Technology,Specialized Skill
+Java Runtime Environment,Java,Information Technology,Specialized Skill
+Java Servlet,Java,Information Technology,Specialized Skill
+Swing (Java),Java,Information Technology,Specialized Skill
+Java Architecture For XML Binding,Java,Information Technology,Specialized Skill
+Java Naming And Directory Interface,Java,Information Technology,Specialized Skill
+JavaServer Faces,Java,Information Technology,Specialized Skill
+JavaServer Pages,Java,Information Technology,Specialized Skill
+JavaServer Pages Standard Tag Library,Java,Information Technology,Specialized Skill
+MyBatis,Java,Information Technology,Specialized Skill
+Dropwizard,Java,Information Technology,Specialized Skill
+Java 8,Java,Information Technology,Specialized Skill
+Thymeleaf,Java,Information Technology,Specialized Skill
+Jetty,Java,Information Technology,Specialized Skill
+JAX-WS,Java,Information Technology,Specialized Skill
+Lombok,Java,Information Technology,Specialized Skill
+Java,Java,Information Technology,Specialized Skill
+Java,Java,Information Technology,Specialized Skill
+MobX,JavaScript and jQuery,Information Technology,Specialized Skill
+Nuxt.js (Javascript Library),JavaScript and jQuery,Information Technology,Specialized Skill
+Vuex,JavaScript and jQuery,Information Technology,Specialized Skill
+Gatsby.js (Javascript Library),JavaScript and jQuery,Information Technology,Specialized Skill
+Gulp.js (Javascript Library),JavaScript and jQuery,Information Technology,Specialized Skill
+Next.js (Javascript Library),JavaScript and jQuery,Information Technology,Specialized Skill
+Express.js (Javascript Library),JavaScript and jQuery,Information Technology,Specialized Skill
+RxJS,JavaScript and jQuery,Information Technology,Specialized Skill
+Backbone.js (Javascript Library),JavaScript and jQuery,Information Technology,Specialized Skill
+D3.js (Javascript Library),JavaScript and jQuery,Information Technology,Specialized Skill
+Ember.js (Javascript Library),JavaScript and jQuery,Information Technology,Specialized Skill
+JQuery,JavaScript and jQuery,Information Technology,Specialized Skill
+JQuery Mobile,JavaScript and jQuery,Information Technology,Specialized Skill
+JQuery UI,JavaScript and jQuery,Information Technology,Specialized Skill
+Node.js (Javascript Library),JavaScript and jQuery,Information Technology,Specialized Skill
+Grunt.js (Javascript Library),JavaScript and jQuery,Information Technology,Specialized Skill
+Highcharts,JavaScript and jQuery,Information Technology,Specialized Skill
+Underscore.js (Javascript Library),JavaScript and jQuery,Information Technology,Specialized Skill
+Sinon,JavaScript and jQuery,Information Technology,Specialized Skill
+Rollup,JavaScript and jQuery,Information Technology,Specialized Skill
+Sequelize.js (Javascript Library),JavaScript and jQuery,Information Technology,Specialized Skill
+React.js (Javascript Library),JavaScript and jQuery,Information Technology,Specialized Skill
+Vue.js (Javascript Library),JavaScript and jQuery,Information Technology,Specialized Skill
+Webpack,JavaScript and jQuery,Information Technology,Specialized Skill
+Lodash,JavaScript and jQuery,Information Technology,Specialized Skill
+React Native,JavaScript and jQuery,Information Technology,Specialized Skill
+React Redux,JavaScript and jQuery,Information Technology,Specialized Skill
+Handlebars.js (Javascript Library),JavaScript and jQuery,Information Technology,Specialized Skill
+ECMAScript 2015,JavaScript and jQuery,Information Technology,Specialized Skill
+Hapi.js (Javascript Library),JavaScript and jQuery,Information Technology,Specialized Skill
+Axios (JavaScript Library),JavaScript and jQuery,Information Technology,Specialized Skill
+JavaScript and jQuery,JavaScript and jQuery,Information Technology,Specialized Skill
+JavaScript and jQuery,JavaScript and jQuery,Information Technology,Specialized Skill
+Log Monitoring,Log Management,Information Technology,Specialized Skill
+Event Logging,Log Management,Information Technology,Specialized Skill
+Log Analysis,Log Management,Information Technology,Specialized Skill
+Log4j,Log Management,Information Technology,Specialized Skill
+Rsyslog,Log Management,Information Technology,Specialized Skill
+Simple Logging Facade For Java (SLF4J),Log Management,Information Technology,Specialized Skill
+Syslog,Log Management,Information Technology,Specialized Skill
+Graylog,Log Management,Information Technology,Specialized Skill
+Logback,Log Management,Information Technology,Specialized Skill
+Filebeat,Log Management,Information Technology,Specialized Skill
+Log Management,Log Management,Information Technology,Specialized Skill
+Log Management,Log Management,Information Technology,Specialized Skill
+Customer Information Control System (CICS),Mainframe Technologies,Information Technology,Specialized Skill
+Easytrieve,Mainframe Technologies,Information Technology,Specialized Skill
+Endevor (Software),Mainframe Technologies,Information Technology,Specialized Skill
+Job Control Language (JCL),Mainframe Technologies,Information Technology,Specialized Skill
+IBM Mainframe,Mainframe Technologies,Information Technology,Specialized Skill
+IBM OMEGAMON,Mainframe Technologies,Information Technology,Specialized Skill
+IBM Time Sharing Option,Mainframe Technologies,Information Technology,Specialized Skill
+Interactive System Productivity Facility (ISPF),Mainframe Technologies,Information Technology,Specialized Skill
+Mainframe Computing,Mainframe Technologies,Information Technology,Specialized Skill
+MVS (OS),Mainframe Technologies,Information Technology,Specialized Skill
+System Display And Search Facility (SDSF),Mainframe Technologies,Information Technology,Specialized Skill
+XPEDITER,Mainframe Technologies,Information Technology,Specialized Skill
+z/OS,Mainframe Technologies,Information Technology,Specialized Skill
+Mainframe Technologies,Mainframe Technologies,Information Technology,Specialized Skill
+Mainframe Technologies,Mainframe Technologies,Information Technology,Specialized Skill
+Malware Reverse Engineering,Malware Protection,Information Technology,Specialized Skill
+Malware Analysis,Malware Protection,Information Technology,Specialized Skill
+Antivirus Software,Malware Protection,Information Technology,Specialized Skill
+Kaspersky Anti-Virus,Malware Protection,Information Technology,Specialized Skill
+McAfee VirusScan,Malware Protection,Information Technology,Specialized Skill
+Windows Defender,Malware Protection,Information Technology,Specialized Skill
+Symantec Endpoint Protection,Malware Protection,Information Technology,Specialized Skill
+Nessus,Malware Protection,Information Technology,Specialized Skill
+Malware Detection,Malware Protection,Information Technology,Specialized Skill
+Rootkit,Malware Protection,Information Technology,Specialized Skill
+Malware Protection,Malware Protection,Information Technology,Specialized Skill
+Malware Protection,Malware Protection,Information Technology,Specialized Skill
+Azure Service Fabric,Microsoft Development Tools,Information Technology,Specialized Skill
+ASP.NET Web API,Microsoft Development Tools,Information Technology,Specialized Skill
+ASP.NET Razor,Microsoft Development Tools,Information Technology,Specialized Skill
+Microsoft Power Platform,Microsoft Development Tools,Information Technology,Specialized Skill
+ASP.NET Core MVC,Microsoft Development Tools,Information Technology,Specialized Skill
+ASP.NET Core,Microsoft Development Tools,Information Technology,Specialized Skill
+Active Server Pages (ASP),Microsoft Development Tools,Information Technology,Specialized Skill
+ASP.NET,Microsoft Development Tools,Information Technology,Specialized Skill
+.NET Framework,Microsoft Development Tools,Information Technology,Specialized Skill
+ADO.NET (Programming Language),Microsoft Development Tools,Information Technology,Specialized Skill
+ASP.NET MVC Framework,Microsoft Development Tools,Information Technology,Specialized Skill
+Language Integrated Query,Microsoft Development Tools,Information Technology,Specialized Skill
+Entity Framework,Microsoft Development Tools,Information Technology,Specialized Skill
+Windows Communication Foundation,Microsoft Development Tools,Information Technology,Specialized Skill
+Microsoft Visual Studio,Microsoft Development Tools,Information Technology,Specialized Skill
+Windows Presentation Foundation,Microsoft Development Tools,Information Technology,Specialized Skill
+Microsoft Silverlight,Microsoft Development Tools,Information Technology,Specialized Skill
+NHibernate,Microsoft Development Tools,Information Technology,Specialized Skill
+Powerapps,Microsoft Development Tools,Information Technology,Specialized Skill
+SignalR,Microsoft Development Tools,Information Technology,Specialized Skill
+Windows Forms,Microsoft Development Tools,Information Technology,Specialized Skill
+Windows Workflow Foundation,Microsoft Development Tools,Information Technology,Specialized Skill
+.NET MAUI (Multi-Platform App UI),Microsoft Development Tools,Information Technology,Specialized Skill
+Microsoft Development Tools,Microsoft Development Tools,Information Technology,Specialized Skill
+Microsoft Development Tools,Microsoft Development Tools,Information Technology,Specialized Skill
+Universal Windows Platform,Microsoft Windows,Information Technology,Specialized Skill
+AutoIt,Microsoft Windows,Information Technology,Specialized Skill
+BitLocker Drive Encryption,Microsoft Windows,Information Technology,Specialized Skill
+Windows Embedded,Microsoft Windows,Information Technology,Specialized Skill
+InstallShield,Microsoft Windows,Information Technology,Specialized Skill
+Windows Installer,Microsoft Windows,Information Technology,Specialized Skill
+Windows Deployment Services,Microsoft Windows,Information Technology,Specialized Skill
+Windows Installer XML (WIX),Microsoft Windows,Information Technology,Specialized Skill
+Windows Management Instrumentation,Microsoft Windows,Information Technology,Specialized Skill
+Windows Registry,Microsoft Windows,Information Technology,Specialized Skill
+Windows Service,Microsoft Windows,Information Technology,Specialized Skill
+Sysinternals,Microsoft Windows,Information Technology,Specialized Skill
+Microsoft Windows,Microsoft Windows,Information Technology,Specialized Skill
+Microsoft Windows,Microsoft Windows,Information Technology,Specialized Skill
+Redux-Saga,Middleware,Information Technology,Specialized Skill
+Netflix Eureka,Middleware,Information Technology,Specialized Skill
+Integration Platforms,Middleware,Information Technology,Specialized Skill
+Amazon MQ,Middleware,Information Technology,Specialized Skill
+TIBCO EMS,Middleware,Information Technology,Specialized Skill
+Apache ActiveMQ,Middleware,Information Technology,Specialized Skill
+Amazon Simple Queue Services,Middleware,Information Technology,Specialized Skill
+Advanced Message Queuing Protocol,Middleware,Information Technology,Specialized Skill
+Message-Oriented Middleware,Middleware,Information Technology,Specialized Skill
+Microsoft Biztalk Servers,Middleware,Information Technology,Specialized Skill
+IBM WebSphere MQ,Middleware,Information Technology,Specialized Skill
+Java Message Service (JMS),Middleware,Information Technology,Specialized Skill
+Message Broker,Middleware,Information Technology,Specialized Skill
+Enterprise Messaging Systems,Middleware,Information Technology,Specialized Skill
+RabbitMQ,Middleware,Information Technology,Specialized Skill
+Oracle Fusion Middleware,Middleware,Information Technology,Specialized Skill
+Oracle Application Server,Middleware,Information Technology,Specialized Skill
+Middleware,Middleware,Information Technology,Specialized Skill
+Middleware,Middleware,Information Technology,Specialized Skill
+Firebase Analytics,Mobile Development,Information Technology,Specialized Skill
+Mobile Architecture,Mobile Development,Information Technology,Specialized Skill
+Mobile Platform Development,Mobile Development,Information Technology,Specialized Skill
+Hybrid Mobile App,Mobile Development,Information Technology,Specialized Skill
+Android Applications,Mobile Development,Information Technology,Specialized Skill
+Android Development,Mobile Development,Information Technology,Specialized Skill
+Flutter (Software),Mobile Development,Information Technology,Specialized Skill
+Android Jetpack,Mobile Development,Information Technology,Specialized Skill
+Android SDK,Mobile Development,Information Technology,Specialized Skill
+Android Software Development,Mobile Development,Information Technology,Specialized Skill
+Android Studio,Mobile Development,Information Technology,Specialized Skill
+Mobile Application Development,Mobile Development,Information Technology,Specialized Skill
+Push Technology,Mobile Development,Information Technology,Specialized Skill
+PhoneGap,Mobile Development,Information Technology,Specialized Skill
+Firebase,Mobile Development,Information Technology,Specialized Skill
+Xamarin,Mobile Development,Information Technology,Specialized Skill
+Apache Cordova,Mobile Development,Information Technology,Specialized Skill
+Ionic Framework,Mobile Development,Information Technology,Specialized Skill
+Mobile Application Design,Mobile Development,Information Technology,Specialized Skill
+Mobile Development,Mobile Development,Information Technology,Specialized Skill
+Mobile Development,Mobile Development,Information Technology,Specialized Skill
+Border Gateway Protocol,Network Protocols,Information Technology,Specialized Skill
+Spanning Tree Protocols,Network Protocols,Information Technology,Specialized Skill
+Dynamic Host Configuration Protocol (DHCP),Network Protocols,Information Technology,Specialized Skill
+Enhanced Interior Gateway Routing Protocols,Network Protocols,Information Technology,Specialized Skill
+Secure FTP (Software),Network Protocols,Information Technology,Specialized Skill
+Internet Control Message Protocol (ICMP),Network Protocols,Information Technology,Specialized Skill
+IEEE 802.11,Network Protocols,Information Technology,Specialized Skill
+Internet Protocols Suite,Network Protocols,Information Technology,Specialized Skill
+IMAP (Internet Message Access Protocol),Network Protocols,Information Technology,Specialized Skill
+Internet Protocols,Network Protocols,Information Technology,Specialized Skill
+IPv4,Network Protocols,Information Technology,Specialized Skill
+IPv6,Network Protocols,Information Technology,Specialized Skill
+Multiprotocol Label Switching,Network Protocols,Information Technology,Specialized Skill
+Session Initiation Protocols,Network Protocols,Information Technology,Specialized Skill
+Kerberos (Protocol),Network Protocols,Information Technology,Specialized Skill
+Layer 2 Tunneling Protocols,Network Protocols,Information Technology,Specialized Skill
+SMTP (Simple Mail Transfer Protocol),Network Protocols,Information Technology,Specialized Skill
+Message Queuing Telemetry Transport (MQTT),Network Protocols,Information Technology,Specialized Skill
+Network Time Protocols,Network Protocols,Information Technology,Specialized Skill
+Network Protocols,Network Protocols,Information Technology,Specialized Skill
+Open Shortest Path First (OSPF),Network Protocols,Information Technology,Specialized Skill
+Remote Authentication Dial In User Service (RADIUS),Network Protocols,Information Technology,Specialized Skill
+Routing Protocols,Network Protocols,Information Technology,Specialized Skill
+Samba (Software),Network Protocols,Information Technology,Specialized Skill
+Simple Network Management Protocols,Network Protocols,Information Technology,Specialized Skill
+Simple Object Access Protocol (SOAP),Network Protocols,Information Technology,Specialized Skill
+TCP/IP,Network Protocols,Information Technology,Specialized Skill
+Telnet,Network Protocols,Information Technology,Specialized Skill
+User Datagram Protocol,Network Protocols,Information Technology,Specialized Skill
+WebSocket,Network Protocols,Information Technology,Specialized Skill
+Remote Desktop Protocol (RDP),Network Protocols,Information Technology,Specialized Skill
+Transmission Control Protocol (TCP),Network Protocols,Information Technology,Specialized Skill
+File Transfer Protocol (FTP),Network Protocols,Information Technology,Specialized Skill
+Network Protocols,Network Protocols,Information Technology,Specialized Skill
+Network Protocols,Network Protocols,Information Technology,Specialized Skill
+Qualys,Network Security,Information Technology,Specialized Skill
+Palo Alto Firewalls,Network Security,Information Technology,Specialized Skill
+IPSec Tunnels,Network Security,Information Technology,Specialized Skill
+Azure Firewall,Network Security,Information Technology,Specialized Skill
+Enterprise Network Security,Network Security,Information Technology,Specialized Skill
+VPN Tunnels,Network Security,Information Technology,Specialized Skill
+Proxy Servers,Network Security,Information Technology,Specialized Skill
+Application Firewall,Network Security,Information Technology,Specialized Skill
+Deep Packet Inspection,Network Security,Information Technology,Specialized Skill
+Demilitarized Zones (DMZ),Network Security,Information Technology,Specialized Skill
+Domain Name System Security Extensions,Network Security,Information Technology,Specialized Skill
+Enterprise Security,Network Security,Information Technology,Specialized Skill
+Firewall,Network Security,Information Technology,Specialized Skill
+Internet Protocol Security (IP SEC),Network Security,Information Technology,Specialized Skill
+Intrusion Detection And Prevention,Network Security,Information Technology,Specialized Skill
+Intrusion Detection Systems,Network Security,Information Technology,Specialized Skill
+Virtual Private Networks (VPN),Network Security,Information Technology,Specialized Skill
+Network Security,Network Security,Information Technology,Specialized Skill
+Wireless Security,Network Security,Information Technology,Specialized Skill
+Network Security Policy,Network Security,Information Technology,Specialized Skill
+Nmap,Network Security,Information Technology,Specialized Skill
+OpenSSH,Network Security,Information Technology,Specialized Skill
+OpenVPN,Network Security,Information Technology,Specialized Skill
+PfSense,Network Security,Information Technology,Specialized Skill
+Transport Layer Security (TLS),Network Security,Information Technology,Specialized Skill
+SSL Security,Network Security,Information Technology,Specialized Skill
+Identity Services Engine,Network Security,Information Technology,Specialized Skill
+SonicWall,Network Security,Information Technology,Specialized Skill
+Wazuh,Network Security,Information Technology,Specialized Skill
+Fortify Static Code Analysis (SCA),Network Security,Information Technology,Specialized Skill
+Network Security,Network Security,Information Technology,Specialized Skill
+Network Security,Network Security,Information Technology,Specialized Skill
+Juniper Routers,Networking Hardware,Information Technology,Specialized Skill
+Patch Panels,Networking Hardware,Information Technology,Specialized Skill
+Network Adapters,Networking Hardware,Information Technology,Specialized Skill
+Brocade Switches,Networking Hardware,Information Technology,Specialized Skill
+Cisco Adaptive Security Appliance (ASA),Networking Hardware,Information Technology,Specialized Skill
+Network Bridges,Networking Hardware,Information Technology,Specialized Skill
+Cisco Routers,Networking Hardware,Information Technology,Specialized Skill
+Multilayer Switch,Networking Hardware,Information Technology,Specialized Skill
+Network Interface Controllers,Networking Hardware,Information Technology,Specialized Skill
+Networking Hardware,Networking Hardware,Information Technology,Specialized Skill
+Cisco Nexus Switches,Networking Hardware,Information Technology,Specialized Skill
+Power Over Ethernet,Networking Hardware,Information Technology,Specialized Skill
+Wireless Access Point,Networking Hardware,Information Technology,Specialized Skill
+Wireless LAN Controllers,Networking Hardware,Information Technology,Specialized Skill
+Wireless Router,Networking Hardware,Information Technology,Specialized Skill
+Network Switches,Networking Hardware,Information Technology,Specialized Skill
+Networking Hardware,Networking Hardware,Information Technology,Specialized Skill
+Networking Hardware,Networking Hardware,Information Technology,Specialized Skill
+Cisco DNA Center,Networking Software,Information Technology,Specialized Skill
+Cisco Meraki,Networking Software,Information Technology,Specialized Skill
+Aruba (Network Management Software),Networking Software,Information Technology,Specialized Skill
+GNS3,Networking Software,Information Technology,Specialized Skill
+Icinga,Networking Software,Information Technology,Specialized Skill
+Nslookup,Networking Software,Information Technology,Specialized Skill
+OpenNMS,Networking Software,Information Technology,Specialized Skill
+Ping (Networking Utility),Networking Software,Information Technology,Specialized Skill
+Protocol Analyzer,Networking Software,Information Technology,Specialized Skill
+PuTTY (Application),Networking Software,Information Technology,Specialized Skill
+Wireshark,Networking Software,Information Technology,Specialized Skill
+Zabbix,Networking Software,Information Technology,Specialized Skill
+Scapy,Networking Software,Information Technology,Specialized Skill
+OpenDaylight,Networking Software,Information Technology,Specialized Skill
+AWS Networking,Networking Software,Information Technology,Specialized Skill
+Software-Defined Networking Wide Area Network (SD-WAN),Networking Software,Information Technology,Specialized Skill
+Networking Software,Networking Software,Information Technology,Specialized Skill
+Networking Software,Networking Software,Information Technology,Specialized Skill
+IBM AIX,Operating Systems,Information Technology,Specialized Skill
+Android (Operating System),Operating Systems,Information Technology,Specialized Skill
+Mac OS X,Operating Systems,Information Technology,Specialized Skill
+Unix,Operating Systems,Information Technology,Specialized Skill
+Ubuntu (Operating System),Operating Systems,Information Technology,Specialized Skill
+CentOS,Operating Systems,Information Technology,Specialized Skill
+Chrome OS,Operating Systems,Information Technology,Specialized Skill
+Cisco IOS,Operating Systems,Information Technology,Specialized Skill
+Debian Linux,Operating Systems,Information Technology,Specialized Skill
+Linux,Operating Systems,Information Technology,Specialized Skill
+FreeBSD,Operating Systems,Information Technology,Specialized Skill
+Fedora Linux,Operating Systems,Information Technology,Specialized Skill
+FreeRTOS,Operating Systems,Information Technology,Specialized Skill
+HP-UX,Operating Systems,Information Technology,Specialized Skill
+Linux Kernel,Operating Systems,Information Technology,Specialized Skill
+Red Hat Linux,Operating Systems,Information Technology,Specialized Skill
+Windows Servers,Operating Systems,Information Technology,Specialized Skill
+SUSE Linux Distributions,Operating Systems,Information Technology,Specialized Skill
+OpenBSD,Operating Systems,Information Technology,Specialized Skill
+QNX (Software),Operating Systems,Information Technology,Specialized Skill
+Real-Time Operating Systems,Operating Systems,Information Technology,Specialized Skill
+Solaris (Operating System),Operating Systems,Information Technology,Specialized Skill
+Oracle Linux,Operating Systems,Information Technology,Specialized Skill
+VxWorks,Operating Systems,Information Technology,Specialized Skill
+SUSE Linux,Operating Systems,Information Technology,Specialized Skill
+CoreOS,Operating Systems,Information Technology,Specialized Skill
+Operating Systems,Operating Systems,Information Technology,Specialized Skill
+Operating Systems,Operating Systems,Information Technology,Specialized Skill
+Haskell (Programming Language),Other Programming Languages,Information Technology,Specialized Skill
+Elixir (Programming Language),Other Programming Languages,Information Technology,Specialized Skill
+Go (Programming Language),Other Programming Languages,Information Technology,Specialized Skill
+Rust (Programming Language),Other Programming Languages,Information Technology,Specialized Skill
+Visual Basic (Programming Language),Other Programming Languages,Information Technology,Specialized Skill
+Advanced Business Application Programming (ABAP),Other Programming Languages,Information Technology,Specialized Skill
+Ada (Programming Language),Other Programming Languages,Information Technology,Specialized Skill
+Assembly Language,Other Programming Languages,Information Technology,Specialized Skill
+C# (Programming Language),Other Programming Languages,Information Technology,Specialized Skill
+Clojure,Other Programming Languages,Information Technology,Specialized Skill
+CoffeeScript,Other Programming Languages,Information Technology,Specialized Skill
+F# (Programming Language),Other Programming Languages,Information Technology,Specialized Skill
+Fortran (Programming Language),Other Programming Languages,Information Technology,Specialized Skill
+Dart (Programming Language),Other Programming Languages,Information Technology,Specialized Skill
+Visual Basic .NET (Programming Language),Other Programming Languages,Information Technology,Specialized Skill
+PeopleCode,Other Programming Languages,Information Technology,Specialized Skill
+PL/I (Procedural Programming Language),Other Programming Languages,Information Technology,Specialized Skill
+Scala (Programming Language),Other Programming Languages,Information Technology,Specialized Skill
+Unified Modeling Language,Other Programming Languages,Information Technology,Specialized Skill
+Visual Basic For Applications,Other Programming Languages,Information Technology,Specialized Skill
+YAML,Other Programming Languages,Information Technology,Specialized Skill
+Apex Code,Other Programming Languages,Information Technology,Specialized Skill
+Erlang,Other Programming Languages,Information Technology,Specialized Skill
+Kotlin,Other Programming Languages,Information Technology,Specialized Skill
+Swift (Programming Language),Other Programming Languages,Information Technology,Specialized Skill
+Data Analysis Expressions (DAX),Other Programming Languages,Information Technology,Specialized Skill
+Other Programming Languages,Other Programming Languages,Information Technology,Specialized Skill
+Other Programming Languages,Other Programming Languages,Information Technology,Specialized Skill
+LINQ To Entities,Query Languages,Information Technology,Specialized Skill
+Cypher Query Language,Query Languages,Information Technology,Specialized Skill
+LINQ To SQL,Query Languages,Information Technology,Specialized Skill
+Salesforce Object Query Language (SOQL),Query Languages,Information Technology,Specialized Skill
+Kusto Query Language,Query Languages,Information Technology,Specialized Skill
+DB2 SQL,Query Languages,Information Technology,Specialized Skill
+Hibernate Query Language,Query Languages,Information Technology,Specialized Skill
+PL/SQL,Query Languages,Information Technology,Specialized Skill
+SPARQL Protocol And RDF Query Language (SPARQL),Query Languages,Information Technology,Specialized Skill
+SQL (Programming Language),Query Languages,Information Technology,Specialized Skill
+Transact-SQL,Query Languages,Information Technology,Specialized Skill
+PL/pgSQL,Query Languages,Information Technology,Specialized Skill
+Standard SQL,Query Languages,Information Technology,Specialized Skill
+U-SQL,Query Languages,Information Technology,Specialized Skill
+GraphQL,Query Languages,Information Technology,Specialized Skill
+Query Languages,Query Languages,Information Technology,Specialized Skill
+Query Languages,Query Languages,Information Technology,Specialized Skill
+Shell Commands,Scripting,Information Technology,Specialized Skill
+Batch Files,Scripting,Information Technology,Specialized Skill
+Bourne Shell,Scripting,Information Technology,Specialized Skill
+C Shell,Scripting,Information Technology,Specialized Skill
+Command-Line Interface,Scripting,Information Technology,Specialized Skill
+Cron,Scripting,Information Technology,Specialized Skill
+Korn Shell,Scripting,Information Technology,Specialized Skill
+Unix Shell,Scripting,Information Technology,Specialized Skill
+Windows PowerShell,Scripting,Information Technology,Specialized Skill
+Secure Shell Protocol (SSH),Scripting,Information Technology,Specialized Skill
+Shell Script,Scripting,Information Technology,Specialized Skill
+Z Shell,Scripting,Information Technology,Specialized Skill
+Kubectl,Scripting,Information Technology,Specialized Skill
+AWS CLI (Command Line Interface),Scripting,Information Technology,Specialized Skill
+Scripting,Scripting,Information Technology,Specialized Skill
+Scripting,Scripting,Information Technology,Specialized Skill
+PHP Frameworks,Scripting Languages,Information Technology,Specialized Skill
+Julia (Programming Language),Scripting Languages,Information Technology,Specialized Skill
+Gherkin (Scripting Language),Scripting Languages,Information Technology,Specialized Skill
+Ruby (Programming Language),Scripting Languages,Information Technology,Specialized Skill
+JavaScript (Programming Language),Scripting Languages,Information Technology,Specialized Skill
+PHP (Scripting Language),Scripting Languages,Information Technology,Specialized Skill
+VBScript (Visual Basic Scripting Edition),Scripting Languages,Information Technology,Specialized Skill
+ActionScript,Scripting Languages,Information Technology,Specialized Skill
+AWK (Programming Language),Scripting Languages,Information Technology,Specialized Skill
+Bash (Scripting Language),Scripting Languages,Information Technology,Specialized Skill
+CakePHP,Scripting Languages,Information Technology,Specialized Skill
+COBOL (Programming Language),Scripting Languages,Information Technology,Specialized Skill
+CodeIgniter,Scripting Languages,Information Technology,Specialized Skill
+ECMAScript (C Programming Language Family),Scripting Languages,Information Technology,Specialized Skill
+Perl (Programming Language),Scripting Languages,Information Technology,Specialized Skill
+R (Programming Language),Scripting Languages,Information Technology,Specialized Skill
+Groovy (Programming Language),Scripting Languages,Information Technology,Specialized Skill
+JRuby,Scripting Languages,Information Technology,Specialized Skill
+Python (Programming Language),Scripting Languages,Information Technology,Specialized Skill
+Laravel,Scripting Languages,Information Technology,Specialized Skill
+Symfony,Scripting Languages,Information Technology,Specialized Skill
+Tcl (Programming Language),Scripting Languages,Information Technology,Specialized Skill
+TypeScript,Scripting Languages,Information Technology,Specialized Skill
+Yii PHP Framework,Scripting Languages,Information Technology,Specialized Skill
+Zend Framework,Scripting Languages,Information Technology,Specialized Skill
+Behat,Scripting Languages,Information Technology,Specialized Skill
+Scripting Languages,Scripting Languages,Information Technology,Specialized Skill
+Scripting Languages,Scripting Languages,Information Technology,Specialized Skill
+Coveo,Search Engines,Information Technology,Specialized Skill
+Query Understanding,Search Engines,Information Technology,Specialized Skill
+Elasticsearch,Search Engines,Information Technology,Specialized Skill
+Bing Search,Search Engines,Information Technology,Specialized Skill
+Sphinx Search Engine,Search Engines,Information Technology,Specialized Skill
+Search Engines,Search Engines,Information Technology,Specialized Skill
+Search Engines,Search Engines,Information Technology,Specialized Skill
+Apache HTTP Server,Servers,Information Technology,Specialized Skill
+Apache Tomcat,Servers,Information Technology,Specialized Skill
+Application Servers,Servers,Information Technology,Specialized Skill
+Oracle WebLogic Server,Servers,Information Technology,Specialized Skill
+Content Delivery Networks,Servers,Information Technology,Specialized Skill
+Database Servers,Servers,Information Technology,Specialized Skill
+Dovecot,Servers,Information Technology,Specialized Skill
+Microsoft Exchange Servers,Servers,Information Technology,Specialized Skill
+File Servers,Servers,Information Technology,Specialized Skill
+Glassfish Application Servers,Servers,Information Technology,Specialized Skill
+HAProxy,Servers,Information Technology,Specialized Skill
+Web Servers,Servers,Information Technology,Specialized Skill
+Internet Information Services,Servers,Information Technology,Specialized Skill
+WildFly (JBoss AS),Servers,Information Technology,Specialized Skill
+LigHTTPD,Servers,Information Technology,Specialized Skill
+Linux Servers,Servers,Information Technology,Specialized Skill
+Nginx,Servers,Information Technology,Specialized Skill
+Akamai,Servers,Information Technology,Specialized Skill
+SAP NetWeaver Application Servers,Servers,Information Technology,Specialized Skill
+Squid (Proxy Server),Servers,Information Technology,Specialized Skill
+Apache Zookeeper,Servers,Information Technology,Specialized Skill
+Netty,Servers,Information Technology,Specialized Skill
+Postfix,Servers,Information Technology,Specialized Skill
+Servers,Servers,Information Technology,Specialized Skill
+Servers,Servers,Information Technology,Specialized Skill
+Application Design,Software Development,Information Technology,Specialized Skill
+Full-Text Search,Software Development,Information Technology,Specialized Skill
+Microservices Development,Software Development,Information Technology,Specialized Skill
+Full Stack Development,Software Development,Information Technology,Specialized Skill
+Back End (Software Engineering),Software Development,Information Technology,Specialized Skill
+Cross-Platform Applications,Software Development,Information Technology,Specialized Skill
+Progressive Web Apps,Software Development,Information Technology,Specialized Skill
+Application Deployment,Software Development,Information Technology,Specialized Skill
+Application Development,Software Development,Information Technology,Specialized Skill
+Application Lifecycle Management,Software Development,Information Technology,Specialized Skill
+Software Development,Software Development,Information Technology,Specialized Skill
+Architectural Patterns,Software Development,Information Technology,Specialized Skill
+Compilers,Software Development,Information Technology,Specialized Skill
+Software Documentation,Software Development,Information Technology,Specialized Skill
+Code Generation,Software Development,Information Technology,Specialized Skill
+Continuous Delivery,Software Development,Information Technology,Specialized Skill
+Continuous Integration,Software Development,Information Technology,Specialized Skill
+Dependency Injection,Software Development,Information Technology,Specialized Skill
+Software Design Patterns,Software Development,Information Technology,Specialized Skill
+Software Development Life Cycle,Software Development,Information Technology,Specialized Skill
+DevOps,Software Development,Information Technology,Specialized Skill
+Exception Handling,Software Development,Information Technology,Specialized Skill
+Event-Driven Programming,Software Development,Information Technology,Specialized Skill
+Protocol Buffers,Software Development,Information Technology,Specialized Skill
+Scalability,Software Development,Information Technology,Specialized Skill
+Model View Controller,Software Development,Information Technology,Specialized Skill
+Model View ViewModel,Software Development,Information Technology,Specialized Skill
+Object-Oriented Programming (OOP),Software Development,Information Technology,Specialized Skill
+Object-Oriented Analysis And Design,Software Development,Information Technology,Specialized Skill
+Object-Oriented Design,Software Development,Information Technology,Specialized Skill
+Performance Engineering,Software Development,Information Technology,Specialized Skill
+Software Architecture,Software Development,Information Technology,Specialized Skill
+Software Development Methodologies,Software Development,Information Technology,Specialized Skill
+Secure Programming,Software Development,Information Technology,Specialized Skill
+Service-Oriented Architecture,Software Development,Information Technology,Specialized Skill
+Software Deployment,Software Development,Information Technology,Specialized Skill
+Software Design,Software Development,Information Technology,Specialized Skill
+Software Engineering,Software Development,Information Technology,Specialized Skill
+Software Requirements Specification,Software Development,Information Technology,Specialized Skill
+Thread Safety,Software Development,Information Technology,Specialized Skill
+Front End (Software Engineering),Software Development,Information Technology,Specialized Skill
+Dependency Management,Software Development,Information Technology,Specialized Skill
+Technical Debt,Software Development,Information Technology,Specialized Skill
+Solid Principles,Software Development,Information Technology,Specialized Skill
+Functional Programming,Software Development,Information Technology,Specialized Skill
+Domain Driven Design,Software Development,Information Technology,Specialized Skill
+Code Refactoring,Software Development,Information Technology,Specialized Skill
+Microservices,Software Development,Information Technology,Specialized Skill
+CI/CD,Software Development,Information Technology,Specialized Skill
+Continuous Deployment,Software Development,Information Technology,Specialized Skill
+Pull/Merge Requests,Software Development,Information Technology,Specialized Skill
+Observability,Software Development,Information Technology,Specialized Skill
+Low-Code Development Platform (LCDP),Software Development,Information Technology,Specialized Skill
+Application Monitoring,Software Development,Information Technology,Specialized Skill
+Software Development,Software Development,Information Technology,Specialized Skill
+Software Development,Software Development,Information Technology,Specialized Skill
+Docker Compose,Software Development Tools,Information Technology,Specialized Skill
+NgRx (Framework),Software Development Tools,Information Technology,Specialized Skill
+Entity Framework (EF) Core,Software Development Tools,Information Technology,Specialized Skill
+Micronaut Framework,Software Development Tools,Information Technology,Specialized Skill
+Azure Pipelines,Software Development Tools,Information Technology,Specialized Skill
+AWS Amplify,Software Development Tools,Information Technology,Specialized Skill
+AWS CodeDeploy,Software Development Tools,Information Technology,Specialized Skill
+Sinatra (Software),Software Development Tools,Information Technology,Specialized Skill
+Spring MVC,Software Development Tools,Information Technology,Specialized Skill
+Dapper ORM,Software Development Tools,Information Technology,Specialized Skill
+Apache Pulsar,Software Development Tools,Information Technology,Specialized Skill
+npm (Node Package Manager),Software Development Tools,Information Technology,Specialized Skill
+Spring Boot,Software Development Tools,Information Technology,Specialized Skill
+Apache Beam,Software Development Tools,Information Technology,Specialized Skill
+AWS CodePipeline,Software Development Tools,Information Technology,Specialized Skill
+Spring Batch,Software Development Tools,Information Technology,Specialized Skill
+JSON Web Token (JWT),Software Development Tools,Information Technology,Specialized Skill
+Angular CLI,Software Development Tools,Information Technology,Specialized Skill
+Spring Data,Software Development Tools,Information Technology,Specialized Skill
+Chai (Software),Software Development Tools,Information Technology,Specialized Skill
+REST Assured,Software Development Tools,Information Technology,Specialized Skill
+Spring AOP,Software Development Tools,Information Technology,Specialized Skill
+WebAssembly,Software Development Tools,Information Technology,Specialized Skill
+Apollo GraphQL,Software Development Tools,Information Technology,Specialized Skill
+Svelte (Software),Software Development Tools,Information Technology,Specialized Skill
+Amazon Managed Streaming for Apache Kafka (Amazon MSK),Software Development Tools,Information Technology,Specialized Skill
+Azure DevOps,Software Development Tools,Information Technology,Specialized Skill
+Selenium Webdriver,Software Development Tools,Information Technology,Specialized Skill
+Akka (Toolkit),Software Development Tools,Information Technology,Specialized Skill
+Checkstyle,Software Development Tools,Information Technology,Specialized Skill
+Apache Lucene,Software Development Tools,Information Technology,Specialized Skill
+GNU Compiler Collection,Software Development Tools,Information Technology,Specialized Skill
+Hazelcast,Software Development Tools,Information Technology,Specialized Skill
+Apache POI,Software Development Tools,Information Technology,Specialized Skill
+Spring Framework,Software Development Tools,Information Technology,Specialized Skill
+JSON,Software Development Tools,Information Technology,Specialized Skill
+cURL,Software Development Tools,Information Technology,Specialized Skill
+Team Foundation Server,Software Development Tools,Information Technology,Specialized Skill
+NuGet,Software Development Tools,Information Technology,Specialized Skill
+PyCharm,Software Development Tools,Information Technology,Specialized Skill
+Vagrant,Software Development Tools,Information Technology,Specialized Skill
+Docker Container,Software Development Tools,Information Technology,Specialized Skill
+Apache Camel,Software Development Tools,Information Technology,Specialized Skill
+Pylint,Software Development Tools,Information Technology,Specialized Skill
+Bundler,Software Development Tools,Information Technology,Specialized Skill
+OutSystems,Software Development Tools,Information Technology,Specialized Skill
+Jenkinsfile,Software Development Tools,Information Technology,Specialized Skill
+AWS SDK,Software Development Tools,Information Technology,Specialized Skill
+Dockerfile,Software Development Tools,Information Technology,Specialized Skill
+Jenkins 2,Software Development Tools,Information Technology,Specialized Skill
+Boto3,Software Development Tools,Information Technology,Specialized Skill
+AWS Elastic Beanstalk,Software Development Tools,Information Technology,Specialized Skill
+Terraform,Software Development Tools,Information Technology,Specialized Skill
+Docker (Software),Software Development Tools,Information Technology,Specialized Skill
+Artifactory,Software Development Tools,Information Technology,Specialized Skill
+Open Policy Agent,Software Development Tools,Information Technology,Specialized Skill
+Fastify,Software Development Tools,Information Technology,Specialized Skill
+Argo CD,Software Development Tools,Information Technology,Specialized Skill
+Bitrise,Software Development Tools,Information Technology,Specialized Skill
+Software Development Tools,Software Development Tools,Information Technology,Specialized Skill
+Software Development Tools,Software Development Tools,Information Technology,Specialized Skill
+User Acceptance Testing (UAT),Software Quality Assurance,Information Technology,Specialized Skill
+Mocha (JavaScript Framework),Software Quality Assurance,Information Technology,Specialized Skill
+Mobile Application Testing,Software Quality Assurance,Information Technology,Specialized Skill
+Site Reliability Engineering,Software Quality Assurance,Information Technology,Specialized Skill
+Software Testing,Software Quality Assurance,Information Technology,Specialized Skill
+Application Performance Management,Software Quality Assurance,Information Technology,Specialized Skill
+Unit Testing,Software Quality Assurance,Information Technology,Specialized Skill
+Black-Box Testing,Software Quality Assurance,Information Technology,Specialized Skill
+Bugzilla,Software Quality Assurance,Information Technology,Specialized Skill
+Static Program Analysis,Software Quality Assurance,Information Technology,Specialized Skill
+Code Coverage,Software Quality Assurance,Information Technology,Specialized Skill
+Code Review,Software Quality Assurance,Information Technology,Specialized Skill
+Integration Testing,Software Quality Assurance,Information Technology,Specialized Skill
+Debugging,Software Quality Assurance,Information Technology,Specialized Skill
+Software Performance Testing,Software Quality Assurance,Information Technology,Specialized Skill
+Exploratory Testing,Software Quality Assurance,Information Technology,Specialized Skill
+Functional Testing,Software Quality Assurance,Information Technology,Specialized Skill
+White-Box Testing,Software Quality Assurance,Information Technology,Specialized Skill
+HP Loadrunner,Software Quality Assurance,Information Technology,Specialized Skill
+Apache JMeter,Software Quality Assurance,Information Technology,Specialized Skill
+Load Testing,Software Quality Assurance,Information Technology,Specialized Skill
+Manual Testing,Software Quality Assurance,Information Technology,Specialized Skill
+Nunit,Software Quality Assurance,Information Technology,Specialized Skill
+Regression Testing,Software Quality Assurance,Information Technology,Specialized Skill
+Mockito,Software Quality Assurance,Information Technology,Specialized Skill
+Smoke Testing,Software Quality Assurance,Information Technology,Specialized Skill
+SoapUI,Software Quality Assurance,Information Technology,Specialized Skill
+SonarQube,Software Quality Assurance,Information Technology,Specialized Skill
+Test Case,Software Quality Assurance,Information Technology,Specialized Skill
+Test Planning,Software Quality Assurance,Information Technology,Specialized Skill
+Usability Testing,Software Quality Assurance,Information Technology,Specialized Skill
+VeraCode,Software Quality Assurance,Information Technology,Specialized Skill
+Blazemeter,Software Quality Assurance,Information Technology,Specialized Skill
+New Relic (SaaS),Software Quality Assurance,Information Technology,Specialized Skill
+Testrail,Software Quality Assurance,Information Technology,Specialized Skill
+Shift-Left Testing,Software Quality Assurance,Information Technology,Specialized Skill
+API Testing,Software Quality Assurance,Information Technology,Specialized Skill
+Software Quality Assurance,Software Quality Assurance,Information Technology,Specialized Skill
+Software Quality Assurance,Software Quality Assurance,Information Technology,Specialized Skill
+High Availability Design,System Design and Implementation,Information Technology,Specialized Skill
+Business Rules Engines,System Design and Implementation,Information Technology,Specialized Skill
+3rd Party Systems Integration,System Design and Implementation,Information Technology,Specialized Skill
+DevSecOps,System Design and Implementation,Information Technology,Specialized Skill
+Systems Development,System Design and Implementation,Information Technology,Specialized Skill
+Systems Engineering,System Design and Implementation,Information Technology,Specialized Skill
+Systems Analysis,System Design and Implementation,Information Technology,Specialized Skill
+Interoperability,System Design and Implementation,Information Technology,Specialized Skill
+Performance Tuning,System Design and Implementation,Information Technology,Specialized Skill
+Systems Development Life Cycle,System Design and Implementation,Information Technology,Specialized Skill
+Requirements Analysis,System Design and Implementation,Information Technology,Specialized Skill
+Requirements Elicitation,System Design and Implementation,Information Technology,Specialized Skill
+SAP Implementation,System Design and Implementation,Information Technology,Specialized Skill
+Systems Architecture,System Design and Implementation,Information Technology,Specialized Skill
+System Deployment,System Design and Implementation,Information Technology,Specialized Skill
+Systems Design,System Design and Implementation,Information Technology,Specialized Skill
+System Integration Testing,System Design and Implementation,Information Technology,Specialized Skill
+System Requirements Specification,System Design and Implementation,Information Technology,Specialized Skill
+System Design and Implementation,System Design and Implementation,Information Technology,Specialized Skill
+System Design and Implementation,System Design and Implementation,Information Technology,Specialized Skill
+SAP Basis,Systems Administration,Information Technology,Specialized Skill
+Red Hat Satellite,Systems Administration,Information Technology,Specialized Skill
+SolarWinds,Systems Administration,Information Technology,Specialized Skill
+Istio,Systems Administration,Information Technology,Specialized Skill
+Unified Endpoint Management,Systems Administration,Information Technology,Specialized Skill
+Patch Management,Systems Administration,Information Technology,Specialized Skill
+SharePoint Administration,Systems Administration,Information Technology,Specialized Skill
+Windows System Administration,Systems Administration,Information Technology,Specialized Skill
+Endpoint Management,Systems Administration,Information Technology,Specialized Skill
+Active Directory,Systems Administration,Information Technology,Specialized Skill
+Active Directory Federation Services,Systems Administration,Information Technology,Specialized Skill
+Network Analysis,Systems Administration,Information Technology,Specialized Skill
+Microsoft Management Console,Systems Administration,Information Technology,Specialized Skill
+System Administration,Systems Administration,Information Technology,Specialized Skill
+Directory Service,Systems Administration,Information Technology,Specialized Skill
+Domain Name System (DNS) Servers,Systems Administration,Information Technology,Specialized Skill
+Failover,Systems Administration,Information Technology,Specialized Skill
+File System Permissions,Systems Administration,Information Technology,Specialized Skill
+Group Policy,Systems Administration,Information Technology,Specialized Skill
+LDAP Admin,Systems Administration,Information Technology,Specialized Skill
+Linux Administration,Systems Administration,Information Technology,Specialized Skill
+Network Management,Systems Administration,Information Technology,Specialized Skill
+Nagios,Systems Administration,Information Technology,Specialized Skill
+Network Administration,Systems Administration,Information Technology,Specialized Skill
+Remote Administration,Systems Administration,Information Technology,Specialized Skill
+Prometheus (Software),Systems Administration,Information Technology,Specialized Skill
+Sudo,Systems Administration,Information Technology,Specialized Skill
+Windows Server Update Services,Systems Administration,Information Technology,Specialized Skill
+Iptables,Systems Administration,Information Technology,Specialized Skill
+IIS Manager,Systems Administration,Information Technology,Specialized Skill
+Veeam,Systems Administration,Information Technology,Specialized Skill
+User Accounts,Systems Administration,Information Technology,Specialized Skill
+Systems Administration,Systems Administration,Information Technology,Specialized Skill
+Systems Administration,Systems Administration,Information Technology,Specialized Skill
+Hardware Troubleshooting,Technical Support and Services,Information Technology,Specialized Skill
+Hardware Support,Technical Support and Services,Information Technology,Specialized Skill
+Remote Technical Support,Technical Support and Services,Information Technology,Specialized Skill
+Network Support,Technical Support and Services,Information Technology,Specialized Skill
+End-User Training And Support,Technical Support and Services,Information Technology,Specialized Skill
+Software Installation,Technical Support and Services,Information Technology,Specialized Skill
+Technical Support,Technical Support and Services,Information Technology,Specialized Skill
+Desktop Support,Technical Support and Services,Information Technology,Specialized Skill
+Help Desk Support,Technical Support and Services,Information Technology,Specialized Skill
+Issue Tracking,Technical Support and Services,Information Technology,Specialized Skill
+Linux Support,Technical Support and Services,Information Technology,Specialized Skill
+Remote Desktop Services,Technical Support and Services,Information Technology,Specialized Skill
+Service Request Management,Technical Support and Services,Information Technology,Specialized Skill
+TeamViewer,Technical Support and Services,Information Technology,Specialized Skill
+Technical Support and Services,Technical Support and Services,Information Technology,Specialized Skill
+Technical Support and Services,Technical Support and Services,Information Technology,Specialized Skill
+Mitel,Telecommunications,Information Technology,Specialized Skill
+SIP Trunking,Telecommunications,Information Technology,Specialized Skill
+Avaya (Telecommunications),Telecommunications,Information Technology,Specialized Skill
+Digital Communications,Telecommunications,Information Technology,Specialized Skill
+Fiber Optics,Telecommunications,Information Technology,Specialized Skill
+Automatic Call Distributor,Telecommunications,Information Technology,Specialized Skill
+Interactive Voice Response,Telecommunications,Information Technology,Specialized Skill
+Telecommunications,Telecommunications,Information Technology,Specialized Skill
+Broadband,Telecommunications,Information Technology,Specialized Skill
+Voice Over IP,Telecommunications,Information Technology,Specialized Skill
+Cisco Unified Communications Manager,Telecommunications,Information Technology,Specialized Skill
+Cellular Networks,Telecommunications,Information Technology,Specialized Skill
+SMS,Telecommunications,Information Technology,Specialized Skill
+FreeSWITCH,Telecommunications,Information Technology,Specialized Skill
+Integrated Services Digital Networks,Telecommunications,Information Technology,Specialized Skill
+IP Multimedia Subsystem,Telecommunications,Information Technology,Specialized Skill
+Jitter,Telecommunications,Information Technology,Specialized Skill
+OpenSIPS,Telecommunications,Information Technology,Specialized Skill
+Operations Support Systems,Telecommunications,Information Technology,Specialized Skill
+Private Branch Exchange (PBX),Telecommunications,Information Technology,Specialized Skill
+Telephony,Telecommunications,Information Technology,Specialized Skill
+Signaling System 7 (SS7),Telecommunications,Information Technology,Specialized Skill
+Microsoft Teams Voice,Telecommunications,Information Technology,Specialized Skill
+Network Quality Of Service (QoS),Telecommunications,Information Technology,Specialized Skill
+Telecommunications,Telecommunications,Information Technology,Specialized Skill
+Telecommunications,Telecommunications,Information Technology,Specialized Skill
+Espresso (Android Testing Framework),Test Automation,Information Technology,Specialized Skill
+Tricentis Tosca,Test Automation,Information Technology,Specialized Skill
+Cucumber (Software),Test Automation,Information Technology,Specialized Skill
+Karate (Software),Test Automation,Information Technology,Specialized Skill
+Katalon Studio,Test Automation,Information Technology,Specialized Skill
+Gatling (Software),Test Automation,Information Technology,Specialized Skill
+Applitools,Test Automation,Information Technology,Specialized Skill
+Test Automation,Test Automation,Information Technology,Specialized Skill
+Junit,Test Automation,Information Technology,Specialized Skill
+Ranorex,Test Automation,Information Technology,Specialized Skill
+Selenium (Software),Test Automation,Information Technology,Specialized Skill
+TestNG,Test Automation,Information Technology,Specialized Skill
+Saucelabs,Test Automation,Information Technology,Specialized Skill
+Capybara (Software),Test Automation,Information Technology,Specialized Skill
+Appium,Test Automation,Information Technology,Specialized Skill
+Scalatest,Test Automation,Information Technology,Specialized Skill
+Specflow,Test Automation,Information Technology,Specialized Skill
+Assertj,Test Automation,Information Technology,Specialized Skill
+Jasmine (JavaScript Testing Framework),Test Automation,Information Technology,Specialized Skill
+Protractor (Software),Test Automation,Information Technology,Specialized Skill
+Puppeteer (Software),Test Automation,Information Technology,Specialized Skill
+CypressIO,Test Automation,Information Technology,Specialized Skill
+Karma (JavaScript Testing Framework),Test Automation,Information Technology,Specialized Skill
+Playwright (Software Testing),Test Automation,Information Technology,Specialized Skill
+Test Automation,Test Automation,Information Technology,Specialized Skill
+Test Automation,Test Automation,Information Technology,Specialized Skill
+AWS CodeCommit,Version Control,Information Technology,Specialized Skill
+Git (Version Control System),Version Control,Information Technology,Specialized Skill
+Version Control,Version Control,Information Technology,Specialized Skill
+Github,Version Control,Information Technology,Specialized Skill
+Mercurial,Version Control,Information Technology,Specialized Skill
+Perforce,Version Control,Information Technology,Specialized Skill
+Apache Subversion,Version Control,Information Technology,Specialized Skill
+TortoiseSVN,Version Control,Information Technology,Specialized Skill
+Gerrit,Version Control,Information Technology,Specialized Skill
+Gitlab,Version Control,Information Technology,Specialized Skill
+Git Flow,Version Control,Information Technology,Specialized Skill
+Bitbucket,Version Control,Information Technology,Specialized Skill
+Version Control,Version Control,Information Technology,Specialized Skill
+Version Control,Version Control,Information Technology,Specialized Skill
+Cisco TelePresence,Video and Web Conferencing,Information Technology,Specialized Skill
+Polycom (Video Conferencing),Video and Web Conferencing,Information Technology,Specialized Skill
+Google Meet,Video and Web Conferencing,Information Technology,Specialized Skill
+GoToWebinar,Video and Web Conferencing,Information Technology,Specialized Skill
+Zoom Rooms,Video and Web Conferencing,Information Technology,Specialized Skill
+Zoom (Video Conferencing Tool),Video and Web Conferencing,Information Technology,Specialized Skill
+Panopto (Software),Video and Web Conferencing,Information Technology,Specialized Skill
+GoToMeeting,Video and Web Conferencing,Information Technology,Specialized Skill
+Video and Web Conferencing,Video and Web Conferencing,Information Technology,Specialized Skill
+Video and Web Conferencing,Video and Web Conferencing,Information Technology,Specialized Skill
+Docker Machine,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+Oracle VM,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+Citrix Workspace,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+Containerization,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+Desktop Virtualization,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+VMware ESX Servers,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+Hardware Virtualization,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+Hyper-V,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+Hypervisor,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+Java Virtual Machine (JVM),Virtualization and Virtual Machines,Information Technology,Specialized Skill
+Kernel-Based Virtual Machine,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+Citrix XenApp,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+Network Functions Virtualization,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+Citrix Systems,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+Open VSwitch,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+OpenVZ,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+Oracle Virtual Machine,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+PowerVM,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+Quick EMUlator (QEMU),Virtualization and Virtual Machines,Information Technology,Specialized Skill
+Red Hat Enterprise Virtualization,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+Server Virtualization,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+Terminal Emulators,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+Virtual Machines,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+VirtualBox,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+Virtualization,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+VMware Fusion,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+VMware Horizon View,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+VMware VSphere,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+VMware Workstation,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+Xen Servers,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+Proxmox,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+Nutanix Prism,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+Nutanix AHV,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+Virtualization and Virtual Machines,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+Virtualization and Virtual Machines,Virtualization and Virtual Machines,Information Technology,Specialized Skill
+Web Content Management,Web Content,Information Technology,Specialized Skill
+Digital Content Platforms,Web Content,Information Technology,Specialized Skill
+Interactive Web Content,Web Content,Information Technology,Specialized Skill
+Deep Linking,Web Content,Information Technology,Specialized Skill
+MediaWiki,Web Content,Information Technology,Specialized Skill
+Web Content Accessibility Guidelines,Web Content,Information Technology,Specialized Skill
+Website Localization,Web Content,Information Technology,Specialized Skill
+Dynamic Content,Web Content,Information Technology,Specialized Skill
+Web Content,Web Content,Information Technology,Specialized Skill
+Web Content,Web Content,Information Technology,Specialized Skill
+CSS Grid,Web Design and Development,Information Technology,Specialized Skill
+Vue Router,Web Design and Development,Information Technology,Specialized Skill
+Ember CLI,Web Design and Development,Information Technology,Specialized Skill
+Spring WebFlux,Web Design and Development,Information Technology,Specialized Skill
+Create React App,Web Design and Development,Information Technology,Specialized Skill
+Flask (Web Framework),Web Design and Development,Information Technology,Specialized Skill
+Leaner Style Sheets (LESS),Web Design and Development,Information Technology,Specialized Skill
+Lightning Web Components,Web Design and Development,Information Technology,Specialized Skill
+Blazor,Web Design and Development,Information Technology,Specialized Skill
+MERN Stack,Web Design and Development,Information Technology,Specialized Skill
+Web Accessibility Testing,Web Design and Development,Information Technology,Specialized Skill
+HyperText Markup Language (HTML),Web Design and Development,Information Technology,Specialized Skill
+Web Accessibility,Web Design and Development,Information Technology,Specialized Skill
+Angular (Web Framework),Web Design and Development,Information Technology,Specialized Skill
+HTML5,Web Design and Development,Information Technology,Specialized Skill
+LAMP (Software Bundle),Web Design and Development,Information Technology,Specialized Skill
+Bootstrap (Front-End Framework),Web Design and Development,Information Technology,Specialized Skill
+Cascading Style Sheets (CSS),Web Design and Development,Information Technology,Specialized Skill
+Web Design,Web Design and Development,Information Technology,Specialized Skill
+Web Development,Web Design and Development,Information Technology,Specialized Skill
+Django (Web Framework),Web Design and Development,Information Technology,Specialized Skill
+Grails (Framework),Web Design and Development,Information Technology,Specialized Skill
+Apache Struts,Web Design and Development,Information Technology,Specialized Skill
+Play Framework,Web Design and Development,Information Technology,Specialized Skill
+Ruby On Rails,Web Design and Development,Information Technology,Specialized Skill
+Responsive Web Design,Web Design and Development,Information Technology,Specialized Skill
+Scalable Vector Graphics,Web Design and Development,Information Technology,Specialized Skill
+Semantic HTML,Web Design and Development,Information Technology,Specialized Skill
+Vaadin,Web Design and Development,Information Technology,Specialized Skill
+Web Applications,Web Design and Development,Information Technology,Specialized Skill
+Web Performance Optimization,Web Design and Development,Information Technology,Specialized Skill
+WebGL,Web Design and Development,Information Technology,Specialized Skill
+Webhooks,Web Design and Development,Information Technology,Specialized Skill
+PostCSS,Web Design and Development,Information Technology,Specialized Skill
+Flexbox,Web Design and Development,Information Technology,Specialized Skill
+Single Page Application,Web Design and Development,Information Technology,Specialized Skill
+Web Frameworks,Web Design and Development,Information Technology,Specialized Skill
+StorybookJS,Web Design and Development,Information Technology,Specialized Skill
+Webflow,Web Design and Development,Information Technology,Specialized Skill
+Sassy Cascading Style Sheets (SCSS),Web Design and Development,Information Technology,Specialized Skill
+Microfrontend (MFE),Web Design and Development,Information Technology,Specialized Skill
+Web Design and Development,Web Design and Development,Information Technology,Specialized Skill
+Web Design and Development,Web Design and Development,Information Technology,Specialized Skill
+Azure Web Apps,Web Services,Information Technology,Specialized Skill
+Amazon Web Services,Web Services,Information Technology,Specialized Skill
+Apache Axis2,Web Services,Information Technology,Specialized Skill
+Internet Services,Web Services,Information Technology,Specialized Skill
+Java Web Services,Web Services,Information Technology,Specialized Skill
+Universal Description Discovery And Integration,Web Services,Information Technology,Specialized Skill
+Web Services,Web Services,Information Technology,Specialized Skill
+AWS X-Ray,Web Services,Information Technology,Specialized Skill
+AWS Fargate,Web Services,Information Technology,Specialized Skill
+Web Services,Web Services,Information Technology,Specialized Skill
+Web Services,Web Services,Information Technology,Specialized Skill
+5G Technology,Wireless Technologies,Information Technology,Specialized Skill
+3GPP (Telecommunication),Wireless Technologies,Information Technology,Specialized Skill
+LTE (Telecommunication),Wireless Technologies,Information Technology,Specialized Skill
+Bluetooth,Wireless Technologies,Information Technology,Specialized Skill
+Wireless Broadband,Wireless Technologies,Information Technology,Specialized Skill
+Mobile Broadband,Wireless Technologies,Information Technology,Specialized Skill
+Global System For Mobile Communications,Wireless Technologies,Information Technology,Specialized Skill
+Near Field Communication,Wireless Technologies,Information Technology,Specialized Skill
+Radio Access Networks,Wireless Technologies,Information Technology,Specialized Skill
+Mobile Data,Wireless Technologies,Information Technology,Specialized Skill
+Wi-Fi Architecture,Wireless Technologies,Information Technology,Specialized Skill
+Wireless Network Protocols,Wireless Technologies,Information Technology,Specialized Skill
+Wi-Fi 6,Wireless Technologies,Information Technology,Specialized Skill
+Wireless Technologies,Wireless Technologies,Information Technology,Specialized Skill
+Wireless Technologies,Wireless Technologies,Information Technology,Specialized Skill

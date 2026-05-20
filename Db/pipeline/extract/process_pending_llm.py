@@ -109,6 +109,11 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_CONFIG_PATH,
         help="Path to clean_config.yaml that contains prompt_extraction.",
     )
+    parser.add_argument(
+        "--ignore-retry-queue",
+        action="store_true",
+        help="Ignore existing retry queue and process only the current pending file.",
+    )
     return parser.parse_args()
 
 
@@ -221,6 +226,13 @@ def call_llm(job: Dict[str, Any], api_key: str, config_path: Path) -> Dict[str, 
     job_for_prompt = dict(job)
     job_for_prompt['requirements_text'] = cleaned
     prompt = _build_prompt(job_for_prompt, config_path)
+    # Runtime verification before calling child adapter
+    try:
+        print("API KEY EXISTS:", bool(api_key))
+        print("PROMPT EXISTS:", bool(prompt))
+        logger.info("Calling LLM: api_key_present=%s prompt_present=%s", bool(api_key), bool(prompt))
+    except Exception:
+        logger.exception("Error while printing API/prompt existence")
     # pass per-request timeout from env to the adapter if supported
     try:
         timeout_seconds = int(os.getenv('LLM_REQUEST_TIMEOUT_SECONDS', os.getenv('LLM_REQUEST_TIMEOUT_SECONDS', '60')))
@@ -737,6 +749,22 @@ def save_jobs(output_path: Path, jobs: List[Dict[str, Any]]) -> None:
 
 
 def derive_output_path(input_path: Path, output_dir: Path) -> Path:
+    # Prefer placing extracted output under a crawl-specific folder when the
+    # input filename encodes a date (jobs_YYYY-MM-DD...). This writes to
+    # workspace_root/Db/data/crawlMMDDYYYY/clean/extracted.json which matches
+    # the requested `Db/data/crawlmmddyyy/clean` layout.
+    try:
+        import re
+        m = re.search(r"(\d{4})-(\d{2})-(\d{2})", str(input_path))
+        if m:
+            yyyy, mm, dd = m.groups()
+            # workspace root is two parents above BASE_DIR (..../JobVisualization_BE)
+            workspace_root = BASE_DIR.parents[2]
+            crawl_dir = workspace_root / "Db" / "data" / f"crawl{mm}{dd}{yyyy}" / "clean"
+            return crawl_dir / "extracted.json"
+    except Exception:
+        pass
+
     # If the caller passed an `extracted` directory (legacy), write the file
     # next to it as `extracted.json` instead of creating an `extracted/` folder.
     if output_dir.name == "extracted":
@@ -748,7 +776,91 @@ def main() -> int:
     args = parse_args()
     logger = setup_logging()
 
-    load_dotenv(BASE_DIR / ".env")
+    # Prefer loading .env from the project `Db/` root so GEMINI_API_KEY_* and other
+    # global settings defined there are available when this script runs.
+    # Fallback to BASE_DIR/.env if project-level .env not present.
+    project_env = (BASE_DIR.parents[1] / '.env') if len(BASE_DIR.parents) > 1 else (BASE_DIR / '.env')
+    env_used = project_env if project_env.exists() else (BASE_DIR / '.env')
+    load_dotenv(env_used)
+    logger = setup_logging()
+    logger.info("Loaded .env from: %s", env_used)
+
+    # Debug: check API keys availability and prompt extraction template
+    api_keys = _load_api_keys()
+    logger.info("[LLM CONFIG] provider=gemini api_keys_found=%s", len(api_keys))
+    # Load prompt file using strict YAML parsing (do NOT mutate raw before parsing)
+    prompt_text = ''
+    prompt_loaded = False
+    try:
+        cfg_path = Path(args.config_path)
+        # print resolved path for diagnostics
+        logger.info("[LLM CONFIG] prompt_path_resolved=%s", cfg_path.resolve())
+        exists = cfg_path.exists()
+        size = cfg_path.stat().st_size if exists else 0
+        logger.info("[LLM CONFIG] prompt_file_exists=%s prompt_file_size=%s bytes path=%s", exists, size, cfg_path)
+        if exists:
+            # read using UTF-8 (fallback to utf-8-sig if needed)
+            try:
+                raw = cfg_path.read_text(encoding='utf-8')
+            except Exception:
+                raw = cfg_path.read_text(encoding='utf-8-sig')
+
+            # show a snippet and a problematic slice around the earlier parse error area
+            snippet = raw[:400].replace('\n', '\\n')
+            logger.info("[LLM CONFIG] prompt_file_snippet=%s", snippet)
+            try:
+                # raw slice near previously reported line (around 18k-19k bytes)
+                start = min(len(raw), 17000)
+                slice_repr = repr(raw[start:19000])
+                logger.info("[LLM CONFIG] prompt_raw_slice_repr=%s", slice_repr)
+            except Exception:
+                pass
+
+            # Parse YAML directly without any modifications
+            import yaml as _yaml
+            cfg = _yaml.safe_load(raw)
+            if isinstance(cfg, dict):
+                keys = list(cfg.keys())
+                logger.info("[LLM CONFIG] clean_config top-level keys=%s", keys)
+                prompt_text = cfg.get('prompt_extraction', '')
+                prompt_loaded = bool(prompt_text and str(prompt_text).strip())
+                logger.info("[LLM CONFIG] prompt_extraction_type=%s", type(prompt_text).__name__)
+            else:
+                logger.info("[LLM CONFIG] clean_config YAML parsed to non-dict: %s", type(cfg).__name__)
+    except Exception as e:
+        logger.exception("[LLM CONFIG] failed parsing clean_config.yaml: %s", e)
+
+    if not api_keys:
+        logger.error("No GEMINI_API_KEY_* found in environment after loading %s; aborting.", env_used)
+        return 2
+    if not prompt_loaded:
+        logger.error("Extraction prompt not found or empty at %s; aborting.", args.config_path)
+        return 3
+    # Quick runtime verification (print to stdout for immediate visibility)
+    try:
+        print("PROMPT_LENGTH:", len(prompt_text))
+        print("PROMPT_PREVIEW:", (prompt_text or '')[:200])
+        logger.info("[LLM CONFIG] PROMPT_LENGTH=%d", len(prompt_text))
+    except Exception:
+        logger.exception("[LLM CONFIG] error while printing prompt preview")
+    # Verify LLM SDK and child helper present so we fail early for missing deps
+    try:
+        import google.generativeai as _genai  # type: ignore
+        logger.info("[LLM CONFIG] google.generativeai available")
+    except Exception:
+        logger.exception("[LLM CONFIG] google.generativeai (genai) not importable; install required package")
+        return 4
+
+    # Ensure debug child helper exists (used by adapter to isolate SDK calls)
+    try:
+        child_path = Path(__file__).resolve().parents[2] / 'llm' / 'debug_llm_child.py'
+        if not child_path.exists():
+            logger.error("[LLM CONFIG] debug_llm_child.py missing at %s; aborting.", child_path)
+            return 5
+        logger.info("[LLM CONFIG] debug_llm_child present: %s", child_path)
+    except Exception:
+        logger.exception("[LLM CONFIG] error while checking debug_llm_child.py")
+        return 6
 
     input_path = args.input_path
     if not input_path.is_absolute():
@@ -768,9 +880,10 @@ def main() -> int:
     if fallback_path is not None and not fallback_path.is_absolute():
         fallback_path = BASE_DIR / fallback_path
     if fallback_path is None:
-        # produce a fallback filename based on the output filename stem
-        fallback_name = output_path.stem + "_fallback.json"
-        fallback_path = DEFAULT_FALLBACK_DIR / fallback_name
+        # By default write the fallback file next to the main output file
+        # (previous behavior wrote to DEFAULT_FALLBACK_DIR which often
+        # caused files to appear in an unexpected location).
+        fallback_path = output_path.parent / (output_path.stem + "_fallback.json")
 
     jobs = load_jobs(input_path)
     total_jobs = len(jobs)
@@ -833,7 +946,14 @@ def main() -> int:
         return 0
 
     # Build queues: active_queue for immediate processing, delayed_retry_queue for future retries
-    retry_jobs = load_retry_queue() or []
+    # TEMP: Comment out retry_queue for testing - process only current pending jobs
+    # retry_jobs = load_retry_queue() or []
+    retry_jobs = []  # TEMP: Force empty retry queue
+    # Optionally ignore previously-scheduled retry queue entries for testing.
+    # ignore_flag = args.ignore_retry_queue or os.getenv('IGNORE_RETRY_QUEUE', '').lower() in ('1', 'true', 'yes')
+    # if ignore_flag:
+    #     logger.info("IGNORE_RETRY_QUEUE enabled: skipping merge of existing retry queue and processing only current pending file")
+    #     retry_jobs = []
     delayed_retry_jobs: List[Dict[str, Any]] = []
     # in-memory queue for jobs deferred because no key was available within the short-wait window
     no_key_wait_queue: List[Dict[str, Any]] = []
@@ -849,22 +969,23 @@ def main() -> int:
             return j.get('job_url')
         return j.get('_fingerprint') or hashlib.md5((str(j.get('title','')) + '|' + str(j.get('company_name','')) + '|' + str(j.get('requirements_text',''))).encode('utf-8')).hexdigest()
 
+    # TEMP: Comment out retry jobs partition logic - process only current pending jobs
     # partition retry jobs by next_retry_at
-    for r in retry_jobs:
-        nr = r.get('next_retry_at')
-        if nr:
-            try:
-                dt = datetime.fromisoformat(nr)
-                if dt <= now:
-                    active_jobs.append(r)
-                else:
-                    delayed_retry_jobs.append(r)
-                continue
-            except Exception:
-                # malformed date -> treat as immediate
-                active_jobs.append(r)
-        else:
-            active_jobs.append(r)
+    # for r in retry_jobs:
+    #     nr = r.get('next_retry_at')
+    #     if nr:
+    #         try:
+    #             dt = datetime.fromisoformat(nr)
+    #             if dt <= now:
+    #                 active_jobs.append(r)
+    #             else:
+    #                 delayed_retry_jobs.append(r)
+    #             continue
+    #         except Exception:
+    #             # malformed date -> treat as immediate
+    #             active_jobs.append(r)
+    #     else:
+    #         active_jobs.append(r)
 
     # load new pending jobs into active_jobs (dedupe against active+delayed and existing extracted)
     seen = { _job_key(j) for j in active_jobs + delayed_retry_jobs }

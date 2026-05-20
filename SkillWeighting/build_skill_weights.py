@@ -107,6 +107,14 @@ def fetch_skills_for_group(conn, search_group: str):
     cur.close()
     return [(int(r[0]), r[1], r[2], int(r[3])) for r in rows]
 
+
+def fetch_total_jobs_for_group(conn, search_group: str) -> int:
+    cur = conn.cursor()
+    cur.execute("SELECT COUNT(DISTINCT job_id) FROM public.jobs WHERE search_group = %s", (search_group,))
+    row = cur.fetchone()
+    cur.close()
+    return int(row[0]) if row and row[0] is not None else 0
+
 # def call_llm(search_group: str, skills: List[str], prompt_template: Optional[str] = None):
 #     # Try using OpenAI if available, otherwise fallback to uniform weights
 #     skills_list_text = "\n".join(f"- {s}" for s in skills)
@@ -369,11 +377,32 @@ def main():
             print(f"Processing ({i+1}/{len(groups)}): {g}")
             skills = fetch_skills_for_group(conn, g)
 
-            MIN_JOB_COUNT_FOR_LLM = int(os.getenv("MIN_JOB_COUNT_FOR_LLM", "5"))
-            top_skills = [s for s in skills if s[3] >= MIN_JOB_COUNT_FOR_LLM]
+            total_jobs = fetch_total_jobs_for_group(conn, g)
+            if total_jobs <= 0:
+                print(f"[WARN] No jobs found for group '{g}', skipping.")
+                continue
+
+            # Determine threshold: use MIN_JOB_SHARE_FOR_LLM (fraction 0.0-1.0). Default 0.5 (50%).
+            min_job_share_env = os.getenv("MIN_JOB_SHARE_FOR_LLM")
+            if min_job_share_env is not None:
+                try:
+                    min_job_share_for_llm = float(min_job_share_env)
+                except Exception:
+                    min_job_share_for_llm = 0.5
+            else:
+                min_job_share_for_llm = 0.5
+
+            # clamp
+            if min_job_share_for_llm < 0.0:
+                min_job_share_for_llm = 0.0
+            if min_job_share_for_llm > 1.0:
+                min_job_share_for_llm = 1.0
+
+            # select skills appearing in at least the configured share of jobs
+            top_skills = [s for s in skills if (s[3] / float(total_jobs)) >= min_job_share_for_llm]
 
             if not top_skills:
-                print("[WARN] No skills meet threshold >=10, fallback to top 30 by frequency")
+                print(f"[WARN] No skills meet threshold >= {min_job_share_for_llm*100:.1f}% of jobs, fallback to top 30 by frequency")
                 top_skills = skills[:30]
 
             MAX_LLM_SKILLS = int(os.getenv("MAX_LLM_SKILLS", "120"))
@@ -430,7 +459,7 @@ def main():
                 frequency_score = count / max_count
                 norm_name = re.sub(r"\W+", "", name.lower())
 
-                if count >= MIN_JOB_COUNT_FOR_LLM:
+                if (count / float(total_jobs)) >= min_job_share_for_llm:
                     llm_score = llm_by_name.get(norm_name, 0.0)
                     base_score = 0.6 * frequency_score + 0.4 * llm_score
                 else:

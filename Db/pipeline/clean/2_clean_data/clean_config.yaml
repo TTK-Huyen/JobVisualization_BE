@@ -25,10 +25,24 @@ prompt_extraction: |
     standardized English terms using common job-market wording (see examples below). Return
     `benefits` as a plain list of English strings.
   - DO NOT return a top-level `requirements_text` field in the JSON output. The input
-    `{requirements_text}` is provided only as source context for the LLM and must not be
-    included as an output field. If you need to surface the cleaned requirements section,
-    populate `job.skills_desc` (see schema below).
+  `{requirements_text}` is provided only as source context for the LLM and must not be
+  included as an output field. If you need to surface the cleaned requirements section,
+  populate `job.skills_desc` (see schema below).
 
+  IMPORTANT:
+  Prioritize extracting skills from:
+  - Requirements
+  - Qualifications
+  - Skills
+  - Must-have
+  - Nice-to-have
+  - Certifications
+
+  Avoid inferring skills purely from responsibility/task descriptions.
+
+  If no clear requirement section exists,
+  extract only explicitly mentioned competencies, technologies, tools, certifications, or soft skills.
+  
   GUARANTEED INPUT FIELDS (DO NOT RETURN OR OVERWRITE):
   The crawler already guarantees the following top-level fields in the input and they must
   NOT be returned, modified, or wrapped by the LLM. Preserve these values exactly from the
@@ -145,9 +159,14 @@ prompt_extraction: |
   - `job.location` and `raw.location_raw` should reflect the JOB location (e.g., "Hồ Chí Minh", "Hà Nội").
     Company postal/street addresses belong under `company.address`.
   - `extracted_skills` MUST be returned as a list of skill objects when possible. Preferred object form:
-    `{ "skill_name": "<text>", "confidence": 100, "is_direct_skill": true }` for each skill.
+    `{ "skill_name": "<text>", "confidence": 100, "is_direct_skill": true, "evidence_text": "<exact sentence/snippet from JOB POSTING CONTENT or null>" }` for each skill.
     If only raw strings are returned, the extractor will convert them to the object form (confidence=100,
     is_direct_skill=true). Do NOT canonicalize or translate skill text.
+  - For every extracted skill, include `evidence_text`. It must be an exact sentence, bullet, or short snippet copied from JOB POSTING CONTENT that directly supports why the skill was extracted.
+    Do NOT invent, paraphrase, summarize, or translate `evidence_text`; copy it verbatim from the input text.
+    If no direct supporting sentence/snippet exists, set `evidence_text` to null.
+    For direct skills, `evidence_text` should contain the skill name or a clear alias as written in the input.
+    For inferred skills, only extract the skill if the evidence is strong; `evidence_text` must be the sentence/bullet describing the related behavior or requirement.
   - Include ALL explicitly mentioned competencies in `extracted_skills`: technical skills, soft skills,
     language skills, methodologies, architectures, domain knowledge, tools, frameworks, and mindset/behavioral
     competencies (e.g., "Giao tiếp tiếng Anh tốt", "Khả năng làm việc nhóm"). Do not separate hard vs soft.
@@ -159,10 +178,13 @@ prompt_extraction: |
     translation/rendering step to produce English skill strings. Preserve already-English names
     (e.g., "React", "Next.js", ".NET / ASP.NET Core") unchanged.
 
-  - ATOMIC SKILL NOTE: Return each skill as an atomic, single-concept phrase. Do NOT combine multiple
-    concepts into one phrase. For example, return `English` and `Communication` as two separate skills
-    rather than `English communication`. If a requirement line lists multiple skills separated by
-    commas or 'and', return each item separately.
+  - ATOMIC SKILL NOTE: Return each skill as an atomic, meaningful competency phrase.
+    Do not merge unrelated skills into one phrase.
+    However, common compound competencies may remain as one skill when they represent a standard skill.
+    Examples: English Communication, Requirements Gathering, System Integration, Data Modeling,
+    Data Processing, Problem Solving, Business Application Development, Infrastructure as Code.
+    If a requirement line lists multiple tools, modules, workflows, or independent skills separated by
+    commas, slashes, parentheses, “and/or”, or after a dash, extract each meaningful item separately.
 
   - `job.description`: Preserve the cleaned job description section (the narrative under headings like
     "Mô tả Công việc") and prefer keeping bullet-level content intact. You may remove obvious noise
@@ -177,6 +199,13 @@ prompt_extraction: |
     a single comma-separated line). If the requirements are present in the cleaned text, populate
     `skills_desc` with that requirements section verbatim (after light cleaning). Represent
     `job.skills_desc` as an object with `value` and `confidence` (e.g. {"value": "...", "confidence": 100}).
+
+  RULE FOR EXTRACTED SKILLS:
+  For `extracted_skills`, extract skills ONLY from the same requirements/qualifications content
+  that you put into `job.skills_desc`. Do NOT extract skills from `job.description`, responsibilities,
+  duties, or task descriptions. If `job.skills_desc` is empty or no requirements section exists,
+  then extract only explicitly mentioned competencies, technologies, tools, certifications, or
+  soft skills from the full posting.
 
   SPECIAL HANDLING: `Khác` SECTION
   - If the cleaned input contains a Vietnamese section titled `Khác` that appears after a
@@ -196,8 +225,348 @@ prompt_extraction: |
   explicit token `unknown` rather than guessing. The cleaned job text to extract from is provided
   below as JOB POSTING CONTENT.
 
+
+  FEW-SHOT EXAMPLES FOR SKILL EXTRACTION
+
+  The following examples show the desired skill extraction behavior AFTER the requirements/qualifications section has been identified and stored in `job.skills_desc`.
+  They are examples only. In the actual task, JOB POSTING CONTENT may contain the full cleaned job page, including description, requirements, benefits, company info, and other noise.
+  You must first identify/populate `job.skills_desc`, then extract `extracted_skills` only from that same `job.skills_desc` content.
+
+  Example extracted job.skills_desc:
+  - English communication.
+  - Cloud platforms (e.g., AWS, Azure, GCP) and storage solutions (S3, Data Lake, Data Warehouse).
+  - Experience in data modeling (Kimball, Data Vault, Star/Snowflake schema).
+  - Familiarity with BI tools (e.g., Qlik, Power BI, Tableau) and enabling reporting/analytics teams.
+  - Prior experience in supporting manufacturing, agriculture, or livestock industries is a plus.
+  - 1+ years of hands-on experience in data engineering or similar roles.
+
+  Expected skills:
+  - AWS
+  - Azure
+  - GCP
+  - S3
+  - Data Lake
+  - Data Warehouse
+  - Data Modeling
+  - Kimball
+  - Data Vault
+  - Star Schema
+  - Snowflake Schema
+  - Qlik
+  - Power BI
+  - Tableau
+  - BI Tools
+  - Reporting
+  - Analytics
+  - Data Engineering
+  - English Communication
+
+  Example extracted job.skills_desc:
+  Programming Mastery: Proficiency in Python or Scala.
+  Data Ecosystem: Hands-on experience with SQL (PostgreSQL), NoSQL, and Big Data frameworks (e.g., Spark, Flink, Kafka).
+  Cloud Infrastructure: Strong experience with AWS services (S3, Redshift, Glue, Lambda, Athena).
+  Modern Data Stack: Familiarity with data orchestration tools (Airflow, Dagster, or Prefect) and containerization (Docker/Kubernetes).
+  Data Modeling: Expertise in dimensional modeling, schema design, and experience with Vector Databases for AI applications.
+  Product Mindset: A strong "product-first" mentality.
+  Analytical Thinking: Exceptional problem-solving skills.
+  Communication: Ability to bridge the gap between technical complexity and business requirements.
+  Agile Adaptability: Comfortable working in a fast-paced environment with evolving priorities.
+
+  Expected skills:
+  - Python
+  - Scala
+  - SQL
+  - PostgreSQL
+  - NoSQL
+  - Big Data
+  - Spark
+  - Flink
+  - Kafka
+  - AWS
+  - S3
+  - Redshift
+  - Glue
+  - Lambda
+  - Athena
+  - Airflow
+  - Dagster
+  - Prefect
+  - Docker
+  - Kubernetes
+  - Data Modeling
+  - Dimensional Modeling
+  - Schema Design
+  - Vector Databases
+  - Analytical Thinking
+  - Communication
+
+  Example extracted job.skills_desc:
+  - Strong hands-on experience with Microsoft Power Platform (Power Apps – Canvas/Model-Driven, Power Automate, Dataverse).
+  - Experience designing and managing data models (Dataverse, SQL).
+  - Solid experience with REST APIs, custom connectors, and system integrations.
+  - Advanced Excel skills (formulas, pivot tables, Power Query).
+  - Working knowledge of programming languages (C#, .NET, JavaScript, HTML, CSS).
+  - Familiar with Git and version control practices.
+  - Experience within Microsoft 365 ecosystem (Power Apps, Power BI, Teams, SharePoint Online).
+  - Ability to gather requirements from non-technical users.
+  - Experience building and deploying business applications using Power Platform.
+  - Microsoft Power Platform certifications (PL-200, PL-400).
+  - Good English communication skills.
+
+  Expected skills:
+  - Microsoft Power Platform
+  - Power Apps
+  - Canvas Apps
+  - Model-Driven Apps
+  - Power Automate
+  - Dataverse
+  - Data Modeling
+  - SQL
+  - REST APIs
+  - Custom Connectors
+  - System Integration
+  - Microsoft Excel
+  - Power Query
+  - C#
+  - .NET
+  - JavaScript
+  - HTML
+  - CSS
+  - Git
+  - Version Control
+  - Microsoft 365
+  - Power BI
+  - Microsoft Teams
+  - SharePoint Online
+  - Requirements Gathering
+  - PL-200
+  - PL-400
+  - English Communication
+
+  Example extracted job.skills_desc:
+  - Proven experience working with T24 core banking system (module knowledge: LD, AA, FT, Limits, Collateral, FX, TT, MD).
+  - Experience with TranzAxis or other Card Management Systems.
+  - Experience with data analysis and reporting in banking environments.
+  - Strong understanding of T24 modules, data model, T24 enquiries, COB processes, and T24 Transact architecture.
+  - Working knowledge of CMS workflows – card lifecycle, transaction processing, billing, settlement.
+  - Proficient in SQL for data extraction and analysis from Oracle/SQL Server databases.
+  - Understanding of RESTful API concepts and ability to define API requirements for system integrations.
+  - Knowledge of Python or R for statistical analysis and data processing.
+  - Experience with BI/reporting tools (Power BI, Tableau, Excel advanced features).
+
+  Expected skills:
+  - T24 Core Banking
+  - T24 Modules
+  - LD
+  - AA
+  - FT
+  - Limits
+  - Collateral
+  - FX
+  - TT
+  - MD
+  - TranzAxis
+  - Card Management System
+  - Data Analysis
+  - Reporting
+  - T24 Data Model
+  - T24 Enquiries
+  - COB Processes
+  - T24 Transact Architecture
+  - CMS Workflows
+  - Card Lifecycle
+  - Transaction Processing
+  - Billing
+  - Settlement
+  - SQL
+  - Data Extraction
+  - Oracle Databases
+  - SQL Server
+  - RESTful API
+  - API Requirements Definition
+  - System Integration
+  - Python
+  - R
+  - Statistical Analysis
+  - Data Processing
+  - Power BI
+  - Tableau
+  - Microsoft Excel
+
+  Example extracted job.skills_desc:
+  - Experience with CI/CD pipelines and DevOps practices.
+  - Hands-on experience with Docker and Kubernetes.
+  - Familiarity with Jenkins, GitLab CI/CD, or GitHub Actions.
+  - Experience with Linux servers and shell scripting.
+  - Knowledge of monitoring/logging tools such as Prometheus, Grafana, ELK Stack.
+  - Experience with cloud infrastructure on AWS or Azure.
+  - Understanding of Infrastructure as Code using Terraform.
+
+  Expected skills:
+  - CI/CD
+  - DevOps
+  - Docker
+  - Kubernetes
+  - Jenkins
+  - GitLab CI/CD
+  - GitHub Actions
+  - Linux
+  - Shell Scripting
+  - Prometheus
+  - Grafana
+  - ELK Stack
+  - AWS
+  - Azure
+  - Infrastructure as Code
+  - Terraform
+
+  Example extracted job.skills_desc:
+  - Strong proficiency in JavaScript/TypeScript.
+  - Experience with ReactJS and state management libraries (Redux, Zustand).
+  - Familiarity with REST APIs and frontend-backend integration.
+  - Experience with HTML5, CSS3, TailwindCSS.
+  - Knowledge of responsive web design and cross-browser compatibility.
+  - Familiarity with Git version control and Agile/Scrum workflow.
+
+  Expected skills:
+  - JavaScript
+  - TypeScript
+  - ReactJS
+  - Redux
+  - Zustand
+  - REST APIs
+  - Frontend Integration
+  - HTML5
+  - CSS3
+  - TailwindCSS
+  - Responsive Web Design
+  - Cross-browser Compatibility
+  - Git
+  - Version Control
+  - Agile
+  - Scrum
+
+
+    ---------------------------------------------------------------------------
+  ADDITIONAL RULES FOR SKILL EXTRACTION
+  Do not extract university majors, academic disciplines, or degree subjects when they appear only as education requirements.
+  This rule also applies when majors or disciplines appear in:
+  - Bachelor/Master/PhD degree requirements
+  - Preferred education background
+  - University major lists
+  - Academic field descriptions
+
+  Examples:
+  - "Bachelor’s degree in Data Science" → do NOT extract Data Science
+  - "Degree in Marketing, Economics" → do NOT extract Marketing, Economics
+  - "Major in Computer Science" → do NOT extract Computer Science
+
+  Only extract them if they are explicitly required as practical/professional competencies, hands-on experience, or technical expertise outside the education context.
+
+  Examples:
+  - "Bachelor’s degree in Computer Science" → do NOT extract Computer Science
+  - "Degree in Marketing or Economics" → do NOT extract Marketing or Economics
+  - "Major in Data Science" → do NOT extract Data Science
+
+  Only extract them if they are explicitly required as professional competencies, technical skills, domain expertise, or practical experience.
+
+  1) Extract only competencies that a candidate can possess, learn, or be evaluated on.
+
+  Prioritize technical and normalizable skills.
+
+  Skill types:
+  - Specialized skill: technologies, programming languages, tools, platforms, frameworks, databases, cloud services, APIs, architectures, methodologies, domain systems, modules, workflows, technical processes.
+  - Certification: named certificates, certification codes, or official certification names.
+  - Common skill: soft skills, language skills, analytical/communication/problem-solving skills. Extract only when explicitly required and important for the role.
+
+  Prefer Specialized skill and Certification over Common skill.
+  Prefer concrete technologies, tools, platforms, frameworks, modules, and named systems over broad category labels.
+  If specific named tools/platforms are already extracted, avoid extracting their generic parent category unless the parent category itself is independently required.
+
+  Examples:
+  - "Power BI, Tableau" → do NOT additionally extract "BI Tools"
+  - "Metric, YouNet ECI" → do NOT additionally extract "E-commerce data platforms"
+  - "AWS, Azure, GCP" → do NOT additionally extract "Cloud Platforms"
+  - "Docker, Kubernetes" → do NOT additionally extract "Container Technologies"
+
+
+  If specific tools/platforms are explicitly listed, avoid additionally extracting their generic parent category unless the parent category itself is independently meaningful for recruitment or matching.
+
+  Do not over-extract generic Common skills.
+
+  Do not extract generic personality traits or low-value soft skills such as:
+  careful, meticulous, hardworking, dynamic, responsible, work under pressure, eager to learn, honest, friendly.
+  Do not extract vague behavioral traits, mindset descriptions, attitudes, personality traits, or organizational values.
+
+  Examples:
+  - ownership
+  - reliability
+  - market awareness
+  - proactive attitude
+  - customer-oriented mindset
+  - passion for technology
+
+  Soft skills should only be extracted when they are explicit, standardized, and useful for job matching.
+  Examples:
+  - English Communication
+  - Problem Solving
+  - Analytical Thinking
+  - Requirements Gathering
+
+  Do NOT extract abstract organizational competencies, collaboration labels, mindset statements, or business-value phrases unless they represent a standard professional skill commonly used in recruitment normalization.
+
+  Do NOT extract:
+  - Cross-Functional Collaboration
+  - Structured Thinking
+  - Market Awareness
+  - Ownership
+  - Reliability
+  - Customer-centric mindset
+  - Passion for technology
+  - Adaptability
+  - Proactive attitude
+
+  Prefer standardized and directly measurable skills only.
+  2) Do NOT extract:
+  - degrees, majors, education fields
+  - years of experience or tenure requirements
+  - job duties/responsibilities unless phrased as required competencies
+  - artifacts, outcomes, or environments such as reports, dashboards, solutions, products, production environments
+  - generic certification categories without a specific certification name or code
+  - generic personality traits or vague soft skills unless explicitly required and useful for matching, such as Communication, Analytical Thinking, Problem Solving, English Communication.
+
+  3) Extract atomic skills.
+  If a requirement lists multiple tools, modules, workflows, or skills using commas, slashes, parentheses, “and/or”, or after a dash, extract each meaningful item separately.
+
+  4) Evidence rule:
+  For every skill, `evidence_text` must be copied verbatim from JOB POSTING CONTENT.
+  If no direct evidence exists, do not extract the skill.
+  Do not infer technical specializations from generic verbs such as:
+  developing models, building systems, working on projects, implementing solutions.
+
+  Only extract a specialized skill if the technical concept is explicitly mentioned.
+  Examples:
+  - "data modeling" → extract Data Modeling
+  - "building models" → do NOT extract Data Modeling
+
+  If a technical concept is directly and explicitly described in natural language, extract its standard technical name.
+  Examples:
+  - "query relational databases" → Relational Databases
+  - "build dashboards" → Dashboard Development
+  - "process streaming data" → Stream Processing
+
+
+  5) Optional `skill_type`:
+  If supported, include one of:
+  hard_skill, soft_skill, tool, platform, methodology, domain_knowledge, certification.
+
+  6) Final instruction:
+  Output ONLY the single JSON object that matches the schema above.
+  If unsure whether a phrase is a skill, prefer NOT to extract it.
+
   JOB POSTING CONTENT:
   {requirements_text}
+
 
 
 

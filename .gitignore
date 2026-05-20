@@ -230,3 +230,9 @@ temp_*.json
 debug_*.txt
 *.json.bak
 *.model
+
+*.csv
+*.md
+/matching_cv/cv 
+*.xlsx
+*.txt
