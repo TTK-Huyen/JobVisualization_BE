@@ -659,6 +659,28 @@ Examples:
         log("DONE")
         log(f"Output: {output_path}")
         return ok
+    # ── NEW: Nếu --input được truyền vào, suy ra crawl folder từ path đó
+    # Ví dụ: .../data/crawl_20260506_114403/raw/jobs_combined.json
+    # → dùng crawl_20260506_114403 làm RUN_DATE thay vì datetime.now()
+    if args.input:
+        try:
+            input_path = Path(args.input).resolve()
+            # Tìm phần "crawl_YYYYMMDD_HHMMSS" trong path
+            for part in input_path.parts:
+                if part.startswith("crawl_") and len(part) > 10:
+                    inferred_run_date = part.replace("crawl_", "")
+                    global RUN_DATE, DATA_FOLDER, RAW_FOLDER, CLEAN_FOLDER, FALLBACK_FOLDER, LOGS_FOLDER
+                    RUN_DATE = inferred_run_date
+                    DATA_FOLDER = BASE_DIR / "data" / part
+                    RAW_FOLDER  = DATA_FOLDER / "raw"
+                    CLEAN_FOLDER   = DATA_FOLDER / "clean"
+                    FALLBACK_FOLDER = DATA_FOLDER / "fallback"
+                    LOGS_FOLDER    = DATA_FOLDER / "logs"
+                    log(f"[AUTO] Suy ra crawl folder từ --input: {DATA_FOLDER}")
+                    break
+        except Exception as e:
+            log(f"[WARN] Không thể suy ra crawl folder từ --input: {e}")
+    # ── END NEW
     
     # Override PIPELINE_STEPS based on command line flags
     global PIPELINE_STEPS

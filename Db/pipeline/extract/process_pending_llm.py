@@ -44,10 +44,10 @@ from Db.llm.debug_llm_adapter import call_llm as call_gemini_llm
 from Db.llm.job_extraction_rules import load_job_extraction_prompt
 
 
-DEFAULT_INPUT_PATH = BASE_DIR / "data" / "pending_llm" / "jobs_YYYY-MM-DD.pending.json"
-DEFAULT_OUTPUT_DIR = BASE_DIR / "data" / "extracted"
+DEFAULT_INPUT_PATH = BASE_DIR / "data" / "queue" / "batch_1.json"
+DEFAULT_OUTPUT_DIR = BASE_DIR / "data" / "queue"
 DEFAULT_CONFIG_PATH = ROOT_DIR / "clean" / "2_clean_data" / "clean_config.yaml"
-DEFAULT_FALLBACK_DIR = BASE_DIR / "data" / "fallback"
+DEFAULT_FALLBACK_DIR = BASE_DIR / "data" / "queue"
 
 # Top-level fields guaranteed by the crawler and must not be overwritten by LLM
 GUARANTEED_TOPLEVEL = [
@@ -76,6 +76,15 @@ def setup_logging() -> logging.Logger:
 
 def today_str() -> str:
     return date.today().isoformat()
+
+def get_job_url(job: Dict[str, Any]) -> Optional[str]:
+    for key in ['job_url', 'url', 'job_url_raw', 'job_source_id']:
+        val = job.get(key)
+        if val and isinstance(val, str):
+            val_strip = val.strip()
+            if val_strip:
+                return val_strip
+    return None
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Process pending jobs through Gemini and write extracted output.")
@@ -217,6 +226,11 @@ def call_llm(job: Dict[str, Any], api_key: str, config_path: Path) -> Dict[str, 
     # Build a sanitized, truncated input for the LLM and log its length.
     logger = logging.getLogger("process_pending_llm")
     cleaned = build_llm_input_text(job)
+    
+    if not cleaned.strip():
+        logger.warning(f"Cleaned job description is empty for job {job.get('job_url', 'unknown')}. Skipping Gemini API call to save tokens.")
+        raise ValueError("Cleaned job description/requirements text is empty. Skipping LLM call.")
+        
     try:
         logger.info("LLM input length: %d", len(cleaned))
     except Exception:
@@ -279,6 +293,7 @@ def build_llm_input_text(job: Dict[str, Any], max_chars: int = 8000) -> str:
     # Description: remove noisy tags then strip HTML
     desc_html = _safe_get('description_html', 'description')
     if isinstance(desc_html, str) and desc_html.strip():
+        import html
         txt = desc_html
         # remove script/style/header/footer/nav blocks
         txt = re.sub(r'<script[\s\S]*?</script>', ' ', txt, flags=re.I)
@@ -286,8 +301,15 @@ def build_llm_input_text(job: Dict[str, Any], max_chars: int = 8000) -> str:
         txt = re.sub(r'<header[\s\S]*?</header>', ' ', txt, flags=re.I)
         txt = re.sub(r'<nav[\s\S]*?</nav>', ' ', txt, flags=re.I)
         txt = re.sub(r'<footer[\s\S]*?</footer>', ' ', txt, flags=re.I)
-        # strip remaining tags
-        txt = re.sub(r'<[^>]+>', ' ', txt)
+        
+        # Unescape HTML entities (e.g. &lt; -> <, &gt; -> >) before regex tag stripping
+        txt = html.unescape(txt)
+        
+        # Strip remaining tags using a refined regex that excludes template brackets and mathematical operators
+        # Standard tag names start with a letter and have word characters or hyphens.
+        tag_re = re.compile(r'</?[a-zA-Z][a-zA-Z0-9:-]*(\s+[^>]*)?>')
+        txt = tag_re.sub(' ', txt)
+        
         txt = re.sub(r'\s+', ' ', txt).strip()
         if txt:
             parts.append(txt)
@@ -872,7 +894,10 @@ def main() -> int:
 
     output_path = args.output_path
     if output_path is None:
-        output_path = derive_output_path(input_path, output_dir)
+        if "batch_1.json" in str(input_path):
+            output_path = input_path.parent / "batch_1_extracted_clean.json"
+        else:
+            output_path = derive_output_path(input_path, output_dir)
     elif not output_path.is_absolute():
         output_path = BASE_DIR / output_path
 
@@ -989,8 +1014,10 @@ def main() -> int:
 
     # load new pending jobs into active_jobs (dedupe against active+delayed and existing extracted)
     seen = { _job_key(j) for j in active_jobs + delayed_retry_jobs }
-    # load existing extracted to avoid duplicates
-    existing_extracted = set()
+    
+    # load existing extracted to avoid duplicates (Idempotency)
+    existing_extracted_keys = set()
+    existing_extracted_urls = set()
     try:
         if output_path.exists():
             txt = output_path.read_text(encoding='utf-8-sig').strip()
@@ -998,15 +1025,26 @@ def main() -> int:
                 parsed = json.loads(txt)
                 if isinstance(parsed, list):
                     for e in parsed:
-                        existing_extracted.add(_job_key(e))
+                        existing_extracted_keys.add(_job_key(e))
+                        url = get_job_url(e)
+                        if url:
+                            existing_extracted_urls.add(url)
     except Exception:
         pass
 
     for j in jobs:
         k = _job_key(j)
-        if not k or k in seen or k in existing_extracted:
+        url = get_job_url(j)
+        
+        # Skip duplicate jobs using both url and standard keys
+        if (not k and not url) or k in seen or k in existing_extracted_keys or (url and url in existing_extracted_urls):
             continue
-        seen.add(k)
+            
+        if k:
+            seen.add(k)
+        if url:
+            seen.add(url)
+            
         active_jobs.append(j)
 
     # Sequential processing (single-threaded): iterate active_jobs one-by-one

@@ -83,6 +83,15 @@ CONTENT_HINTS = [
 ]
 
 
+HTML_TAG_NAMES = (
+    "div|p|span|a|li|ul|ol|h[1-6]|b|i|strong|em|u|br|hr|table|tr|td|th|thead|tbody|"
+    "ins|del|code|pre|blockquote|section|article|aside|header|footer|nav|svg|template|"
+    "script|style|img|iframe|button|form|input|label|select|option|textarea|hgroup|"
+    "figure|figcaption|details|summary|main|body|html|head|meta|link|title"
+)
+HTML_TAG_RE = re.compile(rf'</?(?:{HTML_TAG_NAMES})\b(?:\s+[^>]*)?>', re.I)
+
+
 def _strip_html(text: str) -> str:
     """Remove HTML tags and decode HTML entities."""
 
@@ -92,7 +101,7 @@ def _strip_html(text: str) -> str:
     text = html.unescape(str(text))
     text = re.sub(r"<script[^>]*>.*?</script>", " ", text, flags=re.IGNORECASE | re.DOTALL)
     text = re.sub(r"<style[^>]*>.*?</style>", " ", text, flags=re.IGNORECASE | re.DOTALL)
-    text = re.sub(r"<[^>]+>", " \n ", text)
+    text = HTML_TAG_RE.sub(" \n ", text)
     return text
 
 
@@ -139,7 +148,7 @@ def _clean_html_segment_to_text(segment: str) -> str:
     text = re.sub(r"<style[^>]*>.*?</style>", " ", text, flags=re.IGNORECASE | re.DOTALL)
     # Replace tags with newlines for clearer section separation
     text = re.sub(r"(?i)<br\s*/?>", "\n", text)
-    text = re.sub(r"<[^>]+>", "\n", text)
+    text = HTML_TAG_RE.sub("\n", text)
     text = _normalize_text(text)
     return text.strip()
 
@@ -232,10 +241,10 @@ def clean_description_html(text: str) -> str:
     s = re.sub(r"\s[a-zA-Z0-9_-]+=(\".*?\"|'.*?'|[^\s>]+)", " ", s)
 
     # Explicitly remove small inline tags that sometimes survive (ins, del, span, p, br, u, b, i)
-    s = re.sub(r"</?(?:ins|del|u|span|p|br|b|i)[^>]*>", " ", s, flags=re.IGNORECASE)
+    s = re.sub(r"</?(?:ins|del|u|span|p|br|b|i)\b[^>]*>", " ", s, flags=re.IGNORECASE)
 
-    # Strip any remaining tags
-    s = re.sub(r"<[^>]+>", " ", s)
+    # Strip any remaining tags using the specific HTML tag regex
+    s = HTML_TAG_RE.sub(" ", s)
 
     # Ensure entities decoded (idempotent)
     s = html.unescape(s)
