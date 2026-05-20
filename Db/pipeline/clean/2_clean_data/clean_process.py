@@ -228,7 +228,7 @@ def _resolve_run_root(output_file):
     return output_path.parent
 
 
-def step_1_clean_html(input_file, output_file="clean/pending_llm.json"):
+def step_1_clean_html(input_file, output_file="clean/pending_llm.json", limit=None):
     """Clean HTML/CSS/JavaScript from job descriptions."""
     print(f"\n{'='*80}")
     print("STEP 1: CLEAN HTML FROM TEXT")
@@ -266,7 +266,12 @@ def step_1_clean_html(input_file, output_file="clean/pending_llm.json"):
             jobs = [jobs]
         
         print(f"[*] Loaded {len(jobs)} jobs")
-        
+
+        # ── SANDBOX / LIMIT MODE ────────────────────────────────────────────────
+        if limit is not None and limit > 0:
+            jobs = jobs[:limit]
+            print(f"[⚙️ ] --limit {limit}: Chỉ xử lý {len(jobs)} jobs đầu tiên (Sandbox mode)")
+
         # Initialize LLM cleaner if enabled
         llm_cleaner = None
         if use_llm:
@@ -393,9 +398,32 @@ def step_1_clean_html(input_file, output_file="clean/pending_llm.json"):
         print(f"   Output: {output_file}")
         print(f"   Jobs: {len(cleaned_jobs)}")
         print(f"   Cleaned text present: {non_empty_clean_count}")
-        
+
+        # ── SANDBOX REPORT ──────────────────────────────────────────────────────
+        if limit is not None and limit > 0 and cleaned_jobs:
+            print("\n" + "=" * 80)
+            print("  📋  SANDBOX REPORT — NGHIỆM THU 5 JOBS MẪU")
+            print("=" * 80)
+            header = f"{'#':<3} {'HTML Chars':>11} {'Clean Chars':>11} {'Giảm %':>7}  {'URL / Title'}"
+            print(header)
+            print("-" * 80)
+            for i, cj in enumerate(cleaned_jobs, 1):
+                raw_html = cj.get('description_html') or ''
+                clean_txt = cj.get('requirements_text') or ''
+                html_len  = len(raw_html)
+                clean_len = len(clean_txt)
+                ratio = (1 - clean_len / html_len) * 100 if html_len > 0 else 0.0
+                label = (cj.get('job_url') or cj.get('title') or 'N/A')[:60]
+                print(f"{i:<3} {html_len:>11,} {clean_len:>11,} {ratio:>6.1f}%  {label}")
+            print("-" * 80)
+            total_html  = sum(len(cj.get('description_html') or '') for cj in cleaned_jobs)
+            total_clean = sum(len(cj.get('requirements_text') or '') for cj in cleaned_jobs)
+            avg_ratio = (1 - total_clean / total_html) * 100 if total_html > 0 else 0.0
+            print(f"{'AVG':<3} {total_html//len(cleaned_jobs):>11,} {total_clean//len(cleaned_jobs):>11,} {avg_ratio:>6.1f}%  (trung bình)")
+            print("=" * 80)
+
         return cleaned_jobs
-        
+
     except Exception as e:
         log_error(f"STEP 1 failed: {str(e)}")
         raise
@@ -856,10 +884,14 @@ Examples:
     
     parser.add_argument('input_file', nargs='?', help='Input JSON file (positional or use --input)')
     parser.add_argument('--input', dest='input_flagged', help='Input JSON file (alternative to positional)')
-    parser.add_argument('--step', type=int, choices=[1, 2, 3], 
+    parser.add_argument('--step', type=int, choices=[1, 2, 3],
                        help='Run specific step (1=clean, 2=extract, 3=normalize)')
     parser.add_argument('--output', help='Output file path')
     parser.add_argument('--debug', type=int, help='Debug job at index')
+    parser.add_argument('--limit', type=int, default=None, metavar='N',
+                       help='Chỉ xử lý N jobs đầu tiên từ input batch (Sandbox mode)')
+    parser.add_argument('--sandbox', action='store_true',
+                       help='Shorthand: --limit 5, chạy thử nghiệm nhanh 5 jobs đầu')
     
     args = parser.parse_args()
     
@@ -875,19 +907,35 @@ Examples:
         print(f"❌ Error: Input file not found: {input_file}")
         sys.exit(1)
     
+    # Resolve limit (--sandbox is shorthand for --limit 5)
+    effective_limit = None
+    if args.sandbox:
+        effective_limit = 5
+    elif args.limit is not None:
+        effective_limit = args.limit
+
+    if effective_limit is not None:
+        mode_label = f"SANDBOX (limit={effective_limit})"
+        default_output = f"clean/sandbox_pending_llm.json"
+    else:
+        mode_label = "FULL"
+        default_output = "clean/pending_llm.json"
+
     # Execute
-    if args.step == 1:
-        output_file = args.output or "clean/pending_llm.json"
-        step_1_clean_html(input_file, output_file)
-        
+    if args.step == 1 or effective_limit is not None:
+        # Sandbox always runs step 1 only
+        output_file = args.output or (default_output if effective_limit else "clean/pending_llm.json")
+        print(f"[*] Mode: {mode_label}")
+        step_1_clean_html(input_file, output_file, limit=effective_limit)
+
     elif args.step == 2:
         output_file = args.output or "clean/extracted.json"
         step_2_extract_sections(input_file, output_file)
-        
+
     elif args.step == 3:
         output_file = args.output or "clean/normalized.json"
         step_3_normalize_skills(input_file, output_file)
-        
+
     else:
         output_file = args.output or "clean/normalized.json"
         run_full_pipeline(input_file, output_file)
