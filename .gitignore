@@ -232,7 +232,7 @@ debug_*.txt
 *.model
 
 *.csv
-*.md
+
 /matching_cv/cv 
 *.xlsx
 *.txt
