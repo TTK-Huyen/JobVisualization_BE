@@ -209,6 +209,113 @@ def get_skill_similarity(sid_a: int, sid_b: int, skill_emb: np.ndarray, skill_id
     vec_b = skill_emb[idx_b]
     return max(0.0, float(np.dot(vec_a, vec_b)))
 
+def insert_unmatched_skills(conn, source_id: int, source_type: str, unmatched_skills: List[Dict[str, Any]]) -> None:
+    from psycopg2.extras import execute_values
+    cur = conn.cursor()
+    try:
+        unique_unmatched = {}
+        for it in unmatched_skills or []:
+            raw_name = it.get("original")
+            if not raw_name:
+                continue
+            raw_name = str(raw_name).strip()
+            if not raw_name:
+                continue
+            
+            # Limit to 255 chars
+            raw_name = raw_name[:255]
+            
+            # Max similarity score
+            similarity_score = it.get("confidence", 0.0)
+            if similarity_score is None:
+                similarity_score = 0.0
+            else:
+                try:
+                    similarity_score = float(similarity_score)
+                except (ValueError, TypeError):
+                    similarity_score = 0.0
+                    
+            top_cand_name = it.get("top_candidate_name")
+            top_cand_id = it.get("top_candidate_id")
+            if top_cand_id is not None:
+                try:
+                    top_cand_id = int(top_cand_id)
+                except (ValueError, TypeError):
+                    top_cand_id = None
+
+            if raw_name not in unique_unmatched:
+                unique_unmatched[raw_name] = {
+                    'max_score': similarity_score,
+                    'count': 1,
+                    'top_cand_name': top_cand_name,
+                    'top_cand_id': top_cand_id
+                }
+            else:
+                unique_unmatched[raw_name]['count'] += 1
+                if similarity_score > unique_unmatched[raw_name]['max_score']:
+                    unique_unmatched[raw_name]['max_score'] = similarity_score
+                    unique_unmatched[raw_name]['top_cand_name'] = top_cand_name
+                    unique_unmatched[raw_name]['top_cand_id'] = top_cand_id
+                    
+        rows = []
+        for raw_name, info in unique_unmatched.items():
+            rows.append((raw_name, info['count'], info['max_score'], info['top_cand_id'], info['top_cand_name'], 'UN_MATCHED'))
+            
+        if not rows:
+            return
+            
+        # Step 1: Insert into unmatched_skills dictionary table
+        returned = execute_values(
+            cur,
+            """
+            INSERT INTO unmatched_skills(raw_skill_name, occurrence_count, max_similarity_score, top_candidate_skill_id, top_candidate_skill_name, analysis_type)
+            VALUES %s
+            ON CONFLICT (raw_skill_name)
+            DO UPDATE SET
+                occurrence_count = unmatched_skills.occurrence_count + EXCLUDED.occurrence_count,
+                max_similarity_score = GREATEST(unmatched_skills.max_similarity_score, EXCLUDED.max_similarity_score),
+                top_candidate_skill_id = COALESCE(unmatched_skills.top_candidate_skill_id, EXCLUDED.top_candidate_skill_id),
+                top_candidate_skill_name = COALESCE(unmatched_skills.top_candidate_skill_name, EXCLUDED.top_candidate_skill_name),
+                last_seen = CURRENT_TIMESTAMP
+            RETURNING raw_skill_name, unmatched_id
+            """,
+            rows,
+            fetch=True
+        )
+        
+        # Map raw_skill_name to unmatched_id
+        name_to_id = {row[0]: row[1] for row in returned}
+        
+        # Step 2: Insert mappings into unmatched_skill_sources bridge table
+        bridge_rows = []
+        for raw_name, info in unique_unmatched.items():
+            unmatched_id = name_to_id.get(raw_name)
+            if unmatched_id is not None:
+                bridge_rows.append((source_id, unmatched_id, source_type, info['count'], info['max_score']))
+                
+        if not bridge_rows:
+            return
+            
+        execute_values(
+            cur,
+            """
+            INSERT INTO unmatched_skill_sources(source_id, unmatched_id, source_type, occurrence_count, max_similarity_score)
+            VALUES %s
+            ON CONFLICT (source_id, unmatched_id, source_type)
+            DO UPDATE SET
+                occurrence_count = unmatched_skill_sources.occurrence_count + EXCLUDED.occurrence_count,
+                max_similarity_score = GREATEST(unmatched_skill_sources.max_similarity_score, EXCLUDED.max_similarity_score),
+                last_seen = CURRENT_TIMESTAMP
+            """,
+            bridge_rows
+        )
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        logger.error("Failed to insert unmatched CV skills: %s", e)
+    finally:
+        cur.close()
+
 
 def main():
     parser = argparse.ArgumentParser(description="Match CV skills with Job Title requirements.")
@@ -217,6 +324,7 @@ def main():
     parser.add_argument("--threshold-possessed", type=float, default=0.75, help="Similarity threshold for possessed skills")
     parser.add_argument("--threshold-partial", type=float, default=0.3, help="Similarity threshold for partial match skills")
     parser.add_argument("--confidence-threshold", type=float, default=0.85, help="LLM skill extraction confidence threshold")
+    parser.add_argument("--source-id", type=int, default=0, help="Source/Student ID associated with this CV")
     
     args = parser.parse_args()
 
@@ -263,6 +371,15 @@ def main():
                 })
 
         logger.info("Successfully normalized and mapped %d skills to DB skill IDs.", len(student_skills))
+
+        # Log unmatched CV skills
+        unmatched_skills = [
+            item for item in normalized_student_skills_raw
+            if item.get("skill_id") is None or item.get("skill_id") == -1
+        ]
+        if unmatched_skills:
+            logger.info("Logging %d unmatched CV skills to database (source_id: %d)...", len(unmatched_skills), args.source_id)
+            insert_unmatched_skills(conn, args.source_id, "cv", unmatched_skills)
 
         # Load skills embeddings cache
         logger.info("Loading skill embeddings cache...")

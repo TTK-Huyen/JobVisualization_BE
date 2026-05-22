@@ -158,7 +158,12 @@ ALTER TABLE public.job_group_skill_weights OWNER TO postgres;
 CREATE TABLE public.job_skills (
     job_id bigint NOT NULL,
     skill_id integer NOT NULL,
-    is_inferred boolean DEFAULT false
+    is_inferred boolean DEFAULT false,
+    reason character varying(50),
+    model_name character varying(100),
+    similarity_score numeric(4,3),
+    lib_version character varying(20),
+    raw_skill_name character varying(255)
 );
 
 
@@ -285,6 +290,65 @@ ALTER SEQUENCE public.skills_skill_id_seq OWNED BY public.skills.skill_id;
 
 
 --
+-- Name: unmatched_skills; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.unmatched_skills (
+    unmatched_id integer NOT NULL,
+    raw_skill_name character varying(255) NOT NULL,
+    occurrence_count integer DEFAULT 1,
+    max_similarity_score numeric(4,3),
+    top_candidate_skill_id integer,
+    top_candidate_skill_name character varying(255),
+    analysis_type character varying(50),
+    first_seen timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    last_seen timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+);
+
+
+ALTER TABLE public.unmatched_skills OWNER TO postgres;
+
+--
+-- Name: unmatched_skill_sources; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.unmatched_skill_sources (
+    source_id bigint NOT NULL,
+    unmatched_id integer NOT NULL,
+    source_type character varying(50) NOT NULL,
+    occurrence_count integer DEFAULT 1,
+    max_similarity_score numeric(4,3),
+    first_seen timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    last_seen timestamp without time zone DEFAULT CURRENT_TIMESTAMP
+);
+
+
+ALTER TABLE public.unmatched_skill_sources OWNER TO postgres;
+
+--
+-- Name: unmatched_skills_unmatched_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+CREATE SEQUENCE public.unmatched_skills_unmatched_id_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE public.unmatched_skills_unmatched_id_seq OWNER TO postgres;
+
+--
+-- Name: unmatched_skills_unmatched_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: postgres
+--
+
+ALTER SEQUENCE public.unmatched_skills_unmatched_id_seq OWNED BY public.unmatched_skills.unmatched_id;
+
+
+
+--
 -- Name: benefits benefit_id; Type: DEFAULT; Schema: public; Owner: postgres
 --
 
@@ -310,6 +374,14 @@ ALTER TABLE ONLY public.salaries ALTER COLUMN salary_id SET DEFAULT nextval('pub
 --
 
 ALTER TABLE ONLY public.skills ALTER COLUMN skill_id SET DEFAULT nextval('public.skills_skill_id_seq'::regclass);
+
+
+--
+-- Name: unmatched_skills unmatched_id; Type: DEFAULT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.unmatched_skills ALTER COLUMN unmatched_id SET DEFAULT nextval('public.unmatched_skills_unmatched_id_seq'::regclass);
+
 
 
 --
@@ -417,6 +489,31 @@ ALTER TABLE ONLY public.skills
 
 
 --
+-- Name: unmatched_skills unmatched_skills_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.unmatched_skills
+    ADD CONSTRAINT unmatched_skills_pkey PRIMARY KEY (unmatched_id);
+
+
+--
+-- Name: unmatched_skills uq_unmatched_skills_raw_name; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.unmatched_skills
+    ADD CONSTRAINT uq_unmatched_skills_raw_name UNIQUE (raw_skill_name);
+
+
+--
+-- Name: unmatched_skill_sources unmatched_skill_sources_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.unmatched_skill_sources
+    ADD CONSTRAINT unmatched_skill_sources_pkey PRIMARY KEY (source_id, unmatched_id, source_type);
+
+
+
+--
 -- Name: benefits unique_benefit_name; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -451,6 +548,21 @@ CREATE INDEX idx_jobs_skills_search ON public.jobs USING gin (to_tsvector('engli
 --
 
 CREATE INDEX idx_jobs_title ON public.jobs USING btree (title);
+
+
+--
+-- Name: idx_unmatched_skills_raw_name; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_unmatched_skills_raw_name ON public.unmatched_skills USING btree (raw_skill_name);
+
+
+--
+-- Name: idx_unmatched_skills_analysis_type; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX idx_unmatched_skills_analysis_type ON public.unmatched_skills USING btree (analysis_type);
+
 
 
 --
@@ -523,6 +635,22 @@ ALTER TABLE ONLY public.jobs
 
 ALTER TABLE ONLY public.salaries
     ADD CONSTRAINT salaries_job_id_fkey FOREIGN KEY (job_id) REFERENCES public.jobs(job_id) ON DELETE CASCADE;
+
+
+--
+-- Name: unmatched_skills fk_unmatched_skills_candidate; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.unmatched_skills
+    ADD CONSTRAINT fk_unmatched_skills_candidate FOREIGN KEY (top_candidate_skill_id) REFERENCES public.skills(skill_id) ON DELETE SET NULL;
+
+
+--
+-- Name: unmatched_skill_sources fk_unmatched_skill_sources_unmatched; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.unmatched_skill_sources
+    ADD CONSTRAINT fk_unmatched_skill_sources_unmatched FOREIGN KEY (unmatched_id) REFERENCES public.unmatched_skills(unmatched_id) ON DELETE CASCADE;
 
 
 --

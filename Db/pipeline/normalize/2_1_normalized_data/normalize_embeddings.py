@@ -243,11 +243,18 @@ def normalize_job(
     llm_max_retries: int = 2,
     llm_batch_size: int = 10,
     keyword_index: Dict[str, str] | None = None,
+    mapping_cache: Dict[str, Dict[str, Any]] | None = None,
 ) -> Dict[str, Any]:
     """Normalize job skills using string cleaning + exact matching, and semantic matching with all-MiniLM-L6-v2.
 
     Applies deterministic Scenario B matching criteria (Tier 1 >= 0.75 accepted, else rejected).
     """
+    import sentence_transformers
+    lib_ver = sentence_transformers.__version__
+    model_name = getattr(model, "model_name_or_path", "all-MiniLM-L6-v2") if model is not None else "all-MiniLM-L6-v2"
+    if model_name and "/" in model_name:
+        model_name = model_name.split("/")[-1]
+
     normalized_skills = []
     normalized_benefits = []
     skill_id_by_name = {name: sid for sid, name in skill_map}
@@ -283,10 +290,16 @@ def normalize_job(
     # Gather extracted skills
     skills_in = job.get("extracted_skills") or []
     skill_entries = []
+    raw_desc = job.get("raw")
+    raw_req = raw_desc.get("requirements_text") if isinstance(raw_desc, dict) else None
+    job_desc = job.get("job")
+    skills_desc = job_desc.get("skills_desc") if isinstance(job_desc, dict) else None
+    if isinstance(skills_desc, dict):
+        skills_desc = skills_desc.get("value")
     requirements_text = (
-        job.get("raw", {}).get("requirements_text")
+        raw_req
         or job.get("requirements_text")
-        or job.get("job", {}).get("skills_desc", {}).get("value")
+        or skills_desc
         or ""
     )
 
@@ -341,106 +354,200 @@ def normalize_job(
 
     # Phase 1 & 2 Normalization Loop
     if uniq_skill_q:
-        q_emb = compute_embeddings(model, uniq_skill_q)
-        sims = np.dot(q_emb, skill_emb.T) if skill_emb.shape[0] > 0 else np.zeros((q_emb.shape[0], 0))
+        if mapping_cache is None:
+            mapping_cache = {}
 
-        for i, q in enumerate(uniq_skill_q):
+        # Separate cache hits and cache misses
+        to_embed_skills = []
+        for q in uniq_skill_q:
             evidence = next((entry.get("evidence") for entry in skill_entries if entry.get("raw") == q), "")
-            stage = "start"
-            final_method = "Unmatched"
-            final_score = 0.0
-            mapped_name = None
-            mapped_id = None
-            status = "unmatched"
-
-            q_clean = clean_skill_name(q)
-
-            # Phase 1: Cleaned Exact Matching
-            if q_clean in exact_match_lookup:
-                matched_name = exact_match_lookup[q_clean]
-                mapped_id = skill_id_by_name.get(matched_name)
-                if mapped_id is not None:
-                    stage = "exact_match"
-                    final_method = "Exact Match"
-                    final_score = 1.0
-                    status = "auto_accepted"
-
-                    normalized_skills.append({
-                        "original": q,
-                        "mapped_name": matched_name,
-                        "skill_id": mapped_id,
-                        "confidence": 1.0,
-                        "status": status,
-                        "method": final_method,
-                        "evidence": evidence,
-                        "candidates": [],
-                    })
-                    try:
-                        with trace_path.open("a", encoding="utf-8", newline="") as fh:
-                            writer = csv.writer(fh)
-                            writer.writerow([job_id, q, job_title, evidence, stage, final_method, 1.0, matched_name, status])
-                    except Exception:
-                        pass
-                    continue
-
-            # Phase 2: Semantic Embedding Match (Tier 1 vs Unmatched)
-            if sims.shape[1] > 0:
-                top_idx = int(np.argmax(sims[i]))
-                top_score = float(sims[i, top_idx])
-                candidate_name = skill_names[top_idx]
+            if q in mapping_cache:
+                cached = mapping_cache[q]
+                mapped_name = cached.get("mapped_name")
+                mapped_id = cached.get("skill_id")
+                confidence = cached.get("confidence", 0.0)
+                status = cached.get("status", "unmatched")
+                method = cached.get("method", "Unmatched")
+                reason = cached.get("reason", "embedding")
+                
+                skill_entry = {
+                    "original": q,
+                    "mapped_name": mapped_name,
+                    "skill_id": mapped_id,
+                    "confidence": confidence,
+                    "status": status,
+                    "method": method,
+                    "evidence": evidence,
+                    "candidates": [],
+                    "reason": reason,
+                    "model_name": model_name,
+                    "lib_version": lib_ver,
+                }
+                if status == "unmatched":
+                    skill_entry["top_candidate_name"] = cached.get("top_candidate_name")
+                    skill_entry["top_candidate_id"] = cached.get("top_candidate_id")
+                
+                normalized_skills.append(skill_entry)
+                
+                try:
+                    with trace_path.open("a", encoding="utf-8", newline="") as fh:
+                        writer = csv.writer(fh)
+                        writer.writerow([job_id, q, job_title, evidence, "cache_hit", method, confidence, mapped_name or "", status])
+                except Exception:
+                    pass
             else:
-                top_score = 0.0
-                candidate_name = None
+                to_embed_skills.append(q)
 
-            stage = "bi_encoder"
-            if top_score >= 0.75:
-                # Tier 1 auto-accepted
-                matched_name = candidate_name
-                mapped_id = skill_id_by_name.get(matched_name)
-                if mapped_id is not None:
-                    final_method = "Tier 1"
-                    final_score = top_score
-                    status = "auto_accepted"
+        if to_embed_skills:
+            q_emb = compute_embeddings(model, to_embed_skills)
+            sims = np.dot(q_emb, skill_emb.T) if skill_emb.shape[0] > 0 else np.zeros((q_emb.shape[0], 0))
 
-                    normalized_skills.append({
-                        "original": q,
-                        "mapped_name": matched_name,
-                        "skill_id": mapped_id,
-                        "confidence": round(final_score, 4),
-                        "status": status,
-                        "method": final_method,
-                        "evidence": evidence,
-                        "candidates": [],
-                    })
-                    try:
-                        with trace_path.open("a", encoding="utf-8", newline="") as fh:
-                            writer = csv.writer(fh)
-                            writer.writerow([job_id, q, job_title, evidence, stage, final_method, round(final_score, 4), matched_name, status])
-                    except Exception:
-                        pass
-                    continue
+            for i, q in enumerate(to_embed_skills):
+                evidence = next((entry.get("evidence") for entry in skill_entries if entry.get("raw") == q), "")
+                stage = "start"
+                final_method = "Unmatched"
+                final_score = 0.0
+                mapped_name = None
+                mapped_id = None
+                status = "unmatched"
 
-            # Unmatched / Rejected (Tier 2 & 3)
-            final_method = "Unmatched"
-            final_score = top_score
-            status = "unmatched"
+                q_clean = clean_skill_name(q)
 
-            normalized_skills.append({
-                "original": q,
-                "mapped_name": None,
-                "skill_id": None,
-                "confidence": round(final_score, 4),
-                "status": status,
-                "method": final_method,
-                "evidence": evidence,
-                "candidates": [],
-            })
-            try:
-                with trace_path.open("a", encoding="utf-8", newline="") as fh:
-                    writer = csv.writer(fh)
-                    writer.writerow([job_id, q, job_title, evidence, stage, final_method, round(final_score, 4), "", status])
-            except Exception:
-                pass
+                # Phase 1: Cleaned Exact Matching
+                if q_clean in exact_match_lookup:
+                    matched_name = exact_match_lookup[q_clean]
+                    mapped_id = skill_id_by_name.get(matched_name)
+                    if mapped_id is not None:
+                        stage = "exact_match"
+                        final_method = "Exact Match"
+                        final_score = 1.0
+                        status = "auto_accepted"
+
+                        normalized_skills.append({
+                            "original": q,
+                            "mapped_name": matched_name,
+                            "skill_id": mapped_id,
+                            "confidence": 1.0,
+                            "status": status,
+                            "method": final_method,
+                            "evidence": evidence,
+                            "candidates": [],
+                            "reason": "exact_match",
+                            "model_name": model_name,
+                            "lib_version": lib_ver,
+                        })
+                        
+                        mapping_cache[q] = {
+                            "mapped_name": matched_name,
+                            "skill_id": mapped_id,
+                            "confidence": 1.0,
+                            "status": status,
+                            "method": final_method,
+                            "reason": "exact_match",
+                        }
+                        
+                        try:
+                            with trace_path.open("a", encoding="utf-8", newline="") as fh:
+                                writer = csv.writer(fh)
+                                writer.writerow([job_id, q, job_title, evidence, stage, final_method, 1.0, matched_name, status])
+                        except Exception:
+                            pass
+                        continue
+
+                # Phase 2: Semantic Embedding Match (Tier 1 vs Unmatched)
+                if sims.shape[1] > 0:
+                    top_idx = int(np.argmax(sims[i]))
+                    top_score = float(sims[i, top_idx])
+                    candidate_name = skill_names[top_idx]
+                else:
+                    top_score = 0.0
+                    candidate_name = None
+
+                stage = "bi_encoder"
+                if top_score >= 0.75:
+                    # Tier 1 auto-accepted
+                    matched_name = candidate_name
+                    mapped_id = skill_id_by_name.get(matched_name)
+                    if mapped_id is not None:
+                        final_method = "Tier 1"
+                        final_score = top_score
+                        status = "auto_accepted"
+
+                        normalized_skills.append({
+                            "original": q,
+                            "mapped_name": matched_name,
+                            "skill_id": mapped_id,
+                            "confidence": round(final_score, 4),
+                            "status": status,
+                            "method": final_method,
+                            "evidence": evidence,
+                            "candidates": [],
+                            "reason": "embedding",
+                            "model_name": model_name,
+                            "lib_version": lib_ver,
+                        })
+                        
+                        mapping_cache[q] = {
+                            "mapped_name": matched_name,
+                            "skill_id": mapped_id,
+                            "confidence": round(final_score, 4),
+                            "status": status,
+                            "method": final_method,
+                            "reason": "embedding",
+                        }
+                        
+                        try:
+                            with trace_path.open("a", encoding="utf-8", newline="") as fh:
+                                writer = csv.writer(fh)
+                                writer.writerow([job_id, q, job_title, evidence, stage, final_method, round(final_score, 4), matched_name, status])
+                        except Exception:
+                            pass
+                        continue
+
+                # Unmatched / Rejected (Tier 2 & 3)
+                final_method = "Unmatched"
+                final_score = top_score
+                status = "unmatched"
+
+                top_cand_id = None
+                if sims.shape[1] > 0 and top_idx >= 0:
+                    top_cand_id = skill_map[top_idx][0]
+                    if top_cand_id == -1:
+                        top_cand_id = None
+
+                normalized_skills.append({
+                    "original": q,
+                    "mapped_name": None,
+                    "skill_id": None,
+                    "confidence": round(final_score, 4),
+                    "status": status,
+                    "method": final_method,
+                    "evidence": evidence,
+                    "candidates": [],
+                    "reason": "embedding",
+                    "model_name": model_name,
+                    "lib_version": lib_ver,
+                    "top_candidate_name": candidate_name,
+                    "top_candidate_id": top_cand_id,
+                })
+                
+                mapping_cache[q] = {
+                    "mapped_name": None,
+                    "skill_id": None,
+                    "confidence": round(final_score, 4),
+                    "status": status,
+                    "method": final_method,
+                    "reason": "embedding",
+                    "top_candidate_name": candidate_name,
+                    "top_candidate_id": top_cand_id,
+                }
+                
+                try:
+                    with trace_path.open("a", encoding="utf-8", newline="") as fh:
+                        writer = csv.writer(fh)
+                        writer.writerow([job_id, q, job_title, evidence, stage, final_method, round(final_score, 4), "", status])
+                except Exception:
+                    pass
 
     # Map benefits using legacy bi-encoder similarity logic
     if uniq_benefit_q:
@@ -477,9 +584,17 @@ def normalize_job(
 
 
 def remove_unmapped_items(record: Dict[str, Any]) -> Dict[str, Any]:
-    """Remove normalized skills/benefits that were not mapped to database identifiers."""
+    """Remove normalized skills/benefits that were not mapped to database identifiers, and store unmatched skills."""
+    all_skills = record.get("normalized_skills", [])
+    
+    # Store unmatched skills so they can be saved in the JSON and processed by import.py
+    record["unmatched_skills"] = [
+        item for item in all_skills
+        if not (item.get("mapped_name") and item.get("skill_id"))
+    ]
+
     record["normalized_skills"] = [
-        item for item in record.get("normalized_skills", [])
+        item for item in all_skills
         if item.get("mapped_name") and item.get("skill_id")
     ]
 
@@ -615,6 +730,17 @@ def main() -> int:
     benefits_cache_file = cache_dir / "benefits_embedding.pkl"
     metadata_file = cache_dir / "metadata.json"
 
+    # Configure mapping cache path
+    skills_cache_path = cache_dir / "mapped_skills_cache.json"
+    mapping_cache = {}
+    if skills_cache_path.exists():
+        try:
+            with skills_cache_path.open("r", encoding="utf-8") as fh:
+                mapping_cache = json.load(fh)
+            print(f"Loaded {len(mapping_cache)} cached skill mappings from {skills_cache_path}")
+        except Exception as e:
+            print(f"Warning: Failed to load mapped skills cache: {e}")
+
     def _hash_list(obj: List[Any]) -> str:
         return hashlib.sha256(_json.dumps(obj, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest()
 
@@ -736,6 +862,7 @@ def main() -> int:
                 llm_max_retries=args.llm_rerank_max_retries,
                 llm_batch_size=args.llm_batch_size,
                 keyword_index=None,
+                mapping_cache=mapping_cache,
             )
             rec["normalized_skills_debug"] = list(rec.get("normalized_skills", []))
             rec = remove_unmapped_items(rec)
@@ -758,6 +885,8 @@ def main() -> int:
 
             normalized_out.append(rec)
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             fallback_out.append({
                 "status": "normalize_fail",
                 "error": str(e),
@@ -766,6 +895,11 @@ def main() -> int:
 
     atomic_write(args.output, normalized_out)
     print(f"Wrote normalized output to: {args.output}")
+    try:
+        atomic_write(skills_cache_path, mapping_cache)
+        print(f"Saved {len(mapping_cache)} mapped skills to cache: {skills_cache_path}")
+    except Exception as e:
+        print(f"Warning: Failed to write mapped skills cache: {e}")
     if fallback_out:
         atomic_write(args.fallback, fallback_out)
         print(f"Wrote fallback records to: {args.fallback}")

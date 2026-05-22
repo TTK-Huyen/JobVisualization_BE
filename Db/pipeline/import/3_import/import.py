@@ -4,6 +4,8 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
+import subprocess
+import sys
 from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
@@ -245,26 +247,165 @@ def upsert_salary(cur, job_id: int, salary: Dict[str, Any]) -> None:
 
 
 def insert_job_skills(cur, job_id: int, normalized_skills: List[Dict[str, Any]]) -> None:
-    rows = []
+    unique_skills = {}
     for it in normalized_skills or []:
         sid = it.get("skill_id")
         if not sid:
             continue
-        rows.append((job_id, int(sid), False))
+        sid = int(sid)
+        reason = it.get("reason")
+        model_name = it.get("model_name")
+        similarity_score = it.get("confidence")
+        lib_version = it.get("lib_version")
+        raw_skill_name = it.get("original")
+        if raw_skill_name is not None:
+            raw_skill_name = str(raw_skill_name)[:255]
+        
+        try:
+            score = float(similarity_score) if similarity_score is not None else 0.0
+        except (ValueError, TypeError):
+            score = 0.0
+
+        if sid not in unique_skills or score > unique_skills[sid].get('_score', 0.0):
+            unique_skills[sid] = {
+                'reason': reason,
+                'model_name': model_name,
+                'similarity_score': similarity_score,
+                'lib_version': lib_version,
+                'raw_skill_name': raw_skill_name,
+                '_score': score
+            }
+            
+    rows = []
+    for sid, info in unique_skills.items():
+        rows.append((job_id, sid, False, info['reason'], info['model_name'], info['similarity_score'], info['lib_version'], info['raw_skill_name']))
+        
     if not rows:
         return
-    execute_values(cur,
-                   "INSERT INTO job_skills(job_id, skill_id, is_inferred) VALUES %s ON CONFLICT (job_id, skill_id) DO NOTHING",
-                   rows)
+    execute_values(
+        cur,
+        """
+        INSERT INTO job_skills(job_id, skill_id, is_inferred, reason, model_name, similarity_score, lib_version, raw_skill_name)
+        VALUES %s
+        ON CONFLICT (job_id, skill_id)
+        DO UPDATE SET
+            reason = EXCLUDED.reason,
+            model_name = EXCLUDED.model_name,
+            similarity_score = EXCLUDED.similarity_score,
+            lib_version = EXCLUDED.lib_version,
+            raw_skill_name = EXCLUDED.raw_skill_name
+        """,
+        rows
+    )
+
+
+def insert_unmatched_skills(cur, source_id: int, source_type: str, unmatched_skills: List[Dict[str, Any]]) -> None:
+    unique_unmatched = {}
+    for it in unmatched_skills or []:
+        raw_name = it.get("original")
+        if not raw_name:
+            continue
+        raw_name = str(raw_name).strip()
+        if not raw_name:
+            continue
+        
+        # Limit to 255 chars
+        raw_name = raw_name[:255]
+        
+        similarity_score = it.get("confidence", 0.0)
+        if similarity_score is None:
+            similarity_score = 0.0
+        else:
+            try:
+                similarity_score = float(similarity_score)
+            except (ValueError, TypeError):
+                similarity_score = 0.0
+                
+        top_cand_name = it.get("top_candidate_name")
+        top_cand_id = it.get("top_candidate_id")
+        if top_cand_id is not None:
+            try:
+                top_cand_id = int(top_cand_id)
+            except (ValueError, TypeError):
+                top_cand_id = None
+
+        if raw_name not in unique_unmatched:
+            unique_unmatched[raw_name] = {
+                'max_score': similarity_score,
+                'count': 1,
+                'top_cand_name': top_cand_name,
+                'top_cand_id': top_cand_id
+            }
+        else:
+            unique_unmatched[raw_name]['count'] += 1
+            if similarity_score > unique_unmatched[raw_name]['max_score']:
+                unique_unmatched[raw_name]['max_score'] = similarity_score
+                unique_unmatched[raw_name]['top_cand_name'] = top_cand_name
+                unique_unmatched[raw_name]['top_cand_id'] = top_cand_id
+            
+    rows = []
+    for raw_name, info in unique_unmatched.items():
+        rows.append((raw_name, info['count'], info['max_score'], info['top_cand_id'], info['top_cand_name'], 'UN_MATCHED'))
+        
+    if not rows:
+        return
+        
+    # Step 1: Insert into unmatched_skills dictionary table
+    returned = execute_values(
+        cur,
+        """
+        INSERT INTO unmatched_skills(raw_skill_name, occurrence_count, max_similarity_score, top_candidate_skill_id, top_candidate_skill_name, analysis_type)
+        VALUES %s
+        ON CONFLICT (raw_skill_name)
+        DO UPDATE SET
+            occurrence_count = unmatched_skills.occurrence_count + EXCLUDED.occurrence_count,
+            max_similarity_score = GREATEST(unmatched_skills.max_similarity_score, EXCLUDED.max_similarity_score),
+            top_candidate_skill_id = COALESCE(unmatched_skills.top_candidate_skill_id, EXCLUDED.top_candidate_skill_id),
+            top_candidate_skill_name = COALESCE(unmatched_skills.top_candidate_skill_name, EXCLUDED.top_candidate_skill_name),
+            last_seen = CURRENT_TIMESTAMP
+        RETURNING raw_skill_name, unmatched_id
+        """,
+        rows,
+        fetch=True
+    )
+    
+    # Map raw_skill_name to unmatched_id
+    name_to_id = {row[0]: row[1] for row in returned}
+    
+    # Step 2: Insert mappings into unmatched_skill_sources bridge table
+    bridge_rows = []
+    for raw_name, info in unique_unmatched.items():
+        unmatched_id = name_to_id.get(raw_name)
+        if unmatched_id is not None:
+            bridge_rows.append((source_id, unmatched_id, source_type, info['count'], info['max_score']))
+            
+    if not bridge_rows:
+        return
+        
+    execute_values(
+        cur,
+        """
+        INSERT INTO unmatched_skill_sources(source_id, unmatched_id, source_type, occurrence_count, max_similarity_score)
+        VALUES %s
+        ON CONFLICT (source_id, unmatched_id, source_type)
+        DO UPDATE SET
+            occurrence_count = unmatched_skill_sources.occurrence_count + EXCLUDED.occurrence_count,
+            max_similarity_score = GREATEST(unmatched_skill_sources.max_similarity_score, EXCLUDED.max_similarity_score),
+            last_seen = CURRENT_TIMESTAMP
+        """,
+        bridge_rows
+    )
 
 
 def insert_job_benefits(cur, job_id: int, normalized_benefits: List[Dict[str, Any]]) -> None:
-    rows = []
+    unique_bids = set()
     for it in normalized_benefits or []:
         bid = it.get("benefit_id")
         if not bid:
             continue
-        rows.append((job_id, int(bid), False))
+        unique_bids.add(int(bid))
+        
+    rows = [(job_id, bid, False) for bid in unique_bids]
     if not rows:
         return
     execute_values(cur,
@@ -307,6 +448,7 @@ def import_records(conn, records: List[Dict[str, Any]], fallback_path: Path) -> 
 
             insert_job_skills(cur, job_id, rec.get('normalized_skills') or [])
             insert_job_benefits(cur, job_id, rec.get('normalized_benefits') or [])
+            insert_unmatched_skills(cur, job_id, 'job', rec.get('unmatched_skills') or [])
 
             # company industries
             try:
@@ -364,6 +506,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--fallback", type=Path, default=BASE_DIR / "3_import" / "import_fallback.json")
+    parser.add_argument("--skip-weight-update", action="store_true", help="Skip updating skill weights after import")
+    parser.add_argument("--weight-method", type=str, choices=["tf-idf", "llm"], default="tf-idf", help="Weighting method to update: 'tf-idf' or 'llm'")
     args = parser.parse_args()
 
     # Clear previous fallback file if it exists
@@ -380,6 +524,39 @@ def main():
     stats = import_records(conn, records, args.fallback)
     print(json.dumps(stats, ensure_ascii=False))
     conn.close()
+
+    # Check if database was updated/inserted and if we should update weights
+    db_changed = stats.get("inserted", 0) > 0 or stats.get("updated", 0) > 0
+    skip_env = os.getenv("SKIP_WEIGHT_UPDATE", "false").lower() in ("true", "1", "yes")
+
+    if db_changed and not args.skip_weight_update and not skip_env:
+        method = os.getenv("WEIGHT_METHOD", args.weight_method).lower()
+        if method not in ("tf-idf", "llm"):
+            method = "tf-idf"
+
+        python_exe = sys.executable or "python"
+        script_name = "tf_idf.py" if method == "tf-idf" else "build_skill_weights.py"
+        script_path = BASE_DIR / "SkillWeighting" / script_name
+        if not script_path.exists():
+            script_path = BASE_DIR.parent / "SkillWeighting" / script_name
+
+        if script_path.exists():
+            print(f"\n[INFO] Triggering automated skill weighting ({method}) via {script_name}...")
+            cmd = [python_exe, str(script_path)]
+            try:
+                subprocess.run(cmd, check=True)
+                print("[INFO] Automated skill weighting completed successfully.")
+            except subprocess.CalledProcessError as e:
+                print(f"[ERROR] Automated skill weighting failed with exit code {e.returncode}")
+            except Exception as e:
+                print(f"[ERROR] Failed to run automated skill weighting: {e}")
+        else:
+            print(f"[ERROR] Skill weighting script not found at: {script_path}")
+    else:
+        if not db_changed:
+            print("\n[INFO] Skipping skill weighting update because no jobs were inserted or updated.")
+        else:
+            print("\n[INFO] Skill weighting update skipped via command line argument or environment variable.")
 
 
 if __name__ == "__main__":
