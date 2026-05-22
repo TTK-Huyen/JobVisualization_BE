@@ -11,6 +11,7 @@ import psycopg2
 from psycopg2.extras import execute_values
 import re
 import unicodedata
+from location_normalization import normalize_location, normalize_country
 
 def find_project_root() -> Path:
     p = Path(__file__).resolve()
@@ -57,7 +58,16 @@ def unwrap_value(v: Any) -> Any:
     return v
 
 
+def unwrap_and_truncate(v: Any, max_len: int) -> Optional[str]:
+    val = unwrap_value(v)
+    if val is None:
+        return None
+    return str(val)[:max_len]
+
+
+
 def parse_datetime(v: Any) -> Optional[str]:
+    v = unwrap_value(v)
     if not v:
         return None
     if isinstance(v, (int, float)):
@@ -122,10 +132,10 @@ def make_fingerprint(rec: Dict[str, Any]) -> str:
     return hashlib.md5(raw.encode("utf-8")).hexdigest()
 
 def upsert_company(cur, comp: Dict[str, Any]) -> Optional[int]:
-    name = unwrap_value(comp.get("name") or comp.get("company_name"))
+    name = unwrap_and_truncate(comp.get("name") or comp.get("company_name"), 255)
     if not name:
         return None
-    url = unwrap_value(comp.get("url") or comp.get("company_website"))
+    url = unwrap_and_truncate(comp.get("url") or comp.get("company_website"), 500)
     # try find by name and url
     if url:
         cur.execute("SELECT company_id FROM companies WHERE name = %s AND url = %s", (name, url))
@@ -147,23 +157,29 @@ def upsert_company(cur, comp: Dict[str, Any]) -> Optional[int]:
             unwrap_value(comp.get("description")),
             parse_number(comp.get("company_size_min")),
             parse_number(comp.get("company_size_max")),
-            unwrap_value(comp.get("country")),
-            unwrap_value(comp.get("city")),
+            unwrap_and_truncate(normalize_country(comp.get("country")), 100),
+            unwrap_and_truncate(normalize_location(comp.get("city")), 100),
             unwrap_value(comp.get("address")),
             url,
-            unwrap_value(comp.get("industry")),
+            unwrap_and_truncate(comp.get("industry"), 255),
         ),
     )
     return new_id
 
 
 def upsert_job(cur, rec: Dict[str, Any], company_id: Optional[int], fingerprint: str) -> int:
-    title = unwrap_value(rec.get("title") or rec.get("job", {}).get("title"))
+    title = unwrap_and_truncate(rec.get("title") or rec.get("job", {}).get("title"), 500)
     skills_desc = unwrap_value(rec.get("job", {}).get("skills_desc") or rec.get("skills_desc"))
     description = unwrap_value(rec.get("description") or rec.get("raw", {}).get("requirements_text") or rec.get("requirements_text"))
-    formatted_experience_level = unwrap_value(rec.get("job", {}).get("formatted_experience_level") or rec.get("experience_raw") or rec.get("job", {}).get("experience_level"))
-    work_type = unwrap_value(rec.get("job", {}).get("work_type"))
-    location = unwrap_value(rec.get("location_raw") or rec.get("job", {}).get("location"))
+    formatted_experience_level = unwrap_and_truncate(
+        rec.get("job", {}).get("formatted_experience_level")
+        or rec.get("experience_raw")
+        or rec.get("job", {}).get("experience_level"),
+        100
+    )
+    work_type = unwrap_and_truncate(rec.get("job", {}).get("work_type"), 100)
+    raw_loc = rec.get("location_raw") or rec.get("job", {}).get("location")
+    location = unwrap_and_truncate(normalize_location(raw_loc), 255)
     is_remote = unwrap_value(rec.get("job", {}).get("is_remote") or rec.get("is_remote"))
     listed_time = parse_datetime(rec.get("listed_time") or rec.get("job", {}).get("listed_time"))
     expiry_time = parse_datetime(rec.get("expiry_time") or rec.get("job", {}).get("expiry_time"))
@@ -171,10 +187,10 @@ def upsert_job(cur, rec: Dict[str, Any], company_id: Optional[int], fingerprint:
     scraped_at = parse_datetime(rec.get("scraped_at"))
     applies = parse_number(rec.get("applies"))
     views = parse_number(rec.get("views"))
-    job_category = unwrap_value(rec.get("job", {}).get("job_category"))
-    search_group = unwrap_value(rec.get("job", {}).get("search_group") or rec.get("search_keyword"))
-    source_name = rec.get("source_name")
-    source_id = rec.get("job_source_id") or rec.get("source_id")
+    job_category = unwrap_and_truncate(rec.get("job", {}).get("job_category"), 100)
+    search_group = unwrap_and_truncate(rec.get("job", {}).get("search_group") or rec.get("search_keyword"), 100)
+    source_name = unwrap_and_truncate(rec.get("source_name"), 50)
+    source_id = unwrap_and_truncate(rec.get("job_source_id") or rec.get("source_id"), 255)
 
     # Insert or update by fingerprint
     cur.execute(
@@ -210,8 +226,8 @@ def upsert_salary(cur, job_id: int, salary: Dict[str, Any]) -> None:
     min_s = parse_number(salary.get("min_salary"))
     max_s = parse_number(salary.get("max_salary"))
     med_s = parse_number(salary.get("med_salary"))
-    currency = unwrap_value(salary.get("currency"))
-    pay_period = unwrap_value(salary.get("pay_period"))
+    currency = unwrap_and_truncate(salary.get("currency"), 10)
+    pay_period = unwrap_and_truncate(salary.get("pay_period"), 20)
 
     # check existing by job_id
     cur.execute("SELECT salary_id FROM salaries WHERE job_id = %s", (job_id,))
@@ -259,7 +275,7 @@ def insert_job_benefits(cur, job_id: int, normalized_benefits: List[Dict[str, An
 def insert_company_industries(cur, company_id: int, industry_value: Any) -> None:
     if not industry_value:
         return
-    name = unwrap_value(industry_value)
+    name = unwrap_and_truncate(industry_value, 255)
     if not name:
         return
     # ensure industries row
@@ -280,11 +296,6 @@ def import_records(conn, records: List[Dict[str, Any]], fallback_path: Path) -> 
     for rec in records:
         try:
             fp = make_fingerprint(rec)
-            
-
-            # savepoint per job
-            sp = f"sp_{hashlib.md5(fp.encode()).hexdigest()[:8]}"
-            cur.execute(f"SAVEPOINT {sp}")
 
             comp = rec.get('company') or {}
             company_id = upsert_company(cur, comp) if comp else None
@@ -299,12 +310,15 @@ def import_records(conn, records: List[Dict[str, Any]], fallback_path: Path) -> 
 
             # company industries
             try:
+                cur.execute("SAVEPOINT sp_industry")
                 insert_company_industries(cur, company_id, rec.get('company', {}).get('industry') or rec.get('industry') or rec.get('industries'))
+                cur.execute("RELEASE SAVEPOINT sp_industry")
             except Exception:
-                pass
+                try:
+                    cur.execute("ROLLBACK TO SAVEPOINT sp_industry")
+                except Exception:
+                    pass
 
-            # release savepoint
-            cur.execute(f"RELEASE SAVEPOINT {sp}")
             conn.commit()
             if existing_job:
                 stats["updated"] += 1
@@ -312,15 +326,15 @@ def import_records(conn, records: List[Dict[str, Any]], fallback_path: Path) -> 
                 stats["inserted"] += 1
         except Exception as e:
             stats['errors'] += 1
-            try:
-                cur.execute(f"ROLLBACK TO SAVEPOINT {sp}")
-            except Exception:
-                conn.rollback()
+            conn.rollback()
             # append fallback
             entry = {"record": rec, "error": str(e)}
             if fallback_path:
                 if fallback_path.exists():
-                    arr = json.loads(fallback_path.read_text(encoding='utf-8-sig') or '[]')
+                    try:
+                        arr = json.loads(fallback_path.read_text(encoding='utf-8-sig') or '[]')
+                    except Exception:
+                        arr = []
                 else:
                     arr = []
                 arr.append(entry)
@@ -351,6 +365,13 @@ def main():
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--fallback", type=Path, default=BASE_DIR / "3_import" / "import_fallback.json")
     args = parser.parse_args()
+
+    # Clear previous fallback file if it exists
+    if args.fallback and args.fallback.exists():
+        try:
+            args.fallback.unlink()
+        except Exception as e:
+            print(f"[WARNING] Could not delete old fallback file: {e}")
 
     records = load_json(args.input)
     conn = get_db_connection()
