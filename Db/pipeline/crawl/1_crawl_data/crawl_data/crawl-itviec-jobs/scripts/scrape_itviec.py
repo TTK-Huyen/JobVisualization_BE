@@ -33,6 +33,62 @@ except ImportError:
     print("cloudscraper not available, using requests (may face 403 errors)")
     session = requests.Session()
 
+# Try to import Selenium for JS-rendered pages (Cloudflare bypass fallback)
+try:
+    from selenium import webdriver
+    from selenium.webdriver.chrome.options import Options as ChromeOptions
+    from selenium.webdriver.support.ui import WebDriverWait
+    from selenium.webdriver.support import expected_conditions as EC
+    from selenium.webdriver.common.by import By
+    SELENIUM_AVAILABLE = True
+except ImportError:
+    SELENIUM_AVAILABLE = False
+    print("[WARN] Selenium not available - 403 Cloudflare bypass will not work")
+
+_ITVIEC_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+
+
+def get_rendered_html_selenium(url: str, wait_seconds: int = 5):
+    """Render URL with headless Chrome to bypass Cloudflare JS challenges.
+    Returns page source HTML or None on failure.
+    """
+    if not SELENIUM_AVAILABLE:
+        return None
+    url = url.split("?")[0]  # Strip query parameters as requested when fallback to selenium is used
+    driver = None
+    try:
+        options = ChromeOptions()
+        options.add_argument("--headless=new")
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
+        options.add_argument(f"user-agent={_ITVIEC_UA}")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option("useAutomationExtension", False)
+        driver = webdriver.Chrome(options=options)
+        driver.execute_cdp_cmd("Network.setUserAgentOverride", {"userAgent": _ITVIEC_UA})
+        driver.set_page_load_timeout(30)
+        driver.get(url)
+        try:
+            WebDriverWait(driver, wait_seconds).until(
+                EC.presence_of_element_located((By.TAG_NAME, "body"))
+            )
+        except Exception:
+            pass
+        time.sleep(3)  # Allow JS challenge to complete
+        return driver.page_source
+    except Exception as e:
+        print(f"[WARN] Selenium failed for {url}: {e}")
+        return None
+    finally:
+        if driver:
+            try:
+                driver.quit()
+            except Exception:
+                pass
+
+
 # Headers giả lập browser
 def get_headers():
     return {
@@ -253,15 +309,32 @@ def scrape_job_detail(job_url: str) -> RawJobData | None:
         job_detail = session.get(job_url, headers=get_headers(), timeout=15)
         if job_detail.status_code != 200:
             print(f"[WARN] Failed to fetch job details for {job_url} - Status: {job_detail.status_code}")
-            return RawJobData(
-                source_name="itviec",
-                job_url=job_url,
-                job_source_id=job_url.rstrip("/").split("/")[-1],
-                title="Failed to scrape",
-                description_html=""
-            )
-
-        job_soup = BeautifulSoup(job_detail.text, "html.parser")
+            # --- Selenium fallback for Cloudflare-blocked requests ---
+            if SELENIUM_AVAILABLE:
+                print(f"[INFO] Trying Selenium fallback for {job_url}...")
+                html_raw = get_rendered_html_selenium(job_url)
+                if html_raw:
+                    job_soup = BeautifulSoup(html_raw, "html.parser")
+                    print(f"[INFO] Selenium successfully fetched page ({len(html_raw)} chars)")
+                else:
+                    print(f"[WARN] Selenium also failed for {job_url}")
+                    return RawJobData(
+                        source_name="itviec",
+                        job_url=job_url,
+                        job_source_id=job_url.rstrip("/").split("/")[-1],
+                        title="Failed to scrape",
+                        description_html=""
+                    )
+            else:
+                return RawJobData(
+                    source_name="itviec",
+                    job_url=job_url,
+                    job_source_id=job_url.rstrip("/").split("/")[-1],
+                    title="Failed to scrape",
+                    description_html=""
+                )
+        else:
+            job_soup = BeautifulSoup(job_detail.text, "html.parser")
         posted_dt = extract_itviec_posted_date(job_soup)
         if not is_posted_date_allowed(posted_dt):
             print(f"[SKIP OLD JOB] {job_url} - posted_date={posted_dt}")

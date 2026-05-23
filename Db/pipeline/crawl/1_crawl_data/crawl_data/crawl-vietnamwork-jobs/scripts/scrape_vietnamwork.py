@@ -102,7 +102,7 @@ def smart_sleep(min_s: float = 0.7, max_s: float = 1.5):
 def get_rendered_html_selenium(url: str, wait_seconds: int = 5) -> Optional[str]:
     if not SELENIUM_AVAILABLE:
         return None
-
+    url = url.split("?")[0]  # Strip query parameters for Selenium fallback
     driver = None
     try:
         options = ChromeOptions()

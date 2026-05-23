@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import base64
 from pathlib import Path
 from typing import Optional
 
@@ -67,40 +68,83 @@ def extract_cv_text(file_path: str, ocr_threshold: int = 200) -> str:
         except Exception:
             text = ""
 
-    # For non-pdf or pdf fallback, if text short then OCR
+    # For non-pdf or pdf fallback, if text short then OCR / Vision
     if len(text) < ocr_threshold:
-        # Use OCR
-        try:
-            from PIL import Image
-        except Exception:
-            raise RuntimeError("Pillow is required for OCR. Install with: pip install pillow pytesseract")
-        try:
-            import pytesseract
-        except Exception:
-            raise RuntimeError("pytesseract is required for OCR. Install with: pip install pytesseract and install tesseract executable")
-
-        # Convert pages to images: try pdf2image for PDFs
-        images = []
-        if p.suffix.lower() == ".pdf":
-            try:
-                from pdf2image import convert_from_path
-
-                images = convert_from_path(str(p))
-            except Exception:
-                # Last resort: try to open as image
-                try:
-                    images = [Image.open(str(p))]
-                except Exception:
-                    raise RuntimeError("Cannot convert PDF to images for OCR. Install pdf2image and poppler, or provide an image file.")
-        else:
-            images = [Image.open(str(p))]
-
-        ocr_texts = []
-        for img in images:
-            try:
-                ocr_texts.append(pytesseract.image_to_string(img))
-            except Exception as e:
-                raise RuntimeError(f"pytesseract failed: {e}")
-        text = "\n".join(ocr_texts).strip()
+        suffix = p.suffix.lower()
+        if suffix in (".jpg", ".jpeg", ".png", ".bmp", ".webp", ".gif"):
+            # --- Primary: Gemini Vision API ---
+            text = _extract_text_gemini_vision(p) or ""
+            if not text.strip():
+                # --- Fallback: pytesseract ---
+                text = _extract_text_pytesseract(p)
+        elif suffix == ".pdf":
+            # PDF with little text: try pdf2image + pytesseract
+            text = _extract_text_pytesseract(p)
 
     return text or ""
+
+
+def _extract_text_gemini_vision(p: Path) -> str:
+    """Use Gemini Vision to OCR a CV image file."""
+    api_key = (
+        os.environ.get("GEMINI_API_KEY")
+        or os.environ.get("GEMINI_API_KEY_1")
+        or os.environ.get("GEMINI_API_KEY_2")
+    )
+    if not api_key:
+        return ""
+    try:
+        import google.generativeai as genai  # type: ignore
+        from PIL import Image
+        import io
+
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-2.0-flash")
+        img = Image.open(str(p))
+        # Convert to RGB if needed (handles RGBA/palette modes)
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG")
+        image_bytes = buf.getvalue()
+        response = model.generate_content(
+            [
+                {
+                    "mime_type": "image/jpeg",
+                    "data": base64.b64encode(image_bytes).decode("utf-8"),
+                },
+                "Extract ALL text from this CV/resume image. Return only the raw text content, preserving structure.",
+            ]
+        )
+        return (response.text or "").strip()
+    except Exception:
+        return ""
+
+
+def _extract_text_pytesseract(p: Path) -> str:
+    """Fallback OCR using pytesseract (requires Tesseract binary installed)."""
+    try:
+        from PIL import Image
+        import pytesseract
+    except ImportError:
+        raise RuntimeError(
+            "Cannot extract text from image CV. Either:\n"
+            "  1. Set GEMINI_API_KEY in environment, or\n"
+            "  2. Install: pip install pytesseract pillow  (and install Tesseract binary)"
+        )
+    if p.suffix.lower() == ".pdf":
+        try:
+            from pdf2image import convert_from_path
+            images = convert_from_path(str(p))
+        except Exception:
+            images = [Image.open(str(p))]
+    else:
+        images = [Image.open(str(p))]
+
+    parts = []
+    for img in images:
+        try:
+            parts.append(pytesseract.image_to_string(img))
+        except Exception as e:
+            raise RuntimeError(f"pytesseract failed: {e}")
+    return "\n".join(parts).strip()

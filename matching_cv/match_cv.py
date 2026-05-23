@@ -317,6 +317,146 @@ def insert_unmatched_skills(conn, source_id: int, source_type: str, unmatched_sk
         cur.close()
 
 
+def upsert_user_cv(conn, user_id: int, file_name: str, file_url: str, extracted_text: str) -> Optional[int]:
+    """
+    Upsert user CV details into the user_cvs table.
+    """
+    cur = conn.cursor()
+    try:
+        # Avoid foreign key violation: check if user_id exists in users table
+        cur.execute("SELECT 1 FROM public.users WHERE user_id = %s", (user_id,))
+        if not cur.fetchone():
+            logger.warning("User ID %d does not exist in public.users table. Skipping user_cvs database update.", user_id)
+            return None
+        
+        # Check if CV already exists for this user and file_name
+        cur.execute(
+            "SELECT cv_id FROM public.user_cvs WHERE user_id = %s AND file_name = %s",
+            (user_id, file_name)
+        )
+        row = cur.fetchone()
+        if row:
+            cv_id = row[0]
+            logger.info("Found existing CV (cv_id: %d) for user_id: %d, updating...", cv_id, user_id)
+            cur.execute(
+                """
+                UPDATE public.user_cvs 
+                SET extracted_text = %s, file_url = %s, updated_at = CURRENT_TIMESTAMP
+                WHERE cv_id = %s
+                """,
+                (extracted_text, file_url, cv_id)
+            )
+        else:
+            logger.info("Inserting new CV into public.user_cvs for user_id: %d...", user_id)
+            cur.execute(
+                """
+                INSERT INTO public.user_cvs (user_id, file_name, file_url, extracted_text)
+                VALUES (%s, %s, %s, %s)
+                RETURNING cv_id
+                """,
+                (user_id, file_name, file_url, extracted_text)
+            )
+            cv_id = cur.fetchone()[0]
+        conn.commit()
+        return cv_id
+    except Exception as e:
+        conn.rollback()
+        logger.error("Failed to upsert user CV: %s", e)
+        return None
+    finally:
+        cur.close()
+
+
+def save_user_cv_skills(conn, cv_id: int, student_skills: List[Dict[str, Any]]) -> None:
+    """
+    Save mapped CV skills to user_cv_skills table.
+    """
+    cur = conn.cursor()
+    try:
+        cur.execute("DELETE FROM public.user_cv_skills WHERE cv_id = %s", (cv_id,))
+        
+        # Deduplicate rows by skill_id to prevent unique constraint violation
+        unique_skill_ids = set()
+        rows = []
+        for s in student_skills:
+            sid = s.get("skill_id")
+            raw_skill = s.get("original_skill") or ""
+            if sid is not None and sid not in unique_skill_ids:
+                unique_skill_ids.add(sid)
+                rows.append((cv_id, sid, str(raw_skill)[:255]))
+                
+        if rows:
+            from psycopg2.extras import execute_values
+            execute_values(
+                cur,
+                "INSERT INTO public.user_cv_skills (cv_id, skill_id, raw_skill) VALUES %s ON CONFLICT DO NOTHING",
+                rows
+            )
+        conn.commit()
+        logger.info("Saved %d skills to user_cv_skills for cv_id: %d.", len(rows), cv_id)
+    except Exception as e:
+        conn.rollback()
+        logger.error("Failed to save user CV skills: %s", e)
+    finally:
+        cur.close()
+
+
+def save_cv_job_match(
+    conn,
+    cv_id: int,
+    search_group: str,
+    match_percent: float,
+    matched_skills: List[Dict[str, Any]],
+    partially_matched_skills: List[Dict[str, Any]],
+    missing_skills: List[Dict[str, Any]],
+) -> None:
+    """
+    Save CV job match results to cv_job_matches table.
+    """
+    cur = conn.cursor()
+    try:
+        radar_data = {
+            "matched_skills": matched_skills,
+            "partially_matched_skills": partially_matched_skills,
+        }
+        gap_report = {
+            "missing_skills": missing_skills,
+            "partially_matched_skills": partially_matched_skills,
+        }
+        cur.execute(
+            "SELECT match_id FROM public.cv_job_matches WHERE cv_id = %s AND LOWER(search_group) = LOWER(%s) AND match_type = 'search_group'",
+            (cv_id, search_group)
+        )
+        row = cur.fetchone()
+        if row:
+            match_id = row[0]
+            logger.info("Updating existing cv_job_match (match_id: %d) for cv_id: %d...", match_id, cv_id)
+            cur.execute(
+                """
+                UPDATE public.cv_job_matches
+                SET match_score = %s, radar_data = %s, gap_report = %s, updated_at = CURRENT_TIMESTAMP
+                WHERE match_id = %s
+                """,
+                (match_percent, json.dumps(radar_data), json.dumps(gap_report), match_id)
+            )
+        else:
+            logger.info("Inserting new cv_job_match for cv_id: %d...", cv_id)
+            cur.execute(
+                """
+                INSERT INTO public.cv_job_matches (cv_id, match_type, search_group, match_score, radar_data, gap_report, model_version)
+                VALUES (%s, 'search_group', %s, %s, %s, %s, 'gemini-2.5-flash')
+                """,
+                (cv_id, search_group, match_percent, json.dumps(radar_data), json.dumps(gap_report))
+            )
+        conn.commit()
+        logger.info("Saved cv_job_match successfully.")
+    except Exception as e:
+        conn.rollback()
+        logger.error("Failed to save CV job match: %s", e)
+    finally:
+        cur.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Match CV skills with Job Title requirements.")
     parser.add_argument("--cv", required=True, help="Path to student CV file (PDF/PNG/JPG/JPEG)")
@@ -372,14 +512,23 @@ def main():
 
         logger.info("Successfully normalized and mapped %d skills to DB skill IDs.", len(student_skills))
 
+        # --- DB UPDATE FOR USER CV ---
+        # Insert or update user CV information
+        file_name = Path(args.cv).name
+        cv_id = upsert_user_cv(conn, args.source_id, file_name, args.cv, cv_text)
+        if cv_id is not None:
+            # Save the mapped CV skills
+            save_user_cv_skills(conn, cv_id, student_skills)
+
         # Log unmatched CV skills
         unmatched_skills = [
             item for item in normalized_student_skills_raw
             if item.get("skill_id") is None or item.get("skill_id") == -1
         ]
         if unmatched_skills:
-            logger.info("Logging %d unmatched CV skills to database (source_id: %d)...", len(unmatched_skills), args.source_id)
-            insert_unmatched_skills(conn, args.source_id, "cv", unmatched_skills)
+            log_source_id = cv_id if (cv_id is not None) else args.source_id
+            logger.info("Logging %d unmatched CV skills to database (source_id: %d, source_type: cv)...", len(unmatched_skills), log_source_id)
+            insert_unmatched_skills(conn, log_source_id, "cv", unmatched_skills)
 
         # Load skills embeddings cache
         logger.info("Loading skill embeddings cache...")
@@ -439,6 +588,18 @@ def main():
 
         match_score = (weighted_sim_sum / total_weight) if total_weight > 0 else 0.0
         match_percent = round(match_score * 100.0, 2)
+
+        # --- DB UPDATE FOR JOB MATCH RESULT ---
+        if cv_id is not None:
+            save_cv_job_match(
+                conn,
+                cv_id,
+                args.search_group,
+                match_percent,
+                matched_skills,
+                partially_matched_skills,
+                missing_skills,
+            )
 
         output_data = {
             "job_title": args.search_group,

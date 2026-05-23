@@ -169,30 +169,55 @@ def upsert_company(cur, comp: Dict[str, Any]) -> Optional[int]:
     return new_id
 
 
-def upsert_job(cur, rec: Dict[str, Any], company_id: Optional[int], fingerprint: str) -> int:
-    title = unwrap_and_truncate(rec.get("title") or rec.get("job", {}).get("title"), 500)
-    skills_desc = unwrap_value(rec.get("job", {}).get("skills_desc") or rec.get("skills_desc"))
-    description = unwrap_value(rec.get("description") or rec.get("raw", {}).get("requirements_text") or rec.get("requirements_text"))
+def upsert_job(cur, rec: Dict[str, Any], company_id: Optional[int], fingerprint: str, valid_keywords: set) -> int:
+    import logging
+    title = unwrap_and_truncate(unwrap_value(rec.get("title")) or unwrap_value(rec.get("job", {}).get("title")), 500)
+    skills_desc = unwrap_value(rec.get("job", {}).get("skills_desc")) or unwrap_value(rec.get("skills_desc"))
+    description = unwrap_value(rec.get("description")) or unwrap_value(rec.get("raw", {}).get("requirements_text")) or unwrap_value(rec.get("requirements_text"))
     formatted_experience_level = unwrap_and_truncate(
-        rec.get("job", {}).get("formatted_experience_level")
-        or rec.get("experience_raw")
-        or rec.get("job", {}).get("experience_level"),
+        unwrap_value(rec.get("job", {}).get("formatted_experience_level"))
+        or unwrap_value(rec.get("experience_raw"))
+        or unwrap_value(rec.get("job", {}).get("experience_level")),
         100
     )
-    work_type = unwrap_and_truncate(rec.get("job", {}).get("work_type"), 100)
-    raw_loc = rec.get("location_raw") or rec.get("job", {}).get("location")
+    work_type = unwrap_and_truncate(unwrap_value(rec.get("job", {}).get("work_type")), 100)
+    raw_loc = unwrap_value(rec.get("location_raw")) or unwrap_value(rec.get("job", {}).get("location"))
     location = unwrap_and_truncate(normalize_location(raw_loc), 255)
-    is_remote = unwrap_value(rec.get("job", {}).get("is_remote") or rec.get("is_remote"))
-    listed_time = parse_datetime(rec.get("listed_time") or rec.get("job", {}).get("listed_time"))
-    expiry_time = parse_datetime(rec.get("expiry_time") or rec.get("job", {}).get("expiry_time"))
-    job_posting_url = unwrap_value(rec.get("job", {}).get("job_posting_url") or rec.get("job_url") or rec.get("job", {}).get("job_posting_url"))
+    is_remote = unwrap_value(rec.get("job", {}).get("is_remote"))
+    if is_remote is None:
+        is_remote = unwrap_value(rec.get("is_remote"))
+    listed_time = parse_datetime(rec.get("listed_time")) or parse_datetime(rec.get("job", {}).get("listed_time"))
+    expiry_time = parse_datetime(rec.get("expiry_time")) or parse_datetime(rec.get("job", {}).get("expiry_time"))
+    job_posting_url = unwrap_value(rec.get("job", {}).get("job_posting_url")) or unwrap_value(rec.get("job_url"))
     scraped_at = parse_datetime(rec.get("scraped_at"))
     applies = parse_number(rec.get("applies"))
     views = parse_number(rec.get("views"))
-    job_category = unwrap_and_truncate(rec.get("job", {}).get("job_category"), 100)
-    search_group = unwrap_and_truncate(rec.get("job", {}).get("search_group") or rec.get("search_keyword"), 100)
-    source_name = unwrap_and_truncate(rec.get("source_name"), 50)
-    source_id = unwrap_and_truncate(rec.get("job_source_id") or rec.get("source_id"), 255)
+    job_category = unwrap_and_truncate(unwrap_value(rec.get("job", {}).get("job_category")), 100)
+
+    # CHECK-POINT 1: Extract, normalize, and validate search_group keyword
+    raw_search_group = unwrap_value(rec.get("job", {}).get("search_group")) or unwrap_value(rec.get("search_keyword"))
+    search_group = None
+    if raw_search_group:
+        normalized_keyword = str(raw_search_group).lower().strip()
+        if normalized_keyword in valid_keywords:
+            search_group = normalized_keyword
+        else:
+            # Fallback direct database query to check if it exists dynamically
+            cur.execute("SELECT 1 FROM public.search_group_keywords WHERE LOWER(TRIM(keyword)) = %s LIMIT 1", (normalized_keyword,))
+            if cur.fetchone():
+                search_group = normalized_keyword
+            else:
+                logging.warning(
+                    f"[CHECK-POINT 1] Crawled keyword validation failed: '{raw_search_group}' "
+                    f"(normalized: '{normalized_keyword}') does not exist in public.search_group_keywords. "
+                    "Temporarily assigning 'unknown' to prevent crash."
+                )
+                search_group = "unknown"
+    else:
+        search_group = "unknown"
+
+    source_name = unwrap_and_truncate(unwrap_value(rec.get("source_name")), 50)
+    source_id = unwrap_and_truncate(unwrap_value(rec.get("job_source_id")) or unwrap_value(rec.get("source_id")), 255)
 
     # Insert or update by fingerprint
     cur.execute(
@@ -434,6 +459,15 @@ def insert_company_industries(cur, company_id: int, industry_value: Any) -> None
 def import_records(conn, records: List[Dict[str, Any]], fallback_path: Path) -> Dict[str, int]:
     stats = {"inserted": 0, "updated": 0, "skipped": 0, "errors": 0}
     cur = conn.cursor()
+    
+    # Pre-load valid keywords from search_group_keywords for CHECK-POINT 1 validation
+    try:
+        cur.execute("SELECT LOWER(TRIM(keyword)) FROM public.search_group_keywords")
+        valid_keywords = {row[0] for row in cur.fetchall() if row[0]}
+    except Exception as e:
+        print(f"[WARNING] Could not load valid keywords from public.search_group_keywords: {e}")
+        valid_keywords = set()
+
     for rec in records:
         try:
             fp = make_fingerprint(rec)
@@ -442,7 +476,7 @@ def import_records(conn, records: List[Dict[str, Any]], fallback_path: Path) -> 
             company_id = upsert_company(cur, comp) if comp else None
             cur.execute("SELECT job_id FROM jobs WHERE fingerprint = %s", (fp,))
             existing_job = cur.fetchone()
-            job_id = upsert_job(cur, rec, company_id, fp)
+            job_id = upsert_job(cur, rec, company_id, fp, valid_keywords)
 
             upsert_salary(cur, job_id, rec.get('salary') or {})
 
