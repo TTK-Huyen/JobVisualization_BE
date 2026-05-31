@@ -465,6 +465,7 @@ def main():
     parser.add_argument("--threshold-partial", type=float, default=0.3, help="Similarity threshold for partial match skills")
     parser.add_argument("--confidence-threshold", type=float, default=0.85, help="LLM skill extraction confidence threshold")
     parser.add_argument("--source-id", type=int, default=0, help="Source/Student ID associated with this CV")
+    parser.add_argument("--output", help="Path to save matching result JSON. Default: next to CV file with suffix '_matching_result.json'")
     
     args = parser.parse_args()
 
@@ -612,8 +613,22 @@ def main():
         }
 
         # Print output to stdout
+        print("\n=== MATCHING RESULT ===")
         print(json.dumps(output_data, ensure_ascii=False, indent=2))
-
+        
+        # Save output JSON to file
+        output_file_path = args.output
+        if not output_file_path:
+            cv_path = Path(args.cv)
+            output_file_path = cv_path.parent / f"{cv_path.stem}_matching_result.json"
+            
+        try:
+            with open(output_file_path, "w", encoding="utf-8") as f:
+                json.dump(output_data, f, ensure_ascii=False, indent=2)
+            logger.info("Saved matching result JSON to %s", output_file_path)
+        except Exception as e:
+            logger.error("Failed to save matching result JSON to file: %s", e)
+            
     finally:
         conn.close()
 

@@ -1,16 +1,45 @@
-import re
-import os
-import argparse
-import platform
+import time, re, random, os, argparse, platform
 from typing import Dict, List
 import pandas as pd
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.common.by import By
 import requests
 BASE = "https://www.linkedin.com"
+
+# CẤU HÌNH: Khai báo danh sách 10 Proxy Webshare của bạn tại đây
+# Định dạng chuẩn: "http://username:password@ip:port"
+WEBSHARE_PROXIES = [
+    "http://njjmwucc:xvp3yzigvw0n@38.154.203.95:5863/",
+    "http://njjmwucc:xvp3yzigvw0n@198.105.121.200:6462/",
+    "http://njjmwucc:xvp3yzigvw0n@64.137.96.74:6641/",
+    "http://njjmwucc:xvp3yzigvw0n@209.127.138.10:5784/",
+    "http://njjmwucc:xvp3yzigvw0n@38.154.185.97:6370/", 
+    "http://njjmwucc:xvp3yzigvw0n@84.247.60.125:6095/",
+    "http://njjmwucc:xvp3yzigvw0n@142.111.67.146:5611/", 
+    "http://njjmwucc:xvp3yzigvw0n@191.96.254.138:6185/",
+    "http://njjmwucc:xvp3yzigvw0n@31.58.9.4:6077/",
+    "http://njjmwucc:xvp3yzigvw0n@64.137.10.153:5803/"
+]
+
+
+USE_PROXY = True
+
+def get_random_proxy_config() -> Dict | None:
+    """Bốc ngẫu nhiên 1 proxy trong danh sách để cấu hình cho thư viện requests."""
+    if not USE_PROXY:
+        return None
+    if not WEBSHARE_PROXIES or "ip1:port" in WEBSHARE_PROXIES[0]:
+        return None
+    proxy = random.choice(WEBSHARE_PROXIES)
+    return {
+        "http": proxy,
+        "https": proxy
+    }
 
 def build_driver():
     chrome_options = Options()
@@ -36,19 +65,31 @@ def build_driver():
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     return driver
 
-def extract_job_ids(keywords: str, location:str) -> List:
+def extract_job_ids(keywords: str, location:str, max_jobs: int = 100) -> List:
     keywords = keywords.replace(" ", "%20")
     loc = location.replace(" ", "%20").lower()
-    max_jobs = 100
     id_list = []
     start = 0
 
     # Lặp đến khi đủ job hoặc API không trả về job mới
     while len(id_list) < max_jobs:
         url = f"https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?keywords={keywords}&location={loc}&start={start}"
-        response = requests.get(url)
-        if response.status_code != 200 or not response.text.strip():
-            print("Hết job để lấy.")
+        
+        response = None
+        retries = 3
+        while retries > 0:
+            try:
+                proxy = get_random_proxy_config()
+                response = requests.get(url, proxies=proxy, timeout=15)
+                break
+            except Exception as e:
+                retries -= 1
+                print(f"[WARN] Lỗi kết nối/proxy ({e}). Thử lại... (Còn {retries} lần thử)")
+                time.sleep(2)
+                
+        if response is None or response.status_code != 200 or not response.text.strip():
+            status_str = response.status_code if response else "No Response"
+            print(f"Hết job để lấy hoặc bị chặn kết nối (Status: {status_str}). Dừng lấy job IDs và tiếp tục crawl thông tin đã thu thập.")
             break
 
         soup = BeautifulSoup(response.text, "html.parser")
@@ -72,6 +113,9 @@ def extract_job_ids(keywords: str, location:str) -> List:
         if added_this_page == 0:
             break
         start += added_this_page  # Tăng start dựa trên số job mới thêm
+        
+        # Tạo độ trễ ngẫu nhiên nhỏ để tăng tính tự nhiên
+        time.sleep(random.uniform(1, 3))
 
     print(f"Tổng số job thu được: {len(id_list)}")
     return id_list
@@ -82,8 +126,13 @@ def extract_company_detail(company_url: str) -> Dict:
     
     # Remove locale/language prefix from LinkedIn company URLs (e.g., vi.linkedin.com -> linkedin.com)
     company_url = re.sub(r"https?://[a-z]{2,3}\.linkedin\.com", "https://www.linkedin.com", company_url)
-    response = requests.get(company_url)
-    if response.status_code != 200:
+    
+    # CẬP NHẬT: Thêm proxy xoay vòng ngẫu nhiên
+    try:
+        response = requests.get(company_url, proxies=get_random_proxy_config(), timeout=15)
+        if response.status_code != 200:
+            return {}
+    except:
         return {}
     
     soup = BeautifulSoup(response.text, "html.parser")
@@ -134,9 +183,15 @@ def extract_company_detail(company_url: str) -> Dict:
 
 def extract_job_detail(job_id):
     job_url = f"https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{job_id}"
-    job_response = requests.get(job_url)
-    job_soup = BeautifulSoup(job_response.text, "html.parser")
     
+    # CẬP NHẬT: Thêm proxy xoay vòng ngẫu nhiên
+    try:
+        job_response = requests.get(job_url, proxies=get_random_proxy_config(), timeout=15)
+        job_soup = BeautifulSoup(job_response.text, "html.parser")
+    except Exception as e:
+        print(f"[WARN] Request failed for job_id {job_id}: {e}")
+        return {}
+        
     # Initialize all fields to None or appropriate default
     job_post = {
         "title": None,
@@ -303,17 +358,22 @@ def extract_job_detail(job_id):
     if job_post["company_url"]:
         company_info = extract_company_detail(job_post["company_url"])
         job_post.update(company_info)
+        
+    # Giãn cách thời gian nghỉ nhỏ giữa các lần lấy chi tiết bài viết tuyển dụng
+    time.sleep(random.uniform(1.5, 3.5))
     
     return job_post
 
-def scrape_data(keyword: str, location: str) -> List[Dict]:
-    id_list = extract_job_ids(keyword, location)
+def scrape_data(keyword: str, location: str, max_jobs: int = 100) -> List[Dict]:
+    id_list = extract_job_ids(keyword, location, max_jobs)
     job_list = []
 
     # Loop through the list of job IDs and get each URL
-    for job_id in id_list:
+    for i, job_id in enumerate(id_list, 1):
+        print(f"[{i}/{len(id_list)}] Extracting job detail via proxy for ID: {job_id}")
         job_post = extract_job_detail(job_id)
-        job_list.append(job_post)
+        if job_post:
+            job_list.append(job_post)
         
     return job_list
     
@@ -322,11 +382,33 @@ if __name__ == "__main__":
     parser.add_argument("--title", required=True, help="Tên công việc cần tìm, ví dụ: 'Software Engineer'")
     parser.add_argument("--location", required=True, help="Vị trí, ví dụ: 'Vietnam'")
     parser.add_argument("--out_prefix", default="output/jobs", help="Tên file output (không kèm đuôi)")
+    parser.add_argument("--limit", type=int, default=100, help="Số lượng job tối đa cần crawl (mặc định: 100)")
+    parser.add_argument("--no-proxy", action="store_true", help="Không sử dụng proxy")
+    parser.add_argument("--proxy-file", help="Đường dẫn đến file text chứa danh sách proxy (mỗi dòng một proxy)")
+    parser.add_argument("--proxy", help="Địa chỉ proxy đơn lẻ muốn dùng, ví dụ: 'http://user:pass@ip:port'")
 
     args = parser.parse_args()
 
-    print(f"[INFO] Đang tìm việc: {args.title} tại {args.location} ...")
-    jobs = scrape_data(args.title, args.location)
+    if args.no_proxy:
+        USE_PROXY = False
+        print("[INFO] Đã tắt sử dụng Proxy.")
+    elif args.proxy_file:
+        if os.path.exists(args.proxy_file):
+            with open(args.proxy_file, 'r', encoding='utf-8') as f:
+                lines = [line.strip() for line in f if line.strip()]
+            if lines:
+                WEBSHARE_PROXIES = lines
+                print(f"[INFO] Đã nạp {len(WEBSHARE_PROXIES)} proxies từ file: {args.proxy_file}")
+            else:
+                print(f"[WARN] File proxy {args.proxy_file} trống. Sử dụng danh sách mặc định.")
+        else:
+            print(f"[WARN] File proxy {args.proxy_file} không tồn tại. Sử dụng danh sách mặc định.")
+    elif args.proxy:
+        WEBSHARE_PROXIES = [args.proxy]
+        print(f"[INFO] Sử dụng proxy đơn lẻ: {args.proxy}")
+
+    print(f"[INFO] Đang tìm việc: {args.title} tại {args.location} (Giới hạn: {args.limit} jobs) ...")
+    jobs = scrape_data(args.title, args.location, args.limit)
 
     if not jobs:
         print("[WARN] Không tìm thấy kết quả nào.")

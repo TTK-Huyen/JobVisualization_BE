@@ -23,6 +23,7 @@ from requests.adapters import HTTPAdapter
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from schema import RawJobData
 from date_filter import describe_date_filter, is_posted_date_allowed, parse_iso_date
+from central_filters import filter_recent_jobs
 
 BASE = "https://careerviet.vn"
 HEADERS = {
@@ -60,6 +61,16 @@ def text(el) -> Optional[str]:
     if not el:
         return None
 
+    import re as _re
+    try:
+        t = el.get_text(" ", strip=True)
+    except Exception:
+        try:
+            t = str(el)
+        except Exception:
+            t = None
+    return _re.sub(r"\s+", " ", t) if t else None
+
 
 def extract_careerviet_posted_date(soup: BeautifulSoup):
     for script in soup.find_all("script", {"type": "application/ld+json"}):
@@ -85,9 +96,27 @@ def extract_careerviet_posted_date(soup: BeautifulSoup):
             if parsed:
                 return parsed
 
+    for li in soup.select("div.detail-box.has-background li"):
+        label = li.find("strong")
+        if not label:
+            continue
+        label_text = text(label) or ""
+        if not re.search(r"Ngày cập nhật", label_text, re.I):
+            continue
+
+        value_node = li.find("p")
+        container_text = text(value_node) or text(li) or ""
+        date_match = re.search(r"(\d{1,2}/\d{1,2}/\d{4})", container_text)
+        if date_match:
+            try:
+                return datetime.strptime(date_match.group(1), "%d/%m/%Y").date()
+            except Exception:
+                pass
+
     update_label = soup.find(string=re.compile(r"Ngày cập nhật", re.I))
     if update_label:
-        container_text = text(update_label.parent if hasattr(update_label, "parent") else None) or ""
+        parent = update_label.parent if hasattr(update_label, "parent") else None
+        container_text = text(parent) or text(parent.parent if parent and hasattr(parent, "parent") else None) or ""
         date_match = re.search(r"(\d{1,2}/\d{1,2}/\d{4})", container_text)
         if date_match:
             try:
@@ -712,6 +741,7 @@ def scrape_job_detail(session: requests.Session, job_url: str) -> Dict:
         "detail_salary": salary,
         "detail_location": location,
         "detail_experience": experience,
+        "detail_posted_date": extract_careerviet_posted_date(soup),
         "deadline": deadline,
         "tags": "; ".join(tags) if tags else None,
         "desc_mota": desc_blocks.get("Mô tả công việc"),
@@ -749,6 +779,22 @@ def convert_to_raw_job_data(job_dict: Dict, detail_dict: Dict, company_dict: Dic
     Returns:
         RawJobData object with minimal fields (title, description_html, company_name)
     """
+    def _extract_benefits_from_desc(desc_text: Optional[str]) -> List[str]:
+        if not desc_text:
+            return []
+
+        text_value = re.sub(r"\s+", " ", str(desc_text)).strip()
+        if not text_value:
+            return []
+
+        parts = re.split(r"(?:\s*[•\-]\s+|\s*\|\s*|\s*;\s*|\s*\n\s*)", text_value)
+        items = []
+        for part in parts:
+            item = re.sub(r"^\s*(?:Benefits?|Quyền lợi|Phúc lợi)\s*[:：-]?\s*", "", part, flags=re.I).strip()
+            if item and item not in items:
+                items.append(item)
+        return items or [text_value]
+
     # Build full description HTML (kết hợp các phần mô tả)
     desc_parts = []
     if detail_dict.get("desc_mota"):
@@ -773,20 +819,20 @@ def convert_to_raw_job_data(job_dict: Dict, detail_dict: Dict, company_dict: Dic
         description_html=description_html,
         
         # Attributes
-        location_raw=detail_dict.get("working_addresses") or detail_dict.get("detail_location"),
+        location_raw=detail_dict.get("working_addresses") or detail_dict.get("detail_location") or job_dict.get("address_list") or job_dict.get("location"),
         salary_raw=detail_dict.get("detail_salary") or job_dict.get("salary_list"),
         employment_type=detail_dict.get("employment_type"),
         experience_raw=detail_dict.get("detail_experience") or job_dict.get("exp_list"),
-        posted_date=None,
-        expiry_date=detail_dict.get("deadline"),
+        posted_date=detail_dict.get("detail_posted_date").isoformat() if hasattr(detail_dict.get("detail_posted_date"), "isoformat") else detail_dict.get("detail_posted_date"),
+        expiry_date=detail_dict.get("deadline").isoformat() if hasattr(detail_dict.get("deadline"), "isoformat") else detail_dict.get("deadline"),
         scraped_at=datetime.now().isoformat(),
         
         # Lists
         tags=[t.strip() for t in (detail_dict.get("tags") or "").split(";") if t.strip()],
-        benefits=[],
+        benefits=_extract_benefits_from_desc(detail_dict.get("desc_quyenloi")),
         
         # Company Info
-        company_name=company_dict.get("company_name_full") or detail_dict.get("company_name_from_job") or job_dict.get("company"),
+        company_name=company_dict.get("company_name_full") or detail_dict.get("company_name_from_job") or job_dict.get("company") or job_dict.get("company_name"),
         company_source_id=extract_company_source_id(detail_dict.get("company_url_from_job") or job_dict.get("company_url")),
         company_website=company_dict.get("company_website"),
         company_address=company_dict.get("company_address") or detail_dict.get("company_country"),
@@ -1069,119 +1115,15 @@ def scrape_company(session: requests.Session, company_url: Optional[str]) -> Dic
         "company_description": description,
     }
 
-# Override to keep CareerViet output minimal like ITViec:
-# only keep raw HTML plus basic identity/company fields.
-def scrape_job_detail(session: requests.Session, job_url: str) -> Dict:
-    soup = get_soup(session, job_url)
-    smart_sleep()
-    raw_html = str(soup)
-
-    title = text(soup.select_one("h1, .job-title, .job-detail h1"))
-    if not title:
-        title_match = re.search(r"<h1[^>]*>(.*?)</h1>", raw_html, flags=re.I | re.S)
-        if title_match:
-            title = re.sub(r"<[^>]+>", " ", title_match.group(1))
-            title = re.sub(r"\s+", " ", title).strip()
-    if not title:
-        og_title = soup.find("meta", attrs={"property": "og:title"}) or soup.find("meta", attrs={"name": "title"})
-        if og_title and og_title.get("content"):
-            title = og_title.get("content").strip()
-
-    company_url_detail = extract_company_link_from_job(soup)
-    employer_info = extract_employer_info_from_job(soup)
-    company_name = (
-        employer_info.get("company_name_from_job")
-        or text(soup.select_one("a.job-company-name"))
-        or text(soup.select_one("a.employer.job-company-name"))
-        or text(soup.select_one("a[href*='/vi/nha-tuyen-dung/']"))
-    )
-    if not company_name:
-        company_match = re.search(r'job-company-name[^>]*>(.*?)</a>', raw_html, flags=re.I | re.S)
-        if company_match:
-            company_name = re.sub(r"<[^>]+>", " ", company_match.group(1))
-            company_name = re.sub(r"\s+", " ", company_name).strip()
-    if not company_name:
-        company_meta = soup.find("meta", attrs={"property": "og:site_name"})
-        if company_meta and company_meta.get("content"):
-            company_name = company_meta.get("content").strip()
-    posted_date = extract_careerviet_posted_date(soup)
-    job_company_tab = soup.select_one("div.tab-content#tab-2, #tab-2")
-    job_has_company_tab_content = bool(job_company_tab and job_company_tab.get_text(" ", strip=True))
-    company_overview_html = None
-
-    if company_url_detail and not job_has_company_tab_content:
-        try:
-            company_soup = get_soup(session, company_url_detail)
-            smart_sleep()
-            company_overview_html = extract_company_overview_html_from_company_page(company_soup)
-        except requests.RequestException:
-            pass
-
-    job_detail_html = extract_job_detail_html(
-        soup,
-        fallback_company_tab_html=company_overview_html,
-    )
-
-    return {
-        "detail_title": title,
-        "detail_salary": None,
-        "detail_location": None,
-        "detail_experience": None,
-        "deadline": None,
-        "tags": None,
-        "desc_mota": None,
-        "desc_yeucau": None,
-        "desc_quyenloi": None,
-        "working_addresses": None,
-        "working_times": None,
-        "employment_type": None,
-        "degree": None,
-        "age_requirement": None,
-        "company_url_from_job": company_url_detail,
-        "company_name_from_job": company_name,
-        "company_logo_url": None,
-        "company_profile_summary": None,
-        "company_type": None,
-        "company_industry_from_job": None,
-        "company_size_from_job": None,
-        "company_country": None,
-        "company_working_days": None,
-        "company_overtime_policy": None,
-        "company_rating": None,
-        "company_review_url": None,
-        "detail_posted_date": posted_date,
-        "job_detail_html": job_detail_html,
-    }
 
 
-def convert_to_raw_job_data(job_dict: Dict, detail_dict: Dict, company_dict: Dict) -> RawJobData:
-    return RawJobData(
-        source_name="careerviet",
-        job_url=job_dict["job_url"],
-        job_source_id=extract_job_source_id(job_dict["job_url"]),
-        title=detail_dict.get("detail_title") or job_dict["title"],
-        description_html=detail_dict.get("job_detail_html") or "",
-        location_raw=None,
-        salary_raw=None,
-        employment_type=None,
-        experience_raw=None,
-        posted_date=None,
-        expiry_date=None,
-        scraped_at=datetime.now().isoformat(),
-        tags=[],
-        benefits=[],
-        company_name=detail_dict.get("company_name_from_job") or job_dict.get("company"),
-        company_source_id=None,
-        company_website=None,
-        company_address=None,
-        company_size_raw=None,
-        company_industry=None,
-        requirements_text=None,
-    )
+
+
 
 # ---------- Pipeline ----------
 def crawl_list_url_to_raw_jobs(list_url_page1: str, start_page: int = 1, end_page: int = 1,
-                                delay_between_pages=(0.5, 1.0), search_keyword: str = None) -> List[RawJobData]:
+                                delay_between_pages=(0.5, 1.0), search_keyword: str = None,
+                                max_jobs: int = None) -> List[RawJobData]:
     """
     Pipeline chính: Crawl jobs và trả về danh sách RawJobData objects
     
@@ -1201,6 +1143,10 @@ def crawl_list_url_to_raw_jobs(list_url_page1: str, start_page: int = 1, end_pag
             break
 
         for j in jobs:
+            if max_jobs and len(raw_jobs) >= max_jobs:
+                print(f"[INFO] Reached max limit ({max_jobs} jobs), stopping.")
+                break
+
             job_url = j["job_url"]
             job_id = urlparse(job_url).path
             if job_id in seen_jobs:
@@ -1257,7 +1203,15 @@ def crawl_list_url_to_raw_jobs(list_url_page1: str, start_page: int = 1, end_pag
 
         smart_sleep(*delay_between_pages)
 
-    return raw_jobs
+        if max_jobs and len(raw_jobs) >= max_jobs:
+            break
+
+    # Apply central recent-job filter before returning
+    try:
+        filtered = filter_recent_jobs(raw_jobs)
+        return filtered
+    except Exception:
+        return raw_jobs
 
 def crawl_list_url_to_dataframe(list_url_page1: str, start_page: int = 1, end_page: int = 1,
                                 delay_between_pages=(0.5, 1.0)) -> pd.DataFrame:
@@ -1368,63 +1322,6 @@ def crawl_many_lists(list_urls: Iterable[str], start_page: int = 1, end_page: in
         df = df.drop_duplicates(subset=["job_url"])
     return df
 
-
-# Override raw pipeline to match ITViec-style minimal output:
-# scrape job detail HTML only, do not crawl/merge company pages or extract metadata fields.
-def crawl_list_url_to_raw_jobs(list_url_page1: str, start_page: int = 1, end_page: int = 1,
-                                delay_between_pages=(0.5, 1.0), search_keyword: str = None, max_jobs: int = None) -> List[RawJobData]:
-    raw_jobs: List[RawJobData] = []
-    seen_jobs = set()
-    s = build_session()
-    print(f"[INFO] Date filter mode: {describe_date_filter()}")
-    if max_jobs:
-        print(f"[INFO] Max jobs limit: {max_jobs}")
-
-    for page in range(start_page, end_page + 1):
-        url = build_paged_url(list_url_page1, page)
-        print(f"[INFO] Crawling search page {page}: {url}")
-        jobs = parse_search_page(s, url)
-        if not jobs:
-            print(f"[INFO] Trang {page} khong con job - dung som.")
-            break
-
-        for j in jobs:
-            # Check limit BEFORE getting detail (save API calls)
-            if max_jobs and len(raw_jobs) >= max_jobs:
-                print(f"[INFO] Reached max limit ({max_jobs} jobs), stopping.")
-                break
-            
-            job_url = j["job_url"]
-            job_id = urlparse(job_url).path
-            if job_id in seen_jobs:
-                continue
-            seen_jobs.add(job_id)
-
-            try:
-                detail = scrape_job_detail(s, job_url)
-                posted_date = detail.get("detail_posted_date")
-                if not is_posted_date_allowed(posted_date):
-                    print(f"[SKIP OLD JOB] {job_url} - posted_date={posted_date}")
-                    continue
-            except Exception as e:
-                print(f"[WARN] Loi job detail {job_url}: {e}")
-                detail = {
-                    "detail_title": None,
-                    "company_name_from_job": None,
-                    "job_detail_html": "",
-                }
-
-            try:
-                raw_job = convert_to_raw_job_data(j, detail, {})
-                raw_job.search_keyword = search_keyword
-                raw_jobs.append(raw_job)
-                print(f"[OK] Scraped: {raw_job.title} - ID: {raw_job.job_source_id}")
-            except Exception as e:
-                print(f"[ERROR] Khong the convert job {job_url}: {e}")
-
-        smart_sleep(*delay_between_pages)
-
-    return raw_jobs
 
 if __name__ == "__main__":
     import os

@@ -18,10 +18,34 @@ sys.path.insert(0, os.path.dirname(__file__))
 from scrape_itviec import scrape_data, export_to_json
 
 # Load .env
+from pathlib import Path
 from dotenv import load_dotenv
 
-env_file = Path(__file__).parent.parent.parent.parent.parent / ".env"
-load_dotenv(env_file)
+env_file = None
+# Find Db root by searching for run_etl_pipeline.py or parents named 'db' (case-insensitive)
+for parent in Path(__file__).resolve().parents:
+    if (parent / "run_etl_pipeline.py").exists() or parent.name.lower() == "db":
+        env_file = parent / ".env"
+        break
+
+if not env_file or not env_file.exists():
+    for parent in Path(__file__).resolve().parents:
+        candidate = parent / ".env"
+        if candidate.exists():
+            env_file = candidate
+            break
+
+if env_file and env_file.exists():
+    load_dotenv(env_file, override=False)
+    print(f"[DEBUG] env_file: {env_file}, exists: {env_file.exists()}")
+else:
+    # Fallback to original hardcoded path if not found
+    env_file = Path(__file__).parent.parent.parent.parent.parent / ".env"
+    load_dotenv(env_file, override=False)
+    print(f"[DEBUG] fallback env_file: {env_file}, exists: {env_file.exists()}")
+
+import os
+print(f"[DEBUG] os.environ JOB_DATE_MODE: {os.environ.get('JOB_DATE_MODE')}")
 
 # Load config from .env (or defaults)
 TIER1_JOBS_PER_KEYWORD = int(os.getenv("JOBS_PER_KEYWORD", "3"))
@@ -59,55 +83,20 @@ def get_tier_max_jobs(keyword: str, cfg: dict) -> int:
 
 
 def pick_keywords(cfg: dict):
-    """Pick keywords based on TIER*_KEYWORDS_TO_SELECT from .env config"""
+    """Pick keywords based on TIER*_KEYWORDS_TO_SELECT from .env config or group_rotation"""
     mode = cfg.get("mode", "rotate").lower()
     doy = date.today().timetuple().tm_yday
     
     if mode == "group_rotation":
-        tier_1 = cfg.get("tier_1", [])
-        tier_2 = cfg.get("tier_2", [])
-        tier_3 = cfg.get("tier_3", [])
-        t2_clusters = cfg.get("tier_2_clusters", {})
-        
-        selected = []
-        
-        # Pick from tier_1 (use TIER1_KEYWORDS_TO_SELECT, not hardcoded 8)
-        if tier_1 and TIER1_KEYWORDS_TO_SELECT > 0:
-            start_idx = (doy - 1) % len(tier_1)
-            count = min(TIER1_KEYWORDS_TO_SELECT, len(tier_1))
-            for i in range(count):
-                idx = (start_idx + i) % len(tier_1)
-                selected.append(tier_1[idx])
-        
-        # Pick from tier_2 (use TIER2_KEYWORDS_TO_SELECT, not hardcoded 2)
-        if tier_2 and TIER2_KEYWORDS_TO_SELECT > 0 and t2_clusters:
-            # Map each tier_2 keyword to its cluster
-            keyword_to_cluster = {}
-            for cluster_name, keywords in t2_clusters.items():
-                for kw in keywords:
-                    if kw in tier_2:
-                        keyword_to_cluster[kw] = cluster_name
-            
-            # Get unique clusters available
-            available_clusters = list(set(keyword_to_cluster.values()))
-            
-            if len(available_clusters) >= TIER2_KEYWORDS_TO_SELECT:
-                # Pick N different clusters
-                for i in range(TIER2_KEYWORDS_TO_SELECT):
-                    c_idx = (doy - 1 + i) % len(available_clusters)
-                    cluster = available_clusters[c_idx]
-                    c_keywords = [kw for kw in tier_2 if keyword_to_cluster.get(kw) == cluster]
-                    if c_keywords:
-                        selected.append(c_keywords[(doy - 1 + i) % len(c_keywords)])
-        
-        # Pick from tier_3 (use TIER3_KEYWORDS_TO_SELECT, not hardcoded 1)
-        if tier_3 and TIER3_KEYWORDS_TO_SELECT > 0 and (doy % 3 == 0):
-            count = min(TIER3_KEYWORDS_TO_SELECT, len(tier_3))
-            for i in range(count):
-                idx = (doy - 1 + i) % len(tier_3)
-                selected.append(tier_3[idx])
-        
-        return selected
+        groups = cfg.get("groups", {})
+        group_names = sorted(list(groups.keys()))
+        if group_names:
+            # Chọn 1 nhóm dựa trên ngày trong năm
+            picked_group_name = group_names[(doy - 1) % len(group_names)]
+            selected = groups[picked_group_name].get("roles", [])
+            print(f"[KEYWORDS] Day {doy} group picked: '{picked_group_name}' with {len(selected)} keywords.")
+            return selected
+        return []
     
     # Fallback to old behavior
     kws = cfg.get("keywords", [])
@@ -126,6 +115,7 @@ def pick_keywords(cfg: dict):
         idx = (doy - 1 + i) % len(kws)
         selected.append(kws[idx])
     return selected
+
 
 
 def load_keywords_from_env():
@@ -180,38 +170,14 @@ def load_keywords_from_env():
 
 def print_crawl_config(keywords_list: list, cfg: dict, source: str = "iTviec"):
     """Display crawler configuration before starting"""
-    tier_1 = cfg.get("tier_1", [])
-    tier_2 = cfg.get("tier_2", [])
-    tier_3 = cfg.get("tier_3", [])
-    
-    tier1_kws = [k for k in keywords_list if k in tier_1]
-    tier2_kws = [k for k in keywords_list if k in tier_2]
-    tier3_kws = [k for k in keywords_list if k in tier_3]
-    
-    total_jobs = (
-        len(tier1_kws) * TIER1_JOBS_PER_KEYWORD +
-        len(tier2_kws) * TIER2_JOBS_PER_KEYWORD +
-        len(tier3_kws) * TIER3_JOBS_PER_KEYWORD
-    )
-    
+    max_pages = int(os.getenv("CRAWL_MAX_PAGES", "3"))
     print("\n" + "=" * 85)
-    print(f"🔧 {source} CRAWLER CONFIG - {len(keywords_list)} keywords, ~{total_jobs} expected jobs")
+    print(f"🔧 {source} CRAWLER CONFIG - {len(keywords_list)} keywords (max {max_pages} pages per keyword)")
     print("=" * 85)
     
-    if tier1_kws:
-        print(f"\n🔴 TIER 1 ({len(tier1_kws)} keywords × {TIER1_JOBS_PER_KEYWORD}/kw = {len(tier1_kws) * TIER1_JOBS_PER_KEYWORD} jobs):")
-        for kw in tier1_kws:
-            print(f"   • {kw}")
-    
-    if tier2_kws:
-        print(f"\n🟡 TIER 2 ({len(tier2_kws)} keywords × {TIER2_JOBS_PER_KEYWORD}/kw = {len(tier2_kws) * TIER2_JOBS_PER_KEYWORD} jobs):")
-        for kw in tier2_kws:
-            print(f"   • {kw}")
-    
-    if tier3_kws:
-        print(f"\n🟢 TIER 3 ({len(tier3_kws)} keywords × {TIER3_JOBS_PER_KEYWORD}/kw = {len(tier3_kws) * TIER3_JOBS_PER_KEYWORD} jobs):")
-        for kw in tier3_kws:
-            print(f"   • {kw}")
+    print(f"\nKeywords:")
+    for kw in keywords_list:
+        print(f"   • {kw}")
     
     print("\n" + "=" * 85)
 
@@ -222,11 +188,18 @@ def main():
     cfg_path = os.path.normpath(os.path.join(base_dir, "../..", "keywords_daily.json"))
     cfg = load_config(cfg_path)
 
+    crawl_mode = os.environ.get("PIPELINE_CRAWL_MODE", "auto").strip().lower()
+
     location = os.environ.get("ITVIEC_LOCATION", cfg.get("location", "Ho Chi Minh"))
     
-    # Optional max jobs (for testing) via env var
-    max_jobs_env = os.environ.get("ITVIEC_MAX_JOBS")
-    max_jobs = int(max_jobs_env) if max_jobs_env and max_jobs_env.isdigit() else None
+    # Optional max jobs via env var or pipeline mode
+    max_jobs_env = os.environ.get("ITVIEC_MAX_JOBS") or os.environ.get("JOBS_PER_KEYWORD")
+    if max_jobs_env and max_jobs_env.isdigit():
+        max_jobs = int(max_jobs_env)
+    elif crawl_mode == "daily":
+        max_jobs = 25
+    else:
+        max_jobs = None
 
     # Output directory: use OUTPUT_FOLDER from env (set by orchestrator), fallback to data/raw/crawl_YYYYMMDD
     output_dir = os.environ.get("OUTPUT_FOLDER")
@@ -285,13 +258,10 @@ def main():
         keyword_safe = keyword.lower().replace(" ", "_")
         out_prefix = os.path.join(output_dir, f"itviec_{keyword_safe}_{location.lower().replace(' ', '_')}_{timestamp}")
         
-        # Determine max_jobs based on tier
-        tier_max_jobs = get_tier_max_jobs(keyword, cfg)
-        effective_max_jobs = max_jobs if max_jobs is not None else tier_max_jobs
-        
-        print(f"\n[{keyword}] Scraping... (tier_max_jobs={tier_max_jobs})")
+        limit_text = "unlimited jobs" if max_jobs is None else f"max_jobs={max_jobs}"
+        print(f"\n[{keyword}] Scraping... ({limit_text}, max pages)")
         print(f"[PLANNED PATH] {out_prefix}.json")
-        jobs_data = scrape_data(keyword, location, max_jobs=effective_max_jobs, search_keyword=keyword)
+        jobs_data = scrape_data(keyword, location, max_jobs=max_jobs, search_keyword=keyword)
         if not jobs_data:
             print(f"[WARN] No jobs found for '{keyword}'.")
             continue

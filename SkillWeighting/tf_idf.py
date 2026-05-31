@@ -234,8 +234,25 @@ def upsert_tf_idf_weights(conn, tf_idf_weights: Dict[str, Dict[int, float]], rep
 
 if __name__ == "__main__":
     import argparse
+    import os
+    from dotenv import load_dotenv
+    
+    # Load environment variables
+    load_dotenv(PROJECT_ROOT / ".env")
+    db_env_path = PROJECT_ROOT / "Db" / ".env"
+    if db_env_path.exists():
+        load_dotenv(db_env_path, override=True)
+        
+    min_job_share_env = os.getenv("MIN_JOB_SHARE_FOR_LLM")
+    default_threshold = 0.1
+    if min_job_share_env is not None:
+        try:
+            default_threshold = float(min_job_share_env)
+        except Exception:
+            pass
+
     parser = argparse.ArgumentParser(description="Calculate TF-IDF and update DB weights.")
-    parser.add_argument("--threshold", type=float, default=0.0, help="Minimum job occurrence ratio (0.0 to 1.0)")
+    parser.add_argument("--threshold", type=float, default=default_threshold, help="Minimum job occurrence ratio (0.0 to 1.0)")
     parser.add_argument("--normalize", action="store_true", default=True, help="Normalize weights to sum to 1.0 per group")
     parser.add_argument("--no-normalize", action="store_false", dest="normalize", help="Do not normalize weights")
     parser.add_argument("--replace", action="store_true", help="Clear target weights table before inserting")

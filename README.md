@@ -2,10 +2,37 @@
 
 Hệ thống backend cho nền tảng phân tích và trực quan hóa thị trường tuyển dụng IT. Pipeline tự động thu thập dữ liệu tuyển dụng từ nhiều nguồn, chuẩn hóa skill bằng AI/Embedding, tính trọng số TF-IDF, và hỗ trợ matching CV với yêu cầu công việc.
 
+## Lệnh Chạy Nhanh
+
+Chạy từ thư mục gốc dự án:
+
+```powershell
+# 1) Full pipeline mặc định (daily + parallel): Crawl -> Clean -> Import
+.\.venv\Scripts\python.exe Db\run_etl_pipeline.py --crawl-mode daily --parallel-crawl
+
+# 2) Daily crawl song song (parallel)
+.\.venv\Scripts\python.exe Db\run_etl_pipeline.py --crawl-mode daily --parallel-crawl
+
+# 3) Bootstrap crawl song song (parallel)
+.\.venv\Scripts\python.exe Db\run_etl_pipeline.py --crawl-mode bootstrap --parallel-crawl
+
+# 4) Test crawl song song (nhanh, 1 keyword / 5 jobs/source)
+.\.venv\Scripts\python.exe Db\run_etl_pipeline.py --crawl-mode test --parallel-crawl
+```
+
+Hoặc chạy trong thư mục Db:
+
+```powershell
+cd Db
+..\.venv\Scripts\python.exe run_etl_pipeline.py --crawl-mode daily --parallel-crawl
+..\.venv\Scripts\python.exe run_etl_pipeline.py --crawl-mode bootstrap --parallel-crawl
+```
+
 ---
 
 ## Mục lục
 
+- [Lệnh chạy nhanh](#lệnh-chạy-nhanh)
 - [Kiến trúc tổng quan](#kiến-trúc-tổng-quan)
 - [Yêu cầu hệ thống](#yêu-cầu-hệ-thống)
 - [Cài đặt môi trường](#cài-đặt-môi-trường)

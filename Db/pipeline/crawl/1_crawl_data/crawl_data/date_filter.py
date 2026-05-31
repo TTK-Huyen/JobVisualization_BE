@@ -23,6 +23,8 @@ def get_date_filter_mode() -> str:
         return "import"
     if mode in {"realtime", "real-time", "recent"}:
         return "realtime"
+    if mode in {"on", "true", "yes", "1"}:
+        return "realtime"
     if mode in {"off", "all", "none"}:
         return "off"
     return "import"
@@ -33,7 +35,7 @@ def get_import_min_date() -> date:
 
 
 def get_realtime_days() -> int:
-    raw = os.environ.get("REALTIME_DAYS")
+    raw = os.environ.get("DAYS_BACK") or os.environ.get("REALTIME_DAYS")
     try:
         days = int(raw) if raw else DEFAULT_REALTIME_DAYS
         return max(days, 1)

@@ -13,15 +13,22 @@ Usage:
   python run_etl_pipeline.py --input path/to/file.json # Use custom input file
   python run_etl_pipeline.py --crawl-only              # Only run crawl step
   python run_etl_pipeline.py --clean-only              # Only run clean step
+        python run_etl_pipeline.py --crawl-mode daily        # Daily crawl (default)
+        python run_etl_pipeline.py --crawl-mode bootstrap    # Full bootstrap crawl
+        python run_etl_pipeline.py --parallel-crawl          # Run daily crawl in parallel
 """
 
 import os
 import sys
 import json
 import argparse
+import concurrent.futures
+import importlib
 import subprocess
+from contextlib import contextmanager
 from pathlib import Path
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
+from urllib.parse import quote_plus
 from dotenv import load_dotenv
 
 # Fix encoding for Windows console
@@ -39,13 +46,46 @@ if sys.stdout.encoding != 'utf-8':
 # the crawler working directory and producing duplicated prefixes like "Db/Db/...".
 BASE_DIR = Path(__file__).parent.resolve()
 ENV_FILE = BASE_DIR / ".env"
-load_dotenv(ENV_FILE)
+load_dotenv(ENV_FILE, override=True)
 print(f"✓ Loaded .env from: {ENV_FILE}")
 
 # Support optional pipeline/ layout while keeping backward compatibility.
 # If user moves pipeline subfolders into `pipeline/`, prefer those paths;
 # otherwise fall back to existing top-level folders.
 PIPELINE_ROOT = BASE_DIR / "pipeline"
+CRAWL_DATA_ROOT = PIPELINE_ROOT / "crawl" / "1_crawl_data" / "crawl_data"
+
+
+def ensure_crawler_import_paths():
+    """Make crawler scripts and shared crawl helpers importable in-process."""
+    candidate_paths = [
+        CRAWL_DATA_ROOT,
+        CRAWL_DATA_ROOT / "crawl-itviec-jobs" / "scripts",
+        CRAWL_DATA_ROOT / "crawl-vietnamwork-jobs" / "scripts",
+        CRAWL_DATA_ROOT / "crawl-careerviet-jobs" / "scripts",
+        CRAWL_DATA_ROOT / "crawl-linkedin-jobs" / "scripts",
+    ]
+    for candidate in candidate_paths:
+        candidate_str = str(candidate)
+        if candidate.exists() and candidate_str not in sys.path:
+            sys.path.insert(0, candidate_str)
+
+
+ensure_crawler_import_paths()
+
+
+def filter_recent_jobs_safe(raw_jobs):
+    """Apply the shared recent-job filter when available, otherwise return the input unchanged."""
+    try:
+        shared_filters_module = importlib.import_module("central_filters")
+        shared_filter_recent_jobs = shared_filters_module.filter_recent_jobs
+    except Exception:
+        return raw_jobs
+
+    try:
+        return shared_filter_recent_jobs(raw_jobs)
+    except Exception:
+        return raw_jobs
 
 
 def resolve_pipeline_path(*parts: str) -> Path:
@@ -86,6 +126,7 @@ try:
         KEYWORD_SELECTION_CONFIG,
         PIPELINE_STEPS,
         CRAWLER_TIMEOUTS,
+        CRAWL_MAX_PAGES,
         print_config,
         print_api_status,
     )
@@ -99,7 +140,8 @@ except ImportError as e:
     print(f"❌ Error importing from input package: {e}")
     print("Fallback to default values")
     JOB_LIMITS = {"itviec": 1, "linkedin": 1, "careerviet": 1, "vietnamworks": 1}
-    JOBS_PER_KEYWORD = 3
+    JOBS_PER_KEYWORD = None
+    CRAWL_MAX_PAGES = 3
     KEYWORD_SELECTION_CONFIG = {}
     PIPELINE_STEPS = {"crawl": True, "clean": True, "import": True}
     CRAWLER_TIMEOUTS = {"itviec": 600, "linkedin": 300, "careerviet": 600, "vietnamworks": 600}
@@ -108,6 +150,8 @@ except ImportError as e:
 CRAWLER_TIMEOUT = 1200  # 20 phút
 CLEAN_TIMEOUT = 600     # 10 phút
 IMPORT_TIMEOUT = 900    # 15 phút
+
+PIPELINE_CRAWL_STATE_FILE = BASE_DIR / "data" / "pipeline_crawl_state.json"
 
 # ============================================================================
 # ETL PIPELINE CONFIG - Load from .env
@@ -178,6 +222,89 @@ def log(msg):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{timestamp}] {msg}")
 
+
+def validate_crawl_date_filter(raw_combined_path: Path, crawl_env: dict, crawl_mode: str):
+    """Check whether crawled jobs respect the configured date filter."""
+    job_date_mode = str(crawl_env.get("JOB_DATE_MODE", "")).strip().lower()
+    if job_date_mode not in {"on", "true", "yes", "1", "realtime"}:
+        log(f"Date filter check skipped for {crawl_mode} (JOB_DATE_MODE={job_date_mode or 'unset'})")
+        return
+
+    def parse_job_date(value):
+        if value is None:
+            return None
+        if isinstance(value, date):
+            return value
+
+        value_text = str(value).strip()
+        if not value_text:
+            return None
+
+        try:
+            return datetime.fromisoformat(value_text.replace("Z", "+00:00")).date()
+        except ValueError:
+            pass
+
+        for pattern in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d"):
+            try:
+                return datetime.strptime(value_text, pattern).date()
+            except ValueError:
+                continue
+
+        return None
+
+    days_back_text = str(crawl_env.get("DAYS_BACK") or crawl_env.get("REALTIME_DAYS") or "2").strip()
+    try:
+        days_back = int(days_back_text)
+    except ValueError:
+        days_back = 2
+
+    cutoff = date.today() - timedelta(days=days_back)
+    if not raw_combined_path.exists():
+        log(f"⚠️  Date filter check skipped; output file not found: {raw_combined_path}")
+        return
+
+    try:
+        with raw_combined_path.open("r", encoding="utf-8") as f:
+            payload = json.load(f)
+    except Exception as exc:
+        log(f"⚠️  Date filter check skipped; could not read {raw_combined_path.name}: {exc}")
+        return
+
+    if isinstance(payload, dict):
+        jobs = [payload]
+    elif isinstance(payload, list):
+        jobs = payload
+    else:
+        log(f"⚠️  Date filter check skipped; unexpected JSON shape in {raw_combined_path.name}")
+        return
+
+    violations = []
+    for job in jobs:
+        posted_date = parse_job_date(job.get("posted_date"))
+        if posted_date is not None and posted_date < cutoff:
+            violations.append((job.get("source_name") or "unknown", job.get("job_url") or job.get("job_source_id") or "n/a", posted_date.isoformat()))
+
+    log(f"Date filter active for {crawl_mode}: realtime >= {cutoff.isoformat()} (last {days_back} day(s))")
+    if violations:
+        sample = "; ".join(f"{source} | {posted_date} | {job_id}" for source, job_id, posted_date in violations[:5])
+        log(f"⚠️  Date filter validation found {len(violations)} out-of-range job(s) in {raw_combined_path.name}: {sample}")
+    else:
+        log(f"✅ Date filter validation passed for {raw_combined_path.name}")
+
+
+def resolve_crawl_output_path(run_date: str) -> Path:
+    """Return the most likely merged crawl output path for the current run date."""
+    pipeline_candidate = resolve_pipeline_path("crawl", "data", f"crawl_{run_date}", "raw", "jobs_combined.json")
+    if pipeline_candidate and pipeline_candidate.exists():
+        return pipeline_candidate
+
+    repo_candidate = BASE_DIR / "data" / f"crawl_{run_date}" / "raw" / "jobs_combined.json"
+    if repo_candidate.exists():
+        return repo_candidate
+
+    return RAW_FOLDER / "jobs_combined.json"
+
 def run_step(name, script_path, args=None, timeout=600, cwd=None, env=None, is_batch=False):
     """Execute a script (Python or Batch) as a step"""
     log(f"{name}...")
@@ -240,6 +367,44 @@ def _safe_delete(path: Path) -> bool:
         return False
 
 
+def load_pipeline_crawl_state() -> dict:
+    """Load the pipeline crawl mode state if it exists."""
+    try:
+        if not PIPELINE_CRAWL_STATE_FILE.exists():
+            return {}
+        with open(PIPELINE_CRAWL_STATE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception as exc:
+        log(f"[STATE] Could not load crawl state: {exc}")
+        return {}
+
+
+def save_pipeline_crawl_state(crawl_mode: str):
+    """Persist the last successful crawl mode."""
+    try:
+        PIPELINE_CRAWL_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "crawl_mode": crawl_mode,
+            "bootstrap_completed": crawl_mode == "bootstrap",
+            "updated_at": datetime.now().isoformat(),
+        }
+        with open(PIPELINE_CRAWL_STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        log(f"[STATE] Saved crawl state: {PIPELINE_CRAWL_STATE_FILE}")
+    except Exception as exc:
+        log(f"[STATE] Could not save crawl state: {exc}")
+
+
+def resolve_crawl_mode(requested_mode: str | None) -> str:
+    """Resolve the effective crawl mode from CLI/env/state."""
+    mode = (requested_mode or "auto").strip().lower()
+    if mode in ("bootstrap", "daily", "test"):
+        return mode
+
+    return "daily"
+
+
 def cleanup_retention_artifacts():
     """Keep only long-lived artifacts after a successful full pipeline run."""
     cleanup_ok = True
@@ -279,6 +444,251 @@ def cleanup_retention_artifacts():
     return cleanup_ok
 
 
+def slugify_keyword(keyword: str) -> str:
+    """Build a safe slug for CareerViet URLs."""
+    keyword = (keyword or "").strip().lower().replace(" ", "-")
+    keyword = "".join(ch for ch in keyword if ch.isalnum() or ch == "-")
+    return keyword or "software-engineer"
+
+
+def build_daily_raw_output_path() -> Path:
+    return RAW_FOLDER / "jobs_combined.json"
+
+
+def _serialize_raw_jobs(raw_jobs):
+    serialized = []
+    for item in raw_jobs or []:
+        if hasattr(item, "to_dict"):
+            serialized.append(item.to_dict())
+        elif isinstance(item, dict):
+            serialized.append(item)
+        else:
+            serialized.append({"value": str(item)})
+    return serialized
+
+
+def _write_raw_jobs_json(raw_jobs, output_path: Path) -> Path:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(_serialize_raw_jobs(raw_jobs), f, ensure_ascii=False, indent=2)
+    return output_path
+
+
+@contextmanager
+def _temporary_environment(overrides: dict):
+    original_values = {}
+    removed_keys = []
+    try:
+        for key, value in (overrides or {}).items():
+            if key in os.environ:
+                original_values[key] = os.environ[key]
+            else:
+                removed_keys.append(key)
+            os.environ[key] = str(value)
+        yield
+    finally:
+        for key in removed_keys:
+            os.environ.pop(key, None)
+        for key, value in original_values.items():
+            os.environ[key] = value
+
+
+def _make_daily_parallel_workers(
+    keyword: str,
+    location: str,
+    domestic_max_jobs: int,
+    linkedin_max_jobs: int,
+    itviec_max_jobs: int | None = None,
+    domestic_max_pages: int = 2,
+):
+    """Build callables that execute each crawler in-process and return raw records."""
+    itviec_module = importlib.import_module("scrape_itviec")
+    vietnamworks_module = importlib.import_module("scrape_vietnamwork")
+    careerviet_module = importlib.import_module("scrape_careerviet")
+    linkedin_module = importlib.import_module("scrape_linkedin")
+
+    itviec_scrape_data = itviec_module.scrape_data
+    vietnamworks_crawl = vietnamworks_module.crawl_list_url_to_raw_jobs
+    careerviet_crawl = careerviet_module.crawl_list_url_to_raw_jobs
+    linkedin_scrape_data = linkedin_module.scrape_data
+
+    vietnamworks_url = f"https://www.vietnamworks.com/viec-lam?q={quote_plus(keyword)}"
+    careerviet_url = f"https://careerviet.vn/viec-lam/{slugify_keyword(keyword)}-k-vi.html"
+
+    itviec_limit = domestic_max_jobs if itviec_max_jobs is None else itviec_max_jobs
+
+    return {
+        "ITviec": lambda: itviec_scrape_data(keyword, location, max_jobs=itviec_limit, search_keyword=keyword),
+        "VietnamWorks": lambda: vietnamworks_crawl(
+            list_url_page1=vietnamworks_url,
+            start_page=1,
+            end_page=domestic_max_pages,
+            max_jobs=domestic_max_jobs,
+            search_keyword=keyword,
+        ),
+        "CareerViet": lambda: careerviet_crawl(
+            list_url_page1=careerviet_url,
+            start_page=1,
+            end_page=domestic_max_pages,
+            delay_between_pages=(0.1, 0.2),
+            search_keyword=keyword,
+            max_jobs=domestic_max_jobs,
+        ),
+        "LinkedIn": lambda: linkedin_scrape_data(
+            keyword,
+            location,
+            search_keyword=keyword,
+            max_jobs=linkedin_max_jobs,
+        ),
+    }
+
+
+def run_daily_crawl_parallel(
+    keyword: str | list[str],
+    location: str,
+    domestic_max_jobs: int,
+    linkedin_max_jobs: int,
+    crawl_env: dict,
+    crawl_dir: Path | None = None,
+    itviec_max_jobs: int | None = None,
+    domestic_max_pages: int = 2,
+):
+    """Run the four crawlers concurrently and return per-source counts plus combined raw jobs."""
+    enabled_sources = _parse_enabled_sources()
+    results_tracker = {"ITviec": 0, "VietnamWorks": 0, "CareerViet": 0, "LinkedIn": 0}
+    source_status = {}
+    combined_raw_jobs = []
+
+    if isinstance(keyword, str):
+        keyword_list = [part.strip() for part in keyword.split(",") if part.strip()]
+    else:
+        keyword_list = [str(part).strip() for part in keyword if str(part).strip()]
+
+    if not keyword_list:
+        keyword_list = ["software engineer"]
+
+    log("STEP 1: CRAWL DATA (PARALLEL) - Starting crawl")
+    if crawl_dir:
+        log(f"[PARALLEL] Crawl scripts path: {crawl_dir}")
+    for current_keyword in keyword_list:
+        keyword_env = dict(crawl_env)
+        keyword_json = json.dumps([current_keyword], ensure_ascii=False)
+        keyword_env.update({
+            "DAILY_NUM_KEYWORDS": "1",
+            "SELECTED_KEYWORDS": current_keyword,
+            "CRAWL_KEYWORDS": current_keyword,
+            "KEYWORDS": current_keyword,
+            "SELECTED_KEYWORDS_JSON": keyword_json,
+            "CRAWL_KEYWORDS_JSON": keyword_json,
+            "DAILY_KEYWORDS_JSON": keyword_json,
+        })
+
+        workers = _make_daily_parallel_workers(
+            current_keyword,
+            location,
+            domestic_max_jobs,
+            linkedin_max_jobs,
+            itviec_max_jobs=itviec_max_jobs,
+            domestic_max_pages=domestic_max_pages,
+        )
+        if enabled_sources is not None:
+            workers = {
+                name: worker
+                for name, worker in workers.items()
+                if name.lower() in enabled_sources
+            }
+
+        with _temporary_environment(keyword_env):
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+                future_map = {executor.submit(worker): source_name for source_name, worker in workers.items()}
+                for future in concurrent.futures.as_completed(future_map):
+                    source_name = future_map[future]
+                    try:
+                        raw_jobs = future.result()
+                        raw_jobs = raw_jobs or []
+                        value = results_tracker.get(source_name, 0)
+                        if isinstance(value, int):
+                            results_tracker[source_name] = value + len(raw_jobs)
+                        else:
+                            results_tracker[source_name] = len(raw_jobs)
+                        previous_status = source_status.get(source_name)
+                        if previous_status and previous_status != "Thành công":
+                            source_status[source_name] = previous_status
+                        else:
+                            source_status[source_name] = "Thành công"
+                        combined_raw_jobs.extend(raw_jobs)
+                        log(f"[OK] {source_name}: {len(raw_jobs)} jobs for '{current_keyword}'")
+                    except Exception as exc:
+                        existing_status = source_status.get(source_name)
+                        if not existing_status or existing_status == "Thành công":
+                            source_status[source_name] = f"Lỗi: {type(exc).__name__}: {exc}"
+                        value = results_tracker.get(source_name, 0)
+                        if isinstance(value, int):
+                            results_tracker[source_name] = value
+                        else:
+                            results_tracker[source_name] = 0
+                        log(f"[ERROR] {source_name} ({current_keyword}): {exc}")
+
+    combined_raw_jobs = filter_recent_jobs_safe(combined_raw_jobs)
+    raw_output_path = _write_raw_jobs_json(combined_raw_jobs, build_daily_raw_output_path())
+    log(f"[CRAWL] Combined raw output saved: {raw_output_path}")
+
+    crawl_ok = len(combined_raw_jobs) > 0
+    return crawl_ok, results_tracker, source_status, raw_output_path
+
+
+def format_daily_crawl_summary(
+    keyword: str,
+    activated_at: datetime,
+    crawl_mode: str,
+    results_tracker: dict,
+    source_status: dict,
+    raw_output_path: Path,
+    clean_output_path: Path,
+) -> str:
+    """Render a concise daily crawl summary for console output."""
+    mode_key = (crawl_mode or "daily").strip().lower()
+    keyword_count = len([part for part in str(keyword).split(",") if part.strip()])
+    keyword_count = max(1, keyword_count)
+    if mode_key == "bootstrap":
+        mode_title = "BOOTSTRAP"
+        mode_description = f"BOOTSTRAP ({keyword_count} keyword(s), Không giới hạn ngày)"
+    elif mode_key == "test":
+        mode_title = "TEST"
+        mode_description = "TEST (1 keyword / 5 jobs/source)"
+    else:
+        mode_title = "DAILY"
+        mode_description = f"DAILY ({keyword_count} keyword(s), Lọc dữ liệu mới trong 3 ngày)"
+
+    lines = []
+    lines.append("=" * 81)
+    lines.append(f"📊 TỔNG KẾT PHIÊN THU THẬP DỮ LIỆU {mode_title} (CRAWL SUMMARY)")
+    lines.append("=" * 81)
+    lines.append(f" - Từ khóa tìm kiếm     : {keyword}")
+    lines.append(f" - Thời gian kích hoạt   : {activated_at.strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append(f" - Chế độ cấu hình       : {mode_description}")
+    lines.append("-" * 81)
+    lines.append(" [Thống kê chi tiết từng nguồn dữ liệu]:")
+    for display_name in ("ITviec", "VietnamWorks", "CareerViet", "LinkedIn"):
+        value = results_tracker.get(display_name, 0)
+        if isinstance(value, str):
+            source_line = f" ✓ Nguồn {display_name:<14}: {value}"
+        else:
+            status_text = source_status.get(display_name, "Thành công")
+            source_line = f" ✓ Nguồn {display_name:<14}: {value} jobs ({status_text})"
+        lines.append(source_line)
+    lines.append("-" * 81)
+    total_jobs = 0
+    for value in results_tracker.values():
+        if isinstance(value, int):
+            total_jobs += value
+    lines.append(f" 🔥 TỔNG CỘNG RECORD CÀO ĐƯỢC: {total_jobs} jobs")
+    lines.append(f" 📂 Trạng thái lưu trữ   : Đã xuất file raw tại '{raw_output_path.relative_to(BASE_DIR)}'")
+    lines.append(f"                             và file sạch tại '{clean_output_path.relative_to(BASE_DIR)}'")
+    lines.append("=" * 81)
+    return "\n".join(lines)
+
+
 
 def _resolve_project_path(path_value: str) -> Path:
     """Resolve a path from .env relative to BASE_DIR unless it is already absolute."""
@@ -299,6 +709,19 @@ def _dedupe_keep_order(items):
             seen.add(key)
             result.append(keyword)
     return result
+
+
+def _parse_enabled_sources() -> set[str] | None:
+    raw = os.getenv("PIPELINE_CRAWL_SOURCES") or os.getenv("CRAWL_SOURCES")
+    if not raw:
+        return None
+
+    enabled = {
+        part.strip().lower()
+        for part in raw.split(",")
+        if part.strip()
+    }
+    return enabled or None
 
 
 def _flatten_keywords_daily(config: dict) -> list:
@@ -363,14 +786,16 @@ def _flatten_keywords_with_groupnames(config: dict) -> list:
     return _dedupe_keep_order(combined)
 
 
-def select_daily_keywords() -> list:
+def select_daily_keywords(reset_rotation: bool = False, num_keywords: int | None = None) -> list:
     """
     Select DAILY_NUM_KEYWORDS sequentially and persist rotation state.
 
     Same calendar date reuses the same selected keywords, so rerunning the
     pipeline on the same day does not accidentally advance the rotation.
     """
-    num_keywords = max(1, KEYWORD_CONFIG["daily_num_keywords"])
+    if num_keywords is None:
+        num_keywords = KEYWORD_CONFIG["daily_num_keywords"]
+    num_keywords = max(1, int(num_keywords))
     method = KEYWORD_CONFIG["selection_method"]
     keywords_file = _resolve_project_path(KEYWORD_CONFIG["keywords_file"])
     state_path = _resolve_project_path(KEYWORD_CONFIG["rotation_state_path"])
@@ -430,8 +855,17 @@ def select_daily_keywords() -> list:
             log(f"⚠️ Cannot read keyword rotation state, starting from 0: {exc}")
             state = {}
 
+    rotate_every_run = os.getenv("ROTATE_EVERY_RUN", "true").strip().lower() in ("1", "true", "yes")
+    env_reset = os.getenv("RESET_KEYWORD_ROTATION", "false").strip().lower() in ("1", "true", "yes")
+    should_reset = reset_rotation or env_reset
+
+    if should_reset:
+        log("🔄 Resetting keyword rotation to start from the beginning (index 0).")
+
     if (
-        state.get("last_run_date") == today
+        not should_reset
+        and not rotate_every_run
+        and state.get("last_run_date") == today
         and isinstance(state.get("selected_keywords"), list)
         and state.get("all_keywords_count") == len(all_keywords)
         and state.get("daily_num_keywords") == num_keywords
@@ -443,7 +877,10 @@ def select_daily_keywords() -> list:
     if method != "sequential":
         log(f"⚠️ Unsupported KEYWORD_SELECTION_METHOD={method}; fallback to sequential")
 
-    start_index = int(state.get("next_index", 0) or 0) % len(all_keywords)
+    if should_reset:
+        start_index = 0
+    else:
+        start_index = int(state.get("next_index", 0) or 0) % len(all_keywords)
     selected = [
         all_keywords[(start_index + offset) % len(all_keywords)]
         for offset in range(min(num_keywords, len(all_keywords)))
@@ -490,25 +927,23 @@ def estimate_and_display_runtime():
     """Calculate and display estimated runtime for today's pipeline"""
     try:
         total_keywords = KEYWORD_CONFIG["daily_num_keywords"]
-        total_jobs = total_keywords * JOBS_PER_KEYWORD
 
-        # Estimate times
-        crawl_time = 46  # seconds (from performance analysis)
+        # Estimate times based on CRAWL_MAX_PAGES
+        crawl_time = total_keywords * CRAWL_MAX_PAGES * 30  # seconds
         merge_time = 6   # seconds
-        clean_time = 5 + (total_jobs * 0.55)  # ~0.55s per job
+        clean_time = 15  # seconds
 
         log("\n" + "=" * 85)
         log("⏱️  ESTIMATED RUNTIME FOR TODAY'S CRAWL+CLEAN")
         log("=" * 85)
         log(f"\n📊 CONFIG:")
         log(f"   Keywords: {total_keywords} ({KEYWORD_CONFIG['selection_method']})")
-        log(f"   Jobs per keyword: {JOBS_PER_KEYWORD}")
-        log(f"   Total jobs: ~{total_jobs}")
+        log(f"   Max pages per source: {CRAWL_MAX_PAGES}")
 
         log(f"\n⏱️  TIMELINE:")
-        log(f"   🔍 CRAWL (parallel):     ~{int(crawl_time)}s")
-        log(f"   📦 MERGE (sequential):   ~{int(merge_time)}s")
-        log(f"   🧹 CLEAN (sequential):   ~{int(clean_time):.0f}s")
+        log(f"   🔍 CRAWL:                ~{int(crawl_time)}s")
+        log(f"   📦 MERGE:                ~{int(merge_time)}s")
+        log(f"   🧹 CLEAN:                ~{int(clean_time)}s")
         log(f"   ────────────────────────────────")
         log(f"   TOTAL EXECUTION:        ~{int(crawl_time + merge_time + clean_time)}s ({(crawl_time + merge_time + clean_time)/60:.1f}m)")
         log(f"\n" + "=" * 85 + "\n")
@@ -531,6 +966,10 @@ Examples:
   python run_etl_pipeline.py --input path/to/jobs.json       # Use custom input file for clean step
   python run_etl_pipeline.py --crawl-only                     # Only run crawl + merge
   python run_etl_pipeline.py --clean-only --input jobs.json   # Only run clean step with custom input
+    python run_etl_pipeline.py --crawl-mode bootstrap          # First full crawl
+    python run_etl_pipeline.py --crawl-mode daily              # Daily crawl: domestic full, LinkedIn capped at 500, 3-day lookback
+    python run_etl_pipeline.py --crawl-mode test               # Test crawl: 1 keyword, 5 jobs/source, 1 page
+    python run_etl_pipeline.py --crawl-mode daily --parallel-crawl  # Daily crawl in parallel
         """
     )
     parser.add_argument(
@@ -557,43 +996,84 @@ Examples:
         default=None,
         help="Path to an already-normalized file (normalized.json produced by normalize_embeddings). If provided, skip normalization step.",
     )
-    parser.add_argument(
-        "--crawl-only", 
-        action="store_true", 
-        help="Only run CRAWL step (skip CLEAN and IMPORT)"
-    )
-    parser.add_argument(
-        "--clean-only", 
-        action="store_true", 
-        help="Only run CLEAN step (requires --input or auto-detection)"
-    )
-    parser.add_argument(
-        "--import-only", 
-        action="store_true", 
-        help="Only run IMPORT step"
-    )
+    # Deprecated duplicate flags (kept as comments for traceability):
+    # parser.add_argument(
+    #     "--crawl-only", 
+    #     action="store_true", 
+    #     help="Only run CRAWL step (skip CLEAN and IMPORT)"
+    # )
+    # parser.add_argument(
+    #     "--clean-only", 
+    #     action="store_true", 
+    #     help="Only run CLEAN step (requires --input or auto-detection)"
+    # )
+    # parser.add_argument(
+    #     "--import-only", 
+    #     action="store_true", 
+    #     help="Only run IMPORT step"
+    # )
     parser.add_argument(
         "--skip-import",
         action="store_true",
         help="Run full pipeline but skip IMPORT step",
     )
+    parser.add_argument(
+        "--reset-keywords",
+        action="store_true",
+        help="Reset keyword rotation back to the beginning (index 0)",
+    )
+    parser.add_argument(
+        "--crawl-mode",
+        type=str,
+        default=os.getenv("PIPELINE_CRAWL_MODE", "daily"),
+        choices=("daily", "bootstrap", "test"),
+        help="Crawl mode: daily (default), bootstrap (full crawl), or test (1 keyword / 5 jobs/source)",
+    )
+    parser.add_argument(
+        "--parallel-crawl",
+        action="store_true",
+        help="Run crawl phase with ThreadPoolExecutor (parallel is default; sequential is used automatically on failure)",
+    )
+    # Deprecated duplicate alias (kept as comments for traceability):
+    # parser.add_argument(
+    #     "--parallel",
+    #     action="store_true",
+    #     help="Alias for --parallel-crawl (runs crawlers in parallel)",
+    # )
     
     args = parser.parse_args()
 
-    # If user asked for a specific step via --step, translate to flags where appropriate
-    if args.step:
-        step_arg = str(args.step).strip().lower()
-        if step_arg == 'crawl':
-            args.crawl_only = True
-        elif step_arg == 'clean':
-            args.clean_only = True
-        elif step_arg == 'import':
-            args.import_only = True
-        elif step_arg == 'extract':
-            # We'll handle extract-only mode specially below
-            pass
-        else:
-            log(f"⚠️ Unknown --step value: {args.step}; ignoring")
+    # Default behavior: always try parallel crawl first.
+    # If parallel mode fails, each crawl mode will automatically fallback to sequential.
+    args.parallel_crawl = True
+
+    # Deprecated alias handling (kept as comments for traceability):
+    # # Backwards-friendly alias: --parallel => --parallel-crawl
+    # if getattr(args, "parallel", False):
+    #     args.parallel_crawl = True
+
+    # Deprecated translation to duplicate flags (kept as comments for traceability):
+    # # If user asked for a specific step via --step, translate to flags where appropriate
+    # if args.step:
+    #     step_arg = str(args.step).strip().lower()
+    #     if step_arg == 'crawl':
+    #         args.crawl_only = True
+    #     elif step_arg == 'clean':
+    #         args.clean_only = True
+    #     elif step_arg == 'import':
+    #         args.import_only = True
+    #     elif step_arg == 'extract':
+    #         # We'll handle extract-only mode specially below
+    #         pass
+    #     else:
+    #         log(f"⚠️ Unknown --step value: {args.step}; ignoring")
+
+    step_arg = str(args.step).strip().lower() if args.step else ""
+    step_is_crawl = step_arg == 'crawl'
+    step_is_clean = step_arg == 'clean'
+    step_is_import = step_arg == 'import'
+    if args.step and step_arg not in ('crawl', 'clean', 'import', 'extract'):
+        log(f"⚠️ Unknown --step value: {args.step}; ignoring")
 
     # If user requested extract-only, handle it immediately and exit before
     # creating archive folders or selecting keywords.
@@ -682,19 +1162,32 @@ Examples:
             log(f"[WARN] Không thể suy ra crawl folder từ --input: {e}")
     # ── END NEW
     
-    # Override PIPELINE_STEPS based on command line flags
+    # Deprecated duplicate-flag branching (kept as comments for traceability):
+    # # Override PIPELINE_STEPS based on command line flags
+    # global PIPELINE_STEPS
+    # if args.crawl_only:
+    #     PIPELINE_STEPS = {"crawl": True, "clean": False, "import": False}
+    # elif args.clean_only:
+    #     PIPELINE_STEPS = {"crawl": False, "clean": True, "import": False}
+    # elif args.import_only:
+    #     PIPELINE_STEPS = {"crawl": False, "clean": False, "import": True}
+
+    # Override PIPELINE_STEPS based on --step (non-duplicate control path)
     global PIPELINE_STEPS
-    if args.crawl_only:
+    if step_is_crawl:
         PIPELINE_STEPS = {"crawl": True, "clean": False, "import": False}
-    elif args.clean_only:
+    elif step_is_clean:
         PIPELINE_STEPS = {"crawl": False, "clean": True, "import": False}
-    elif args.import_only:
+    elif step_is_import:
         PIPELINE_STEPS = {"crawl": False, "clean": False, "import": True}
     # allow skipping import explicitly while keeping default crawl+clean
     if args.skip_import:
-        # respect other flags: if user asked only crawl/clean/import, keep those
-        if not (args.crawl_only or args.clean_only or args.import_only):
+        # respect explicit --step mode when provided
+        if not (step_is_crawl or step_is_clean or step_is_import):
             PIPELINE_STEPS = {"crawl": True, "clean": True, "import": False}
+
+    effective_crawl_mode = resolve_crawl_mode(args.crawl_mode)
+    log(f"[MODE] Effective crawl mode: {effective_crawl_mode}")
     
     log("=" * 80)
     log("ETL PIPELINE START")
@@ -723,6 +1216,8 @@ Examples:
     crawl_ok = True
     clean_ok = True
     import_ok = True
+    crawl_summary_bundle = None
+    raw_combined = None
     
     # -------- STEP 1: CRAWL --------
     if step_crawl:
@@ -734,78 +1229,390 @@ Examples:
             "RUN_DATE": RUN_DATE,  # Pass RUN_DATE so merge/normalize use same folder
             "OUTPUT_FOLDER": str(RAW_FOLDER),
             "RAW_DATA_FOLDER": str(RAW_FOLDER),
+            "PIPELINE_CRAWL_MODE": effective_crawl_mode,
         })
 
-        selected_keywords = select_daily_keywords()
-        if selected_keywords:
+        # Keep page count as a safety cap only; job limits drive actual crawl size.
+        if effective_crawl_mode == "bootstrap":
+            page_safety_cap = "999"
+        elif effective_crawl_mode == "test":
+            page_safety_cap = "1"
+        else:
+            page_safety_cap = "100"
+        crawl_env["CRAWL_MAX_PAGES"] = page_safety_cap
+
+        if effective_crawl_mode == "bootstrap":
+            crawl_env.update({
+                "VNWORKS_CRAWL_MODE": "bootstrap",
+                "VNWORKS_FORCE_FULL_CRAWL": "1",
+                "VNWORKS_DAILY_MAX_JOBS": "0",
+                "LINKEDIN_MAX_JOBS": "500",
+                "LINKEDIN_MAX_JOBS_LIMIT": "500",
+                "LINKEDIN_DETAIL_SCRAPE": "true",
+                "LINKEDIN_SEARCH_TPR": "off",
+                "ITVIEC_MAX_JOBS": "0",
+                "CAREERVIET_MAX_JOBS": "0",
+                "PIPELINE_DAILY_MAX_JOBS_PER_SOURCE": "0",
+                "JOB_DATE_MODE": "off",
+                "DAYS_BACK": "",
+                "REALTIME_DAYS": "",
+            })
+        elif effective_crawl_mode == "test":
+            crawl_env.update({
+                "VNWORKS_CRAWL_MODE": "test",
+                "VNWORKS_TEST_MAX_JOBS": "5",
+                "VNWORKS_DAILY_MAX_JOBS": "5",
+                "LINKEDIN_MAX_JOBS": "5",
+                "LINKEDIN_DETAIL_SCRAPE": "false",
+                "ITVIEC_MAX_JOBS": "5",
+                "CAREERVIET_MAX_JOBS": "5",
+                "ITVIEC_LOCATION": "Vietnam",
+                "LINKEDIN_LOCATION": "Vietnam",
+                "JOB_DATE_MODE": "on",
+                "DAYS_BACK": "3",
+                "REALTIME_DAYS": "3",
+            })
+        else:
+            daily_domestic_max_jobs = 0
+            daily_linkedin_max_jobs = 500
+            crawl_env.update({
+                "VNWORKS_CRAWL_MODE": "daily",
+                "VNWORKS_DAILY_MAX_JOBS": str(daily_domestic_max_jobs),
+                "LINKEDIN_MAX_JOBS": str(daily_linkedin_max_jobs),
+                "LINKEDIN_MAX_JOBS_LIMIT": "500",
+                "LINKEDIN_SEARCH_TPR": "r259200",
+                "PIPELINE_DAILY_MAX_JOBS_PER_SOURCE": str(daily_domestic_max_jobs),
+                "LINKEDIN_DETAIL_SCRAPE": "false",
+                "ITVIEC_MAX_JOBS": str(daily_domestic_max_jobs),
+                "CAREERVIET_MAX_JOBS": str(daily_domestic_max_jobs),
+                "ITVIEC_LOCATION": "Vietnam",
+                "LINKEDIN_LOCATION": "Vietnam",
+                "JOB_DATE_MODE": "on",
+                "DAYS_BACK": "3",
+                "REALTIME_DAYS": "3",
+            })
+
+        if effective_crawl_mode == "daily":
+            selected_keywords = select_daily_keywords(reset_rotation=args.reset_keywords, num_keywords=4)
+            if not selected_keywords:
+                selected_keywords = ["software engineer", "backend engineer", "data engineer", "qa engineer"]
+
+            keyword = ", ".join(selected_keywords)
+            location = "Vietnam"
+            domestic_max_jobs = 0
+            linkedin_max_jobs = 150
             selected_keywords_file = write_selected_keywords_file(selected_keywords)
             keywords_json = json.dumps(selected_keywords, ensure_ascii=False)
 
-            # Pass multiple env aliases so existing crawler runners can consume the
-            # selected batch without changing their CLI contract.
             crawl_env.update({
                 "DAILY_NUM_KEYWORDS": str(len(selected_keywords)),
                 "KEYWORD_SELECTION_METHOD": "sequential",
-                "JOBS_PER_KEYWORD": str(JOBS_PER_KEYWORD),
-                "SELECTED_KEYWORDS": ",".join(selected_keywords),
-                "CRAWL_KEYWORDS": ",".join(selected_keywords),
-                "KEYWORDS": ",".join(selected_keywords),
+                "SELECTED_KEYWORDS": keyword,
+                "CRAWL_KEYWORDS": keyword,
+                "KEYWORDS": keyword,
                 "SELECTED_KEYWORDS_JSON": keywords_json,
                 "CRAWL_KEYWORDS_JSON": keywords_json,
                 "DAILY_KEYWORDS_JSON": keywords_json,
                 "SELECTED_KEYWORDS_FILE": str(selected_keywords_file),
                 "CRAWL_KEYWORDS_FILE": str(selected_keywords_file),
+                "ITVIEC_LOCATION": location,
+                "LINKEDIN_LOCATION": location,
+                "ITVIEC_MAX_JOBS": str(domestic_max_jobs),
+                "CAREERVIET_MAX_JOBS": str(domestic_max_jobs),
+                "VNWORKS_DAILY_MAX_JOBS": str(domestic_max_jobs),
+                "LINKEDIN_MAX_JOBS": str(linkedin_max_jobs),
+                "LINKEDIN_MAX_JOBS_LIMIT": "150",
+                "PIPELINE_DAILY_MAX_JOBS_PER_SOURCE": str(domestic_max_jobs),
+                "JOB_DATE_MODE": "on",
+                "DAYS_BACK": "3",
+                "REALTIME_DAYS": "3",
             })
 
-            log("🎯 Today's selected keywords:")
-            for idx, keyword in enumerate(selected_keywords, start=1):
-                log(f"   {idx:02d}. {keyword}")
-            log(f"   Saved to: {selected_keywords_file}")
-        else:
-            log("⚠️ No selected keywords were generated; crawlers will use their own defaults.")
-        
-        # Deprecated: Job limits are now defined in input package (config_jobs.py) via .env
-        # log(f"Job Limits: iTviec={JOB_LIMITS.get('itviec', 50)}, LinkedIn={JOB_LIMITS.get('linkedin', 100)}, CareerViet={JOB_LIMITS.get('careerviet', 50)}, VietnamWorks={JOB_LIMITS.get('vietnamworks', 50)}")
-        
-        # Call daily runners directly (not via .bat) to preserve environment variables
-        crawlers = [
-            ("ITviec", "crawl_data/crawl-itviec-jobs/scripts/daily_itviec_runner.py", "itviec"),
-            ("LinkedIn", "crawl_data/crawl-linkedin-jobs/scripts/daily_linkedin_runner.py", "linkedin"),
-            ("CareerViet", "crawl_data/crawl-careerviet-jobs/scripts/daily_careerviet_runner.py", "careerviet"),
-            ("VietnamWorks", "crawl_data/crawl-vietnamwork-jobs/scripts/daily_vietnamworks_runner.py", "vietnamworks"),
-        ]
+            enabled_sources = _parse_enabled_sources()
 
-        # Prefer pipeline/crawl/1_crawl_data when present, else fallback to top-level 1_crawl_data
-        crawl_dir = resolve_pipeline_path("crawl", "1_crawl_data")
-        
-        for crawler_name, crawler_path, limit_key in crawlers:
-            # Skip crawlers with 0 job limit
-            if JOB_LIMITS.get(limit_key, 1) == 0:
-                log(f"Skipping {crawler_name} crawler (job_limit=0)")
-                continue
-            
-            crawler_script = crawl_dir / crawler_path
-            if crawler_script.exists():
-                log(f"Running {crawler_name} crawler...")
-                # Use per-crawler timeout
-                crawler_timeout = CRAWLER_TIMEOUTS.get(limit_key, 600)
-                if not run_step(f"{crawler_name} Crawler", crawler_script, timeout=crawler_timeout, cwd=crawl_dir, env=crawl_env):
-                    log(f"⚠️  {crawler_name} crawler skipped (timeout or error)")
-            else:
-                log(f"⚠️  {crawler_name} crawler not found: {crawler_script}")
-        
-        # ---- MERGE (automatically after crawl) ----
-        log("Merging crawler outputs...")
-        merge_script = crawl_dir / "merge_daily_outputs.py"
-        if merge_script.exists():
-            crawl_ok = run_step("Merge Outputs", merge_script, timeout=CRAWLER_TIMEOUT, cwd=crawl_dir, env=crawl_env)
-        else:
-            log("⚠️  Merge script not found")
-            crawl_ok = False
-        
-        if not crawl_ok:
-            log("Crawl failed")
-    else:
+            log("🎯 Today's selected keywords:")
+            for idx, kw in enumerate(selected_keywords, start=1):
+                log(f"   {idx:02d}. {kw}")
+            log(f"   Saved to: {selected_keywords_file}")
+
+            run_sequential_fallback = False
+            if args.parallel_crawl:
+                try:
+                    crawl_ok, results_tracker, source_status, raw_combined = run_daily_crawl_parallel(
+                        selected_keywords,
+                        location,
+                        domestic_max_jobs,
+                        linkedin_max_jobs,
+                        crawl_env,
+                    )
+                    crawl_summary_bundle = {
+                        "keyword": keyword,
+                        "activated_at": start,
+                        "crawl_mode": "DAILY",
+                        "results_tracker": results_tracker,
+                        "source_status": source_status,
+                        "raw_output_path": raw_combined,
+                    }
+                    if not crawl_ok:
+                        log("⚠️ Parallel crawl produced no records. Falling back to sequential crawl...")
+                        run_sequential_fallback = True
+                except Exception as exc:
+                    log(f"⚠️ Parallel crawl crashed: {exc}")
+                    log("↩️ Falling back to sequential crawl...")
+                    crawl_ok = False
+                    run_sequential_fallback = True
+
+            if run_sequential_fallback:
+                crawlers = [
+                    ("ITviec", "crawl_data/crawl-itviec-jobs/scripts/daily_itviec_runner.py", "itviec"),
+                    ("LinkedIn", "crawl_data/crawl-linkedin-jobs/scripts/daily_linkedin_runner.py", "linkedin"),
+                    ("CareerViet", "crawl_data/crawl-careerviet-jobs/scripts/daily_careerviet_runner.py", "careerviet"),
+                    ("VietnamWorks", "crawl_data/crawl-vietnamwork-jobs/scripts/daily_vietnamworks_runner.py", "vietnamworks"),
+                ]
+
+                crawl_dir = resolve_pipeline_path("crawl", "1_crawl_data")
+
+                for crawler_name, crawler_path, limit_key in crawlers:
+                    if enabled_sources is not None and crawler_name.lower() not in enabled_sources:
+                        log(f"Skipping {crawler_name} crawler (filtered by PIPELINE_CRAWL_SOURCES)")
+                        continue
+                    crawler_script = crawl_dir / crawler_path
+                    if crawler_script.exists():
+                        log(f"Running {crawler_name} crawler...")
+                        crawler_timeout = CRAWLER_TIMEOUTS.get(limit_key, 600)
+                        if not run_step(f"{crawler_name} Crawler", crawler_script, timeout=crawler_timeout, cwd=crawl_dir, env=crawl_env):
+                            log(f"⚠️  {crawler_name} crawler skipped (timeout or error)")
+                    else:
+                        log(f"⚠️  {crawler_name} crawler not found: {crawler_script}")
+
+                log("Merging crawler outputs...")
+                merge_script = crawl_dir / "merge_daily_outputs.py"
+                if merge_script.exists():
+                    crawl_ok = run_step("Merge Outputs", merge_script, timeout=CRAWLER_TIMEOUT, cwd=crawl_dir, env=crawl_env)
+                else:
+                    log("⚠️  Merge script not found")
+                    crawl_ok = False
+
+                if crawl_ok:
+                    raw_combined = resolve_crawl_output_path(RUN_DATE)
+                else:
+                    log("Crawl failed")
+        elif effective_crawl_mode == "bootstrap":
+            selected_keywords = select_daily_keywords(reset_rotation=args.reset_keywords, num_keywords=4)
+            if not selected_keywords:
+                selected_keywords = ["software engineer", "backend engineer", "data engineer", "qa engineer"]
+
+            keyword = ", ".join(selected_keywords)
+            location = "Vietnam"
+            bootstrap_max_jobs = 150
+            bootstrap_max_pages = 8
+            domestic_max_jobs = bootstrap_max_jobs
+            linkedin_max_jobs = bootstrap_max_jobs
+            selected_keywords_file = write_selected_keywords_file(selected_keywords)
+            keywords_json = json.dumps(selected_keywords, ensure_ascii=False)
+
+            crawl_env.update({
+                "DAILY_NUM_KEYWORDS": str(len(selected_keywords)),
+                "KEYWORD_SELECTION_METHOD": "sequential",
+                "SELECTED_KEYWORDS": keyword,
+                "CRAWL_KEYWORDS": keyword,
+                "KEYWORDS": keyword,
+                "SELECTED_KEYWORDS_JSON": keywords_json,
+                "CRAWL_KEYWORDS_JSON": keywords_json,
+                "DAILY_KEYWORDS_JSON": keywords_json,
+                "SELECTED_KEYWORDS_FILE": str(selected_keywords_file),
+                "CRAWL_KEYWORDS_FILE": str(selected_keywords_file),
+                "ITVIEC_LOCATION": location,
+                "LINKEDIN_LOCATION": location,
+                "ITVIEC_MAX_JOBS": str(bootstrap_max_jobs),
+                "CAREERVIET_MAX_JOBS": str(bootstrap_max_jobs),
+                "VNWORKS_DAILY_MAX_JOBS": str(bootstrap_max_jobs),
+                "LINKEDIN_MAX_JOBS": str(linkedin_max_jobs),
+                "LINKEDIN_MAX_JOBS_LIMIT": str(bootstrap_max_jobs),
+                "PIPELINE_DAILY_MAX_JOBS_PER_SOURCE": str(bootstrap_max_jobs),
+                "CRAWL_MAX_PAGES": str(bootstrap_max_pages),
+                "VNWORKS_CRAWL_MODE": "bootstrap",
+                "VNWORKS_FORCE_FULL_CRAWL": "1",
+                "LINKEDIN_DETAIL_SCRAPE": "true",
+                "JOB_DATE_MODE": "off",
+                "DAYS_BACK": "",
+                "REALTIME_DAYS": "",
+            })
+
+            enabled_sources = _parse_enabled_sources()
+
+            log("🚀 Bootstrap keywords:")
+            for idx, kw in enumerate(selected_keywords, start=1):
+                log(f"   {idx:02d}. {kw}")
+            log(f"   Saved to: {selected_keywords_file}")
+
+            run_sequential_fallback = False
+            if args.parallel_crawl:
+                try:
+                    crawl_ok, results_tracker, source_status, raw_combined = run_daily_crawl_parallel(
+                        selected_keywords,
+                        location,
+                        domestic_max_jobs,
+                        linkedin_max_jobs,
+                        crawl_env,
+                        domestic_max_pages=bootstrap_max_pages,
+                    )
+                    crawl_summary_bundle = {
+                        "keyword": keyword,
+                        "activated_at": start,
+                        "crawl_mode": "BOOTSTRAP",
+                        "results_tracker": results_tracker,
+                        "source_status": source_status,
+                        "raw_output_path": raw_combined,
+                    }
+                    if not crawl_ok:
+                        log("⚠️ Parallel crawl produced no records. Falling back to sequential crawl...")
+                        run_sequential_fallback = True
+                except Exception as exc:
+                    log(f"⚠️ Parallel crawl crashed: {exc}")
+                    log("↩️ Falling back to sequential crawl...")
+                    crawl_ok = False
+                    run_sequential_fallback = True
+
+            if run_sequential_fallback:
+                crawlers = [
+                    ("ITviec", "crawl_data/crawl-itviec-jobs/scripts/daily_itviec_runner.py", "itviec"),
+                    ("LinkedIn", "crawl_data/crawl-linkedin-jobs/scripts/daily_linkedin_runner.py", "linkedin"),
+                    ("CareerViet", "crawl_data/crawl-careerviet-jobs/scripts/daily_careerviet_runner.py", "careerviet"),
+                    ("VietnamWorks", "crawl_data/crawl-vietnamwork-jobs/scripts/daily_vietnamworks_runner.py", "vietnamworks"),
+                ]
+
+                crawl_dir = resolve_pipeline_path("crawl", "1_crawl_data")
+
+                for crawler_name, crawler_path, limit_key in crawlers:
+                    if enabled_sources is not None and crawler_name.lower() not in enabled_sources:
+                        log(f"Skipping {crawler_name} crawler (filtered by PIPELINE_CRAWL_SOURCES)")
+                        continue
+                    crawler_script = crawl_dir / crawler_path
+                    if crawler_script.exists():
+                        log(f"Running {crawler_name} crawler...")
+                        crawler_timeout = CRAWLER_TIMEOUTS.get(limit_key, 600)
+                        if not run_step(f"{crawler_name} Crawler", crawler_script, timeout=crawler_timeout, cwd=crawl_dir, env=crawl_env):
+                            log(f"⚠️  {crawler_name} crawler skipped (timeout or error)")
+                    else:
+                        log(f"⚠️  {crawler_name} crawler not found: {crawler_script}")
+
+                log("Merging crawler outputs...")
+                merge_script = crawl_dir / "merge_daily_outputs.py"
+                if merge_script.exists():
+                    crawl_ok = run_step("Merge Outputs", merge_script, timeout=CRAWLER_TIMEOUT, cwd=crawl_dir, env=crawl_env)
+                else:
+                    log("⚠️  Merge script not found")
+                    crawl_ok = False
+
+                if crawl_ok:
+                    raw_combined = resolve_crawl_output_path(RUN_DATE)
+                else:
+                    log("Crawl failed")
+        elif effective_crawl_mode == "test":
+            selected_keywords = select_daily_keywords(reset_rotation=args.reset_keywords, num_keywords=4)
+            if not selected_keywords:
+                selected_keywords = ["software engineer", "backend engineer", "data engineer", "qa engineer"]
+
+            keyword = ", ".join(selected_keywords)
+            location = "Vietnam"
+            max_jobs_per_source = 10
+            itviec_max_jobs = 10
+            selected_keywords_file = write_selected_keywords_file(selected_keywords)
+            keywords_json = json.dumps(selected_keywords, ensure_ascii=False)
+
+            crawl_env.update({
+                "DAILY_NUM_KEYWORDS": str(len(selected_keywords)),
+                "KEYWORD_SELECTION_METHOD": "sequential",
+                "SELECTED_KEYWORDS": keyword,
+                "CRAWL_KEYWORDS": keyword,
+                "KEYWORDS": keyword,
+                "SELECTED_KEYWORDS_JSON": keywords_json,
+                "CRAWL_KEYWORDS_JSON": keywords_json,
+                "DAILY_KEYWORDS_JSON": keywords_json,
+                "SELECTED_KEYWORDS_FILE": str(selected_keywords_file),
+                "CRAWL_KEYWORDS_FILE": str(selected_keywords_file),
+                "ITVIEC_LOCATION": location,
+                "LINKEDIN_LOCATION": location,
+                "ITVIEC_MAX_JOBS": str(itviec_max_jobs),
+                "CAREERVIET_MAX_JOBS": str(max_jobs_per_source),
+                "VNWORKS_TEST_MAX_JOBS": str(max_jobs_per_source),
+                "VNWORKS_DAILY_MAX_JOBS": str(max_jobs_per_source),
+                "LINKEDIN_MAX_JOBS": str(max_jobs_per_source),
+                "LINKEDIN_SEARCH_TPR": "r259200",
+                "JOB_DATE_MODE": "on",
+                "DAYS_BACK": "3",
+                "REALTIME_DAYS": "3",
+            })
+
+            log("🧪 Test keywords:")
+            for idx, kw in enumerate(selected_keywords, start=1):
+                log(f"   {idx:02d}. {kw}")
+            log(f"   Saved to: {selected_keywords_file}")
+
+            run_sequential_fallback = False
+            if args.parallel_crawl:
+                try:
+                    crawl_ok, results_tracker, source_status, raw_combined = run_daily_crawl_parallel(
+                        keyword,
+                        location,
+                        max_jobs_per_source,
+                        max_jobs_per_source,
+                        crawl_env,
+                        itviec_max_jobs=itviec_max_jobs,
+                    )
+                    crawl_summary_bundle = {
+                        "keyword": keyword,
+                        "activated_at": start,
+                        "crawl_mode": "TEST",
+                        "results_tracker": results_tracker,
+                        "source_status": source_status,
+                        "raw_output_path": raw_combined,
+                    }
+                    if not crawl_ok:
+                        log("⚠️ Parallel crawl produced no records. Falling back to sequential crawl...")
+                        run_sequential_fallback = True
+                except Exception as exc:
+                    log(f"⚠️ Parallel crawl crashed: {exc}")
+                    log("↩️ Falling back to sequential crawl...")
+                    crawl_ok = False
+                    run_sequential_fallback = True
+
+            if run_sequential_fallback:
+                crawlers = [
+                    ("ITviec", "crawl_data/crawl-itviec-jobs/scripts/daily_itviec_runner.py", "itviec"),
+                    ("LinkedIn", "crawl_data/crawl-linkedin-jobs/scripts/daily_linkedin_runner.py", "linkedin"),
+                    ("CareerViet", "crawl_data/crawl-careerviet-jobs/scripts/daily_careerviet_runner.py", "careerviet"),
+                    ("VietnamWorks", "crawl_data/crawl-vietnamwork-jobs/scripts/daily_vietnamworks_runner.py", "vietnamworks"),
+                ]
+
+                crawl_dir = resolve_pipeline_path("crawl", "1_crawl_data")
+
+                for crawler_name, crawler_path, limit_key in crawlers:
+                    crawler_script = crawl_dir / crawler_path
+                    if crawler_script.exists():
+                        log(f"Running {crawler_name} crawler...")
+                        crawler_timeout = CRAWLER_TIMEOUTS.get(limit_key, 600)
+                        if not run_step(f"{crawler_name} Crawler", crawler_script, timeout=crawler_timeout, cwd=crawl_dir, env=crawl_env):
+                            log(f"⚠️  {crawler_name} crawler skipped (timeout or error)")
+                    else:
+                        log(f"⚠️  {crawler_name} crawler not found: {crawler_script}")
+
+                log("Merging crawler outputs...")
+                merge_script = crawl_dir / "merge_daily_outputs.py"
+                if merge_script.exists():
+                    crawl_ok = run_step("Merge Outputs", merge_script, timeout=CRAWLER_TIMEOUT, cwd=crawl_dir, env=crawl_env)
+                else:
+                    log("⚠️  Merge script not found")
+                    crawl_ok = False
+
+                if crawl_ok:
+                    raw_combined = resolve_crawl_output_path(RUN_DATE)
+                else:
+                    log("Crawl failed")
+        if crawl_ok and raw_combined:
+            validate_crawl_date_filter(raw_combined, crawl_env, effective_crawl_mode)
+    if not step_crawl:
         log("Skipping CRAWL (STEP_CRAWL=false)\n")
     
     # -------- STEP 2: CLEAN -> PENDING -> EXTRACT -> NORMALIZE -> TRANSFORM --------
@@ -813,9 +1620,13 @@ Examples:
     if step_clean:
         log("STEP 2: CLEAN DATA (debug clean -> pending_llm -> extracted -> normalized -> import_ready)")
 
+        crawl_raw_combined = raw_combined
         raw_combined = None
         if args.input:
-            custom_input = Path(args.input)
+            # Resolve custom input to an absolute path so subprocesses receive
+            # an absolute filename regardless of the working directory used
+            # when spawning the child clean/extract/normalize scripts.
+            custom_input = Path(args.input).resolve()
             if custom_input.exists():
                 raw_combined = custom_input
                 log(f"Using custom input for clean flow: {custom_input.name}")
@@ -824,7 +1635,7 @@ Examples:
                 clean_ok = False
 
         if raw_combined is None and clean_ok:
-            raw_combined = RAW_FOLDER / "jobs_combined.json"
+            raw_combined = crawl_raw_combined or (RAW_FOLDER / "jobs_combined.json")
 
         # If the default raw_combined doesn't exist, try pipeline or repo candidates.
         if not raw_combined or not raw_combined.exists():
@@ -862,10 +1673,14 @@ Examples:
            
 
             if clean_script.exists():
+                # Ensure absolute paths are passed to the child process so
+                # path resolution inside the clean script is unambiguous.
+                in_path = Path(raw_combined).resolve()
+                out_path = pending_file.resolve()
                 clean_ok = run_step(
                     "CLEAN STEP 1",
                     clean_script,
-                    args=[str(raw_combined), "--step", "1", "--output", str(pending_file)],
+                    args=[str(in_path), "--step", "1", "--output", str(out_path)],
                     timeout=CLEAN_TIMEOUT,
                     cwd=clean_dir,
                 )
@@ -898,21 +1713,23 @@ Examples:
                 log(f"⚠️  Extract script not found: {extract_script}")
                 clean_ok = False
 
-            # Use the new normalize runner inside 2_1_normalized_data
-            normalize_entry = resolve_pipeline_path("normalize", "2_1_normalized_data", "normalize_embeddings.py")
+            # Use the new normalize runner (v2) inside 2_1_normalized_data
+            normalize_entry = resolve_pipeline_path("normalize", "2_1_normalized_data", "normalize_pipeline_v2.py")
             # Run normalization only if normalized file not provided
             if args.normalized:
                 log(f"Skipping NORMALIZE because normalized file provided: {normalized_file}")
-            elif clean_ok and normalize_entry.exists():
-                # call run_normalize with run-date and default level=2 (full)
+            elif clean_ok and normalize_entry and normalize_entry.exists():
+                # call normalize_pipeline_v2 with input/output/fallback args
                 # Use directory of normalize_entry if available in pipeline layout
                 normalize_cwd = normalize_entry.parent if normalize_entry.exists() else resolve_pipeline_path("2_1_normalized_data")
+                normalize_fallback = FALLBACK_FOLDER / "normalize_fallback.json"
                 clean_ok = run_step(
-                    "NORMALIZE",
+                    "NORMALIZE (v2)",
                     normalize_entry,
                     args=[
                         "--input", str(extracted_file),
                         "--output", str(normalized_file),
+                        "--fallback", str(normalize_fallback),
                     ],
                     timeout=CLEAN_TIMEOUT,
                     cwd=normalize_cwd,
@@ -1008,9 +1825,26 @@ Examples:
     
     duration = datetime.now() - start
     log(f"Duration: {duration}")
+
+    if crawl_summary_bundle:
+        print()
+        print(format_daily_crawl_summary(
+            keyword=crawl_summary_bundle["keyword"],
+            activated_at=crawl_summary_bundle["activated_at"],
+            crawl_mode=crawl_summary_bundle["crawl_mode"],
+            results_tracker=crawl_summary_bundle["results_tracker"],
+            source_status=crawl_summary_bundle["source_status"],
+            raw_output_path=crawl_summary_bundle["raw_output_path"],
+            clean_output_path=CLEAN_FOLDER / "normalized.json",
+        ))
+
     log("=" * 80)
-    
-    return crawl_ok and clean_ok and import_ok
+
+    success = crawl_ok and clean_ok and import_ok
+    if success and effective_crawl_mode == "bootstrap" and step_crawl and step_clean and step_import:
+        save_pipeline_crawl_state("bootstrap")
+
+    return success
 
 if __name__ == "__main__":
     success = main()

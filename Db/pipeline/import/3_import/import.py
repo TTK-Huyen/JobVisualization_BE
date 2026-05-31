@@ -198,12 +198,12 @@ def upsert_job(cur, rec: Dict[str, Any], company_id: Optional[int], fingerprint:
     raw_search_group = unwrap_value(rec.get("job", {}).get("search_group")) or unwrap_value(rec.get("search_keyword"))
     search_group = None
     if raw_search_group:
-        normalized_keyword = str(raw_search_group).lower().strip()
+        normalized_keyword = str(raw_search_group).lower().strip().replace("_", " ")
         if normalized_keyword in valid_keywords:
             search_group = normalized_keyword
         else:
             # Fallback direct database query to check if it exists dynamically
-            cur.execute("SELECT 1 FROM public.search_group_keywords WHERE LOWER(TRIM(keyword)) = %s LIMIT 1", (normalized_keyword,))
+            cur.execute("SELECT 1 FROM public.search_group_keywords WHERE LOWER(REPLACE(TRIM(keyword), '_', ' ')) = %s LIMIT 1", (normalized_keyword,))
             if cur.fetchone():
                 search_group = normalized_keyword
             else:
@@ -462,8 +462,8 @@ def import_records(conn, records: List[Dict[str, Any]], fallback_path: Path) -> 
     
     # Pre-load valid keywords from search_group_keywords for CHECK-POINT 1 validation
     try:
-        cur.execute("SELECT LOWER(TRIM(keyword)) FROM public.search_group_keywords")
-        valid_keywords = {row[0] for row in cur.fetchall() if row[0]}
+        cur.execute("SELECT keyword FROM public.search_group_keywords")
+        valid_keywords = {str(row[0]).lower().strip().replace("_", " ") for row in cur.fetchall() if row[0]}
     except Exception as e:
         print(f"[WARNING] Could not load valid keywords from public.search_group_keywords: {e}")
         valid_keywords = set()

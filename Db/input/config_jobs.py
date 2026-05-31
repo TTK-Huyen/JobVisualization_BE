@@ -18,8 +18,8 @@ load_dotenv(ENV_FILE)
 # 📋 CONFIG ĐỂ USER DỄ CHỈNH - 4 BẢNG CHÍNH
 # ============================================================================
 
-# 1️⃣ JOBS PER KEYWORD - Mỗi keyword crawl bao nhiêu jobs
-JOBS_PER_KEYWORD = int(os.getenv("JOBS_PER_KEYWORD", "3"))  # ← EDIT ĐÂY
+# 1️⃣ JOBS PER KEYWORD - (Removed in favor of page-based limit)
+JOBS_PER_KEYWORD = None
 
 # 2️⃣ CRAWL SOURCE - Chọn source nào crawl
 JOB_LIMITS = {
@@ -68,6 +68,7 @@ CRAWL_SETTINGS_TABLE = {
     "max_retries": int(os.getenv("CRAWL_MAX_RETRIES", "2")),
     "batch_size": int(os.getenv("CLEAN_BATCH_SIZE", "20")),
 }
+CRAWL_MAX_PAGES = int(os.getenv("CRAWL_MAX_PAGES", "3"))
 
 # 5️⃣ PIPELINE STEPS - Chọn các bước chạy
 #
@@ -135,23 +136,18 @@ def calculate_total_keywords():
 
 
 def calculate_total_jobs():
-    """Tính tổng số jobs sẽ crawl"""
+    """Tính tổng số jobs sẽ crawl (bằng số trang)"""
     total_keywords = calculate_total_keywords()["total"]
-    total_jobs = total_keywords * JOBS_PER_KEYWORD
     
-    # Tính theo source
     breakdown = {
         "keywords": total_keywords,
-        "jobs_per_keyword": JOBS_PER_KEYWORD,
-        "total_jobs": total_jobs,
         "by_source": {}
     }
     
     for source_name, job_limit in JOB_LIMITS.items():
         if job_limit > 0:
             breakdown["by_source"][source_name] = {
-                "limit": job_limit,
-                "total": total_keywords * job_limit,
+                "max_pages": CRAWL_MAX_PAGES,
             }
     
     return breakdown
@@ -159,19 +155,19 @@ def calculate_total_jobs():
 
 def estimate_crawl_time():
     """Ước tính thời gian crawl (giây)"""
-    # Tốc độ crawl theo source (seconds per job)
+    # Tốc độ crawl theo trang (giây/trang)
     speeds = {
-        "careerviet": 12,
-        "itviec": 8,
-        "linkedin": 18,
-        "vietnamworks": 15,
+        "careerviet": 60,
+        "itviec": 40,
+        "linkedin": 90,
+        "vietnamworks": 45,
     }
     
     total_time = 0
-    for source_name, job_limit in JOB_LIMITS.items():
-        if job_limit > 0:
+    for source_name, enabled in JOB_LIMITS.items():
+        if enabled > 0:
             total_keywords = calculate_total_keywords()["total"]
-            time_for_source = total_keywords * job_limit * speeds.get(source_name, 10)
+            time_for_source = total_keywords * CRAWL_MAX_PAGES * speeds.get(source_name, 50)
             total_time += time_for_source
     
     # Parallel crawlers
@@ -204,13 +200,13 @@ def print_config():
     
     # Jobs config
     print(f"\n💼 JOBS CONFIGURATION:")
-    print(f"  Jobs per keyword: {JOBS_PER_KEYWORD}")
+    print(f"  Crawl page limit per keyword: {CRAWL_MAX_PAGES} pages")
     
     # Source config
     print(f"\n🌐 CRAWL SOURCES:")
     for source_name, limit in JOB_LIMITS.items():
         if limit > 0:
-            print(f"  ✓ {source_name}: {limit} jobs/keyword")
+            print(f"  ✓ {source_name} (enabled)")
     
     if not any(limit > 0 for limit in JOB_LIMITS.values()):
         print("  (No sources enabled)")
@@ -220,7 +216,7 @@ def print_config():
     estimate_time = estimate_crawl_time()
     print(f"\n⏱️  ESTIMATES:")
     print(f"  Total keywords: {jobs['keywords']}")
-    print(f"  Total jobs: {jobs['total_jobs']}")
+    print(f"  Max pages per source: {CRAWL_MAX_PAGES}")
     print(f"  Estimate time: ~{int(estimate_time)}s ({estimate_time/60:.1f}m)")
     
     # Settings
@@ -229,6 +225,7 @@ def print_config():
     print(f"  Request delay: {CRAWL_SETTINGS_TABLE['request_delay_min']}-{CRAWL_SETTINGS_TABLE['request_delay_max']}s")
     print(f"  Max retries: {CRAWL_SETTINGS_TABLE['max_retries']}")
     print(f"  Batch size: {CRAWL_SETTINGS_TABLE['batch_size']}")
+    print(f"  Max pages per source: {CRAWL_MAX_PAGES}")
     
     # Pipeline steps
     print(f"\n🔄 PIPELINE STEPS:")

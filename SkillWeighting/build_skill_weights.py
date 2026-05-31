@@ -382,15 +382,15 @@ def main():
                 print(f"[WARN] No jobs found for group '{g}', skipping.")
                 continue
 
-            # Determine threshold: use MIN_JOB_SHARE_FOR_LLM (fraction 0.0-1.0). Default 0.5 (50%).
+            # Determine threshold: use MIN_JOB_SHARE_FOR_LLM (fraction 0.0-1.0). Default 0.1 (10%).
             min_job_share_env = os.getenv("MIN_JOB_SHARE_FOR_LLM")
             if min_job_share_env is not None:
                 try:
                     min_job_share_for_llm = float(min_job_share_env)
                 except Exception:
-                    min_job_share_for_llm = 0.5
+                    min_job_share_for_llm = 0.1
             else:
-                min_job_share_for_llm = 0.5
+                min_job_share_for_llm = 0.1
 
             # clamp
             if min_job_share_for_llm < 0.0:
@@ -454,7 +454,7 @@ def main():
                 "common skill": 0.3,
             }
 
-            for sid, name, skill_type, count in skills:
+            for sid, name, skill_type, count in top_skills:
                 type_weight = TYPE_WEIGHT.get(str(skill_type).lower(), 0.5)
                 frequency_score = count / max_count
                 norm_name = re.sub(r"\W+", "", name.lower())
@@ -465,7 +465,6 @@ def main():
                 else:
                     base_score = 0.6 * frequency_score
 
-                type_weight = TYPE_WEIGHT.get(str(skill_type).lower(), 0.5)
                 final_score[sid] = base_score * type_weight
 
             mapped = validate_and_normalize(final_score)

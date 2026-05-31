@@ -343,8 +343,10 @@ def main():
     parser.add_argument("--threshold-possessed", type=float, default=0.75, help="Similarity threshold for possessed skills")
     parser.add_argument("--threshold-partial", type=float, default=0.3, help="Similarity threshold for partial match skills")
     parser.add_argument("--confidence-threshold", type=float, default=0.85, help="LLM skill extraction confidence threshold")
+    parser.add_argument("--output", help="Path to save matching result JSON. Default: next to CV file with suffix '_matching_result.json'")
     
     args = parser.parse_args()
+    python_exe = sys.executable
     
     if not get_db_connection:
         logger.error("Database connection setup is missing.")
@@ -400,55 +402,85 @@ def main():
         # ==========================================
         # STEP 2: Crawl Job JD from URL
         # ==========================================
-        logger.info("\n--- STEP 2: CRAWL JOB JD FROM URL ---")
-        raw_job = crawl_job_url(args.url)
-        logger.info("Crawled job title: '%s' from %s", raw_job.get("title"), raw_job.get("source_name"))
-        
-        # Clean existing temp files in .tmp directory to avoid idempotency/deduplication skips
+        logger.info("\n--- STEP 2: CRAWL/LOAD JOB JD FROM URL ---")
         tmp_dir = PROJECT_ROOT / ".tmp"
         tmp_dir.mkdir(exist_ok=True)
-        for filename in ["raw_job_temp.json", "pending_llm_temp.json", "extracted_temp.json", "normalized_temp.json", "fallback_temp.json"]:
-            file_path = tmp_dir / filename
-            if file_path.exists():
-                try:
-                    file_path.unlink()
-                except Exception as e:
-                    logger.warning("Could not delete old temp file %s: %s", filename, e)
-        
         raw_temp = tmp_dir / "raw_job_temp.json"
-        with open(raw_temp, "w", encoding="utf-8") as f:
-            json.dump([raw_job], f, ensure_ascii=False, indent=2, default=json_serializable)
-            
-        # ==========================================
-        # STEP 3: Clean, Extract, Normalize Job via Subprocesses
-        # ==========================================
-        logger.info("\n--- STEP 3: PROCESS AND NORMALIZE JOB JD ---")
-        python_exe = sys.executable
-        
-        pending_temp = tmp_dir / "pending_llm_temp.json"
-        clean_script = PROJECT_ROOT / "Db" / "pipeline" / "clean" / "2_clean_data" / "clean_process.py"
-        logger.info("Running clean_process.py...")
-        subprocess.run([
-            python_exe, str(clean_script), str(raw_temp), "--step", "1", "--output", str(pending_temp)
-        ], check=True)
-        
-        extracted_temp = tmp_dir / "extracted_temp.json"
-        fallback_temp = tmp_dir / "fallback_temp.json"
-        extract_script = PROJECT_ROOT / "Db" / "pipeline" / "extract" / "process_pending_llm.py"
-        logger.info("Running process_pending_llm.py...")
-        # Set PYTHONPATH so Db package imports work correctly
-        env = os.environ.copy()
-        env["PYTHONPATH"] = os.pathsep.join([str(PROJECT_ROOT), str(PROJECT_ROOT.parent)]) + (os.pathsep + env.get("PYTHONPATH", "") if env.get("PYTHONPATH") else "")
-        subprocess.run([
-            python_exe, str(extract_script), "--input-path", str(pending_temp), "--output-path", str(extracted_temp), "--fallback-path", str(fallback_temp)
-        ], env=env, check=True)
-        
         normalized_temp = tmp_dir / "normalized_temp.json"
-        normalize_script = PROJECT_ROOT / "Db" / "pipeline" / "normalize" / "2_1_normalized_data" / "normalize_embeddings.py"
-        logger.info("Running normalize_embeddings.py...")
-        subprocess.run([
-            python_exe, str(normalize_script), "--input", str(extracted_temp), "--output", str(normalized_temp)
-        ], check=True)
+        
+        use_cached = False
+        if raw_temp.exists() and normalized_temp.exists() and normalized_temp.stat().st_size > 2:
+            try:
+                with open(raw_temp, "r", encoding="utf-8") as f:
+                    raw_data = json.load(f)
+                if raw_data and raw_data[0].get("job_url") == args.url:
+                    use_cached = True
+            except Exception:
+                pass
+                
+        if use_cached:
+            logger.info("Using cached raw and normalized job details for URL: %s", args.url)
+            with open(raw_temp, "r", encoding="utf-8") as f:
+                raw_job = json.load(f)[0]
+        else:
+            raw_job = crawl_job_url(args.url)
+            logger.info("Crawled job title: '%s' from %s", raw_job.get("title"), raw_job.get("source_name"))
+            
+            # Clean existing temp files in .tmp directory to avoid idempotency/deduplication skips
+            for filename in ["raw_job_temp.json", "pending_llm_temp.json", "extracted_temp.json", "normalized_temp.json", "fallback_temp.json"]:
+                file_path = tmp_dir / filename
+                if file_path.exists():
+                    try:
+                        file_path.unlink()
+                    except Exception as e:
+                        logger.warning("Could not delete old temp file %s: %s", filename, e)
+            
+            with open(raw_temp, "w", encoding="utf-8") as f:
+                json.dump([raw_job], f, ensure_ascii=False, indent=2, default=json_serializable)
+                
+            # Add search_keyword if missing (required by some downstream processors)
+            with open(raw_temp, "r", encoding="utf-8") as f:
+                jobs_data = json.load(f)
+            for job in jobs_data:
+                if not job.get("search_keyword"):
+                    # Extract keyword from title or use default
+                    job_title = job.get("title", "").lower()
+                    if "developer" in job_title or "engineer" in job_title:
+                        job["search_keyword"] = "software developer"
+                    else:
+                        job["search_keyword"] = "it job"
+            with open(raw_temp, "w", encoding="utf-8") as f:
+                json.dump(jobs_data, f, ensure_ascii=False, indent=2, default=json_serializable)
+                
+            # ==========================================
+            # STEP 3: Clean, Extract, Normalize Job via Subprocesses
+            # ==========================================
+            logger.info("\n--- STEP 3: PROCESS AND NORMALIZE JOB JD ---")
+            python_exe = sys.executable
+            
+            pending_temp = tmp_dir / "pending_llm_temp.json"
+            clean_script = PROJECT_ROOT / "Db" / "pipeline" / "clean" / "2_clean_data" / "clean_process.py"
+            logger.info("Running clean_process.py...")
+            subprocess.run([
+                python_exe, str(clean_script), str(raw_temp), "--step", "1", "--output", str(pending_temp)
+            ], check=True)
+            
+            extracted_temp = tmp_dir / "extracted_temp.json"
+            fallback_temp = tmp_dir / "fallback_temp.json"
+            extract_script = PROJECT_ROOT / "Db" / "pipeline" / "extract" / "process_pending_llm.py"
+            logger.info("Running process_pending_llm.py...")
+            # Set PYTHONPATH so Db package imports work correctly
+            env = os.environ.copy()
+            env["PYTHONPATH"] = os.pathsep.join([str(PROJECT_ROOT), str(PROJECT_ROOT.parent)]) + (os.pathsep + env.get("PYTHONPATH", "") if env.get("PYTHONPATH") else "")
+            subprocess.run([
+                python_exe, str(extract_script), "--input-path", str(pending_temp), "--output-path", str(extracted_temp), "--fallback-path", str(fallback_temp)
+            ], env=env, check=True)
+            
+            normalize_script = PROJECT_ROOT / "Db" / "pipeline" / "normalize" / "2_1_normalized_data" / "normalize_embeddings.py"
+            logger.info("Running normalize_embeddings.py...")
+            subprocess.run([
+                python_exe, str(normalize_script), "--input", str(extracted_temp), "--output", str(normalized_temp)
+            ], check=True)
         
         # ==========================================
         # STEP 4: Match Job Title to search_group via vector embedding
@@ -520,13 +552,13 @@ def main():
             sid = s.get("skill_id")
             sname = s.get("mapped_name")
             if sid is not None:
-                # Look up weight in search group, default to low weight (0.1) if not core
-                weight = weight_map.get(sid, 0.1)
-                job_skills.append({
-                    "skill_id": int(sid),
-                    "skill_name": sname,
-                    "weight": weight
-                })
+                # Only keep skills that are present in the search group's weighted list
+                if sid in weight_map:
+                    job_skills.append({
+                        "skill_id": int(sid),
+                        "skill_name": sname,
+                        "weight": weight_map[sid]
+                    })
                 
         if not job_skills:
             logger.warning("No normalized skills found for this job description. Using search group default skills.")
@@ -618,6 +650,19 @@ def main():
         print("\n=== MATCHING RESULT ===")
         print(json.dumps(output_data, ensure_ascii=False, indent=2, default=json_serializable))
         
+        # Save output JSON to file
+        output_file_path = args.output
+        if not output_file_path:
+            cv_path = Path(args.cv)
+            output_file_path = cv_path.parent / f"{cv_path.stem}_matching_result.json"
+        
+        try:
+            with open(output_file_path, "w", encoding="utf-8") as f:
+                json.dump(output_data, f, ensure_ascii=False, indent=2, default=json_serializable)
+            logger.info("Saved matching result JSON to %s", output_file_path)
+        except Exception as e:
+            logger.error("Failed to save matching result JSON to file: %s", e)
+            
     finally:
         conn.close()
 

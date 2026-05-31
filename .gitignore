@@ -239,3 +239,14 @@ debug_*.txt
 /_archive_unused/
 /Db/archive_unused
 /debug
+/Test_module
+/node_modules
+/.tmp
+/Db/Db_debug
+/Db/data
+/Db/pipeline/clean/data
+/Db/pipeline/crawl/1_crawl_data/Debug
+/Db/pipeline/crawl/1_crawl_data/crawl_data/Debug
+/Db/pipeline/crawl/1_crawl_data/
+/Db/pipeline/crawl/data
+/Db/pipeline/import/3_import/Debug

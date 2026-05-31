@@ -232,7 +232,8 @@ def clean_description_html(text: str) -> str:
     s = re.sub(r"<style[^>]*>.*?</style>", " ", s, flags=re.IGNORECASE | re.DOTALL)
     s = re.sub(r"<svg[^>]*>.*?</svg>", " ", s, flags=re.IGNORECASE | re.DOTALL)
     s = re.sub(r"<template[^>]*>.*?</template>", " ", s, flags=re.IGNORECASE | re.DOTALL)
-
+    s = re.sub(r"<\?[^>]*\?>", " ", s, flags=re.IGNORECASE)  # Remove XML/PHP declarations
+    
     # Remove hidden inputs
     s = re.sub(r"<input\b[^>]*type=[\"']?hidden[\"']?[^>]*>", " ", s, flags=re.IGNORECASE)
 

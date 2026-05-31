@@ -3,29 +3,22 @@ import re
 import random
 import sys
 import os
-import json
-import platform
-
 from typing import Dict, List, Optional
-from urllib.parse import urljoin, urlparse, urlsplit, urlunsplit, urlencode, parse_qsl
+from urllib.parse import urljoin, urlparse, parse_qsl
 from datetime import datetime, timezone, timedelta
 
 import requests
-from bs4 import BeautifulSoup
-from urllib3.util.retry import Retry
-from requests.adapters import HTTPAdapter
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.options import Options as ChromeOptions
+from selenium.webdriver.chrome.service import Service
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
+from webdriver_manager.chrome import ChromeDriverManager
+import tempfile
 
-try:
-    from selenium import webdriver
-    from selenium.webdriver.chrome.options import Options as ChromeOptions
-    from selenium.webdriver.support.ui import WebDriverWait
-    from selenium.webdriver.support import expected_conditions as EC
-    from selenium.webdriver.common.by import By
-    SELENIUM_AVAILABLE = True
-except ImportError:
-    SELENIUM_AVAILABLE = False
-    print("[WARN] Selenium not available - raw HTML may be incomplete for JS pages")
-
+# Standard console config for Windows
 if sys.stdout.encoding != "utf-8":
     sys.stdout.reconfigure(encoding="utf-8")
 if sys.stderr.encoding != "utf-8":
@@ -33,60 +26,35 @@ if sys.stderr.encoding != "utf-8":
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from schema import RawJobData
-from date_filter import describe_date_filter, is_posted_date_allowed, parse_iso_date
+from date_filter import is_posted_date_allowed, parse_iso_date
+from central_filters import filter_recent_jobs
+
 
 BASE = "https://www.vietnamworks.com"
 
-if platform.system() == "Windows":
-    USER_AGENT = (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/123.0.0.0 Safari/537.36"
-    )
-else:
-    USER_AGENT = (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/123.0.0.0 Safari/537.36"
-    )
+def init_selenium_driver():
+    """Initialize Selenium WebDriver with Chrome options"""
+    chrome_options = ChromeOptions()
+    chrome_options.page_load_strategy = "eager"
+    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--window-size=1920,1080")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-software-rasterizer")
+    chrome_options.add_argument("--disable-features=VizDisplayCompositor")
+    chrome_options.add_argument("--headless=new")
+    chrome_options.add_argument(f"--user-data-dir={tempfile.mkdtemp(prefix='vnworks_chrome_')}")
+    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36")
+    
+    service = Service(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=chrome_options)
+    return driver
 
-HEADERS = {
-    "User-Agent": USER_AGENT,
-    "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Referer": "https://www.vietnamworks.com/",
-    "Connection": "keep-alive",
-}
-
-
+# Keep compatibility helper functions
 def build_session() -> requests.Session:
     s = requests.Session()
-    s.headers.update(HEADERS)
-
-    retry = Retry(
-        total=6,
-        connect=3,
-        read=3,
-        status=6,
-        backoff_factor=1.2,
-        status_forcelist=(429, 500, 502, 503, 504),
-        allowed_methods=frozenset(["GET", "HEAD"]),
-        raise_on_status=False,
-        respect_retry_after_header=True,
-    )
-
-    adapter = HTTPAdapter(max_retries=retry, pool_connections=20, pool_maxsize=50)
-    s.mount("https://", adapter)
-    s.mount("http://", adapter)
-
-    try:
-        s.get(BASE, timeout=20)
-        time.sleep(0.6)
-    except requests.RequestException:
-        pass
-
     return s
-
 
 def text(el) -> Optional[str]:
     if not el:
@@ -94,76 +62,45 @@ def text(el) -> Optional[str]:
     t = el.get_text(" ", strip=True)
     return re.sub(r"\s+", " ", t) if t else None
 
-
 def smart_sleep(min_s: float = 0.7, max_s: float = 1.5):
     time.sleep(random.uniform(min_s, max_s))
 
+def decode_html_response(response):
+    response.encoding = response.apparent_encoding or "utf-8"
+    return response
 
-def get_rendered_html_selenium(url: str, wait_seconds: int = 5) -> Optional[str]:
-    if not SELENIUM_AVAILABLE:
-        return None
-    url = url.split("?")[0]  # Strip query parameters for Selenium fallback
-    driver = None
-    try:
-        options = ChromeOptions()
-        options.add_argument("--headless=new")
-        options.add_argument("--no-sandbox")
-        options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--disable-gpu")
-        options.add_argument(f"user-agent={USER_AGENT}")
-        options.add_argument("--disable-blink-features=AutomationControlled")
-        options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option("useAutomationExtension", False)
+def _extract_first_value(data, keys):
+    if isinstance(data, dict):
+        for key in keys:
+            value = data.get(key)
+            if value:
+                return value
+        for value in data.values():
+            found = _extract_first_value(value, keys)
+            if found:
+                return found
+    elif isinstance(data, list):
+        for item in data:
+            found = _extract_first_value(item, keys)
+            if found:
+                return found
+    return None
 
-        driver = webdriver.Chrome(options=options)
-        driver.execute_cdp_cmd("Network.setUserAgentOverride", {"userAgent": USER_AGENT})
-        driver.set_page_load_timeout(30)
-        driver.get(url)
-
+def load_page_with_retry(driver, url: str, wait_seconds: int = 15, retries: int = 2):
+    last_error = None
+    for attempt in range(1, retries + 1):
         try:
+            driver.get(url)
             WebDriverWait(driver, wait_seconds).until(
-                EC.presence_of_element_located((By.TAG_NAME, "body"))
+                lambda d: d.execute_script("return document.readyState") in ("interactive", "complete")
             )
-        except Exception:
-            pass
-
-        time.sleep(2)
-        return driver.page_source
-
-    except Exception as e:
-        print(f"[WARN] Selenium failed for {url}: {e}")
-        return None
-    finally:
-        if driver:
-            try:
-                driver.quit()
-            except Exception:
-                pass
-
-
-def get_soup(session: requests.Session, url: str) -> BeautifulSoup:
-    last_response = None
-
-    for attempt in range(1, 6):
-        r = session.get(url, timeout=30)
-        last_response = r
-
-        if r.status_code == 429:
-            retry_after = r.headers.get("Retry-After")
-            wait = int(retry_after) if retry_after and retry_after.isdigit() else 5 * attempt
-            wait += random.uniform(0.5, 1.5)
-            print(f"[WARN] 429 {url} -> sleep {wait:.1f}s")
-            time.sleep(wait)
-            continue
-
-        r.raise_for_status()
-        return BeautifulSoup(r.text, "lxml")
-
-    if last_response is not None:
-        last_response.raise_for_status()
-
-    return BeautifulSoup("", "lxml")
-
+            return
+        except WebDriverException as exc:
+            last_error = exc
+            print(f"[WARN] Page load attempt {attempt}/{retries} failed: {type(exc).__name__}: {exc}")
+            if attempt < retries:
+                smart_sleep(1.0, 2.0)
+    raise last_error
 
 def extract_job_source_id(job_url: str) -> Optional[str]:
     if not job_url:
@@ -172,235 +109,297 @@ def extract_job_source_id(job_url: str) -> Optional[str]:
         m = re.search(r"-(\d+)(?:[/?]|$)", job_url)
         if m:
             return m.group(1)
-
         path = urlparse(job_url).path.strip("/")
         return path.split("/")[-1] if path else job_url
     except Exception:
         return None
 
+def parse_keyword_from_url(url: str) -> str:
+    parsed = urlparse(url)
+    q = dict(parse_qsl(parsed.query)).get("q")
+    return q if q else "backend"
 
-def is_job_fresh(job_dict: Dict) -> bool:
-    """Keep only jobs allowed by the active date-filter mode."""
-    online_on = job_dict.get("online_on")
-    job_date = parse_iso_date(online_on)
-    return is_posted_date_allowed(job_date)
+def build_paginated_url(base_url: str, page: int) -> str:
+    parsed = urlparse(base_url)
+    query = dict(parse_qsl(parsed.query))
+    query["page"] = str(page)
+    new_query = "&".join([f"{key}={value}" for key, value in query.items()])
+    return parsed._replace(query=new_query).geturl()
 
+def call_vietnamworks_search_api(keyword: str, page: int, hits_per_page: int = 50) -> Dict:
+    url = "https://ms.vietnamworks.com/job-search/v1.0/search"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Content-Type": "application/json",
+        "Origin": "https://www.vietnamworks.com",
+        "Referer": "https://www.vietnamworks.com/",
+    }
+    payload = {
+        "userId": 0,
+        "query": keyword,
+        "filter": [],
+        "ranges": [],
+        "order": [],
+        "hitsPerPage": hits_per_page,
+        "page": page
+    }
+    r = requests.post(url, headers=headers, json=payload, timeout=30)
+    r.raise_for_status()
+    return r.json()
 
-def with_page(url: str, page: int) -> str:
-    if "{page}" in url:
-        return url.format(page=page)
-
-    if page <= 1:
-        return url
-
-    parts = urlsplit(url)
-    q = dict(parse_qsl(parts.query, keep_blank_values=True))
-    q["page"] = str(page)
-    new_query = urlencode(q, doseq=True)
-
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, new_query, parts.fragment))
-
-
-def _extract_jobs_from_next_data(soup: BeautifulSoup) -> List[Dict]:
-    script = soup.select_one("script#__NEXT_DATA__")
-    if not script or not script.string:
-        return []
-
+def fetch_and_parse_full_job_details(job_url: str) -> tuple:
+    """
+    Fetch the job detail page and extract untruncated jobDescription and jobRequirement from Next.js RSC payload.
+    """
+    import html
+    import re
+    from bs4 import BeautifulSoup
+    import requests
+    from datetime import datetime
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9,vi;q=0.8",
+    }
     try:
-        data = json.loads(script.string)
-    except Exception:
-        return []
+        r = requests.get(job_url, headers=headers, timeout=15)
+        decode_html_response(r)
+        if r.status_code != 200:
+            print(f"[WARN] Failed to fetch job detail from {job_url}: Status {r.status_code}")
+            return None, None, None, None
+            
+        soup = BeautifulSoup(r.text, 'html.parser')
 
-    def iter_lists(obj):
-        if isinstance(obj, list) and obj and all(isinstance(x, dict) for x in obj):
-            yield obj
-        elif isinstance(obj, dict):
-            for v in obj.values():
-                yield from iter_lists(v)
+        posted_date_iso = None
+        posted_label = soup.find(lambda tag: getattr(tag, "name", None) == "label" and tag.get_text(" ", strip=True).strip().upper() == "NGÀY ĐĂNG")
+        if posted_label:
+            posted_block = posted_label.find_parent("div")
+            if posted_block:
+                posted_text_elem = posted_block.find("p")
+                posted_text = posted_text_elem.get_text(" ", strip=True) if posted_text_elem else None
+                if posted_text:
+                    try:
+                        posted_date_iso = datetime.strptime(posted_text, "%d/%m/%Y").date().isoformat()
+                    except Exception:
+                        posted_date_iso = None
 
-    results: List[Dict] = []
-
-    for arr in iter_lists(data):
-        keys = set().union(*(set(d.keys()) for d in arr)) if arr else set()
-        if not keys:
-            continue
-
-        if not (
-            {"id", "title"} <= keys
-            or {"jobId", "jobTitle"} <= keys
-            or any("job" in k.lower() for k in keys)
-        ):
-            continue
-
-        for d in arr:
-            try:
-                title = d.get("jobTitle") or d.get("title") or d.get("name")
-
-                company_name = d.get("companyName") or d.get("employerName")
-                comp_field = d.get("company")
-                company_href = d.get("companyUrl")
-
-                if isinstance(comp_field, dict):
-                    company_name = company_name or comp_field.get("name")
-                    company_href = company_href or comp_field.get("url")
-                elif isinstance(comp_field, str):
-                    company_name = company_name or comp_field
-
-                job_href = d.get("jobUrl") or d.get("url") or d.get("href") or d.get("seoUrl")
-                if not job_href:
-                    slug = d.get("slug") or d.get("jobSlug") or ""
-                    jid = d.get("id") or d.get("jobId")
-                    if slug and jid:
-                        job_href = f"/{slug}-{jid}-jv"
-
-                if title and job_href:
-                    results.append(
-                        {
-                            "title": title,
-                            "job_url": urljoin(BASE, str(job_href)),
-                            "company": company_name,
-                            "company_url": urljoin(BASE, company_href) if company_href else None,
-                            "online_on": d.get("onlineOn"),  # Include job freshness timestamp
-                        }
-                    )
-            except Exception:
-                continue
-
-        if results:
-            break
-
-    return results
-
-
-def parse_search_page(session: requests.Session, url: str, prefer_next: bool = True) -> List[Dict]:
-    soup = get_soup(session, url)
-
-    if prefer_next:
-        jobs_from_next = _extract_jobs_from_next_data(soup)
-        if jobs_from_next:
-            return jobs_from_next
-
-    jobs: List[Dict] = []
-
-    cards = soup.select(
-        "article.job-item, div.job-item, div.job-card, li.job, div.search-job, div.results div.job-item"
-    )
-    if not cards:
-        cards = [a.parent for a in soup.select("a[href*='-jv']")]
-
-    # If no cards found, try Selenium to render JavaScript and load async jobs
-    if not cards:
-        print(f"[INFO] No jobs found in static HTML - trying Selenium rendering...")
-        html_rendered = get_rendered_html_selenium(url, wait_seconds=5)
-        if html_rendered:
-            soup = BeautifulSoup(html_rendered, "lxml")
-            cards = soup.select(
-                "article.job-item, div.job-item, div.job-card, li.job, div.search-job, div.results div.job-item, div.search_list.new-job-card"
-            )
-            if cards:
-                print(f"[INFO] Found {len(cards)} cards from Selenium rendering")
-            else:
-                cards = [a.parent for a in soup.select("a[href*='-jv']")]
-                if cards:
-                    print(f"[INFO] Found {len(cards)} cards via -jv fallback from Selenium")
-
-    for card in cards:
-        a_title = None
-        for css in [
-            "a.job-title[href]",
-            "h2 a[href*='-jv']",
-            "h3 a[href*='-jv']",
-            "a[href*='-jv']",
-            "a[href*='/viec-lam/']",
-        ]:
-            a_title = card.select_one(css)
-            if a_title:
-                break
-
-        if not a_title:
-            continue
-
-        title = text(a_title)
-        job_url = urljoin(BASE, a_title.get("href"))
-
-        comp_a = None
-        for css in [
-            "a[href*='/nha-tuyen-dung/']",
-            "a[href*='/company']",
-            ".company a[href]",
-        ]:
-            comp_a = card.select_one(css)
-            if comp_a:
-                break
-
-        company = text(comp_a) or text(card.select_one(".company, .company-name, .job-company"))
-        company_url = urljoin(BASE, comp_a.get("href")) if comp_a and comp_a.has_attr("href") else None
-
-        jobs.append(
-            {
-                "title": title,
-                "job_url": job_url,
-                "company": company,
-                "company_url": company_url,
-            }
+        html_expiry_date = None
+        expiry_span = soup.find("span", attrs={"name": "paragraph"}, string=re.compile(r"Hết hạn", re.I))
+        if expiry_span:
+            expiry_text = expiry_span.get_text(" ", strip=True)
+            match = re.search(r"(\d+)", expiry_text)
+            if match:
+                try:
+                    html_expiry_date = (datetime.now() + timedelta(days=int(match.group(1)))).date().isoformat()
+                except Exception:
+                    html_expiry_date = None
+        
+        # Concatenate all push strings
+        rsc_parts = []
+        for script in soup.find_all('script'):
+            if script.string and 'self.__next_f.push' in script.string:
+                matches = re.findall(r'self\.__next_f\.push\(\s*\[\s*\d+\s*,\s*"(.*)"\s*\]\s*\)', script.string)
+                for m in matches:
+                    try:
+                        decoded = bytes(m, "utf-8").decode("unicode-escape")
+                        rsc_parts.append(decoded)
+                    except Exception:
+                        rsc_parts.append(m)
+                        
+        full_rsc_text = "".join(rsc_parts)
+        if not full_rsc_text:
+                                    return None, None, None, soup
+            
+        normalized = full_rsc_text.replace('\\"', '"').replace('\\/', '/')
+        
+        # Regex matching double-quoted string with escapes
+        desc_val_match = re.search(r'"jobDescription"\s*:\s*"((?:[^"\\]|\\.)*)"', normalized)
+        req_val_match = re.search(r'"jobRequirement"\s*:\s*"((?:[^"\\]|\\.)*)"', normalized)
+        th_start_match = re.search(r'"serviceCode"\s*:\s*"TH"[^\{\}]*?"startOn"\s*:\s*"((?:[^"\\]|\\.)*)"', normalized)
+        date_posted_match = re.search(r'"datePosted"\s*:\s*"((?:[^"\\]|\\.)*)"', normalized)
+        online_on_match = re.search(r'"onlineOn"\s*:\s*"((?:[^"\\]|\\.)*)"', normalized)
+        raw_date_text = (
+            th_start_match.group(1)
+            if th_start_match
+            else (date_posted_match.group(1) if date_posted_match else (online_on_match.group(1) if online_on_match else None))
         )
+        
+        if not desc_val_match or not req_val_match:
+            return None, None, raw_date_text, soup
+            
+        desc_val = desc_val_match.group(1)
+        req_val = req_val_match.group(1)
+        
+        def extract_slot_content(val):
+            if val.startswith('$') and len(val) > 1 and val[1:].isalnum():
+                slot_id = val[1:]
+                pattern = rf'(?:^|[\"\'\s,]){slot_id}:T([0-9a-fA-F]+),'
+                matches = list(re.finditer(pattern, full_rsc_text))
+                if not matches:
+                    pattern = rf'{slot_id}:T([0-9a-fA-F]+),'
+                    matches = list(re.finditer(pattern, full_rsc_text))
+                if not matches:
+                    return None
+                match = matches[-1]
+                hex_len = match.group(1)
+                content_len = int(hex_len, 16)
+                start_idx = match.end()
+                return full_rsc_text[start_idx:start_idx + content_len]
+            else:
+                return val
+                
+        desc_content = extract_slot_content(desc_val)
+        req_content = extract_slot_content(req_val)
+        
+        if desc_content:
+            if not desc_val.startswith('$'):
+                desc_content = desc_content.replace('\\"', '"').replace('\\/', '/').replace('\\n', '\n')
+            desc_content = html.unescape(desc_content)
+            try:
+                desc_content = desc_content.encode('latin1').decode('utf-8', errors='ignore')
+            except Exception:
+                pass
+            
+        if req_content:
+            if not req_val.startswith('$'):
+                req_content = req_content.replace('\\"', '"').replace('\\/', '/').replace('\\n', '\n')
+            req_content = html.unescape(req_content)
+            try:
+                req_content = req_content.encode('latin1').decode('utf-8', errors='ignore')
+            except Exception:
+                pass
+            
+        return desc_content, req_content, raw_date_text, soup
+    except Exception as e:
+        print(f"[WARN] Error fetching/parsing job detail from {job_url}: {e}")
+        return None, None, None, None
 
-    return jobs
+def map_api_job_to_raw_job_data(job: dict, search_keyword: Optional[str] = None) -> RawJobData:
+    job_id = str(job.get("jobId", ""))
+    job_url = job.get("jobUrl") or f"https://www.vietnamworks.com/{job.get('alias')}-{job_id}-jv"
+    title = job.get("jobTitle", "")
+    
+    # Try fetching full description & requirements from job detail page
+    full_desc, full_req, full_posted_text, detail_soup = fetch_and_parse_full_job_details(job_url)
+    
+    # Use full text if successfully retrieved, otherwise fallback to truncated search API values
+    job_desc = full_desc if full_desc else job.get("jobDescription", "")
+    job_req = full_req if full_req else job.get("jobRequirement", "")
+    payload_posted_date_value = parse_iso_date(full_posted_text)
+    api_posted_date_text = _extract_first_value(job, ("onlineOn", "datePosted", "postedDate"))
+    api_posted_date_value = parse_iso_date(api_posted_date_text)
+    extracted_posted_date = None
+    html_expiry_date = None
+    if detail_soup:
+        import unicodedata
 
+        info_title = detail_soup.find(
+            lambda tag: getattr(tag, "name", None) == "h2"
+            and tag.get_text(" ", strip=True).strip().lower() == "thông tin việc làm"
+        )
+        info_root = info_title.find_parent("div") if info_title else detail_soup
+        label_node = None
+        for node in info_root.find_all("label", attrs={"name": "label"}):
+            text_norm = unicodedata.normalize("NFD", node.get_text(" ", strip=True))
+            text_norm = "".join(ch for ch in text_norm if unicodedata.category(ch) != "Mn").lower()
+            if "ngay dang" in text_norm:
+                label_node = node
+                break
+        if label_node:
+            date_block = label_node.find_parent("div")
+            p_node = date_block.find("p", attrs={"name": "paragraph"}) if date_block else label_node.find_next("p")
+            if p_node:
+                raw_html_date = p_node.get_text(strip=True)
+                try:
+                    extracted_posted_date = datetime.strptime(raw_html_date, "%d/%m/%Y").date().isoformat()
+                except Exception:
+                    extracted_posted_date = None
 
-def scrape_job_detail_raw(session: requests.Session, job_url: str, use_selenium: bool = True) -> Dict:
-    html_raw = None
+        expiry_span = detail_soup.find("span", attrs={"name": "paragraph"}, string=re.compile(r"Hết hạn", re.I))
+        if expiry_span:
+            expiry_text = expiry_span.get_text(" ", strip=True)
+            match = re.search(r"(\d+)", expiry_text)
+            if match:
+                try:
+                    html_expiry_date = (datetime.now() + timedelta(days=int(match.group(1)))).date().isoformat()
+                except Exception:
+                    html_expiry_date = None
 
-    if use_selenium and SELENIUM_AVAILABLE:
-        html_raw = get_rendered_html_selenium(job_url)
+    posted_date = extracted_posted_date or (payload_posted_date_value.isoformat() if payload_posted_date_value else (api_posted_date_value.isoformat() if api_posted_date_value else None))
+    
+    # Combine description HTML
+    desc_parts = []
+    if job_desc:
+        desc_parts.append(f"<h3>Mô tả công việc</h3>{job_desc}")
+    if job_req:
+        desc_parts.append(f"<h3>Yêu cầu công việc</h3>{job_req}")
+    if job.get("companyProfile"):
+        desc_parts.append(f"<h3>Thông tin công ty</h3><p>{job['companyProfile']}</p>")
+    description_html = "\n".join(desc_parts)
 
-    if not html_raw:
-        r = session.get(job_url, timeout=30)
-        r.raise_for_status()
-        html_raw = r.text
-
-    soup = BeautifulSoup(html_raw, "lxml")
-    smart_sleep()
-
-    title = None
-    page_title = soup.select_one("title")
-    if page_title:
-        title = text(page_title)
+    # Locations
+    locs = job.get("workingLocations", [])
+    location_raw = ", ".join([l.get("address") for l in locs if l.get("address")]) if locs else job.get("address")
+    
+    # Salary
+    salary_raw = job.get("prettySalary")
+    
+    # Experience
+    years_exp = job.get("yearsOfExperience")
+    experience_raw = f"{years_exp} năm" if years_exp is not None else None
+    
+    # Dates
+    expiry_date = html_expiry_date or job.get("expiredOn")
+    
+    # Tags / skills
+    skills = job.get("skills", [])
+    tags = [s.get("skillName") for s in skills if s.get("skillName")]
+    
+    # Benefits
+    benefits_list = job.get("benefits", [])
+    benefits = [b.get("benefitValue") for b in benefits_list if b.get("benefitValue")]
+    
+    # Company Info
+    company_name = job.get("companyName")
+    company_source_id = str(job.get("companyId")) if job.get("companyId") else None
+    company_website = job.get("companyUrl") or None
+    company_address = job.get("address")
+    company_size = job.get("companySizeVI") or job.get("companySize")
+    
+    # Industry
+    inds = job.get("industriesV3", [])
+    company_industry = ", ".join([ind.get("industryV3NameVI") for ind in inds if ind.get("industryV3NameVI")]) if inds else None
+    requirements_text = job_req
 
     vietnam_tz = timezone(timedelta(hours=7))
+    scraped_at = datetime.now(vietnam_tz).isoformat()
 
-    return {
-        "detail_title": title,
-        "html_raw": html_raw,
-        "scraped_at": datetime.now(vietnam_tz).isoformat(),
-    }
-
-
-def convert_to_raw_job_data(job_dict: Dict, detail_dict: Dict) -> RawJobData:
     return RawJobData(
         source_name="vietnamworks",
-        job_url=job_dict.get("job_url"),
-        job_source_id=extract_job_source_id(job_dict.get("job_url", "")) or "",
-        title=job_dict.get("title") or detail_dict.get("detail_title") or "",
-        description_html=detail_dict.get("html_raw") or "",
-        location_raw=None,
-        salary_raw=None,
-        employment_type=None,
-        experience_raw=None,
-        posted_date=None,
-        expiry_date=None,
-        scraped_at=detail_dict.get("scraped_at"),
-        tags=[],
-        benefits=[],
-        company_name=job_dict.get("company"),
-        company_source_id=None,
-        company_website=None,
-        company_address=None,
-        company_size_raw=None,
-        company_industry=None,
-        requirements_text=None,
+        job_url=job_url,
+        job_source_id=job_id,
+        title=title,
+        description_html=description_html,
+        location_raw=location_raw,
+        salary_raw=salary_raw,
+        employment_type="Full-time",
+        experience_raw=experience_raw,
+        posted_date=posted_date,
+        expiry_date=expiry_date,
+        scraped_at=scraped_at,
+        search_keyword=search_keyword,
+        tags=tags,
+        benefits=benefits,
+        company_name=company_name,
+        company_source_id=company_source_id,
+        company_website=company_website,
+        company_address=company_address,
+        company_size_raw=company_size,
+        company_industry=company_industry,
+        requirements_text=requirements_text,
     )
-
 
 def crawl_list_url_to_raw_jobs(
     list_url_page1: str,
@@ -409,77 +408,123 @@ def crawl_list_url_to_raw_jobs(
     delay_between_pages=(0.6, 1.2),
     prefer_next: bool = True,
     fetch_company: bool = False,
-    max_jobs: int = 10,
+    max_jobs: int = 20,
     search_keyword: str = None,
 ) -> List[RawJobData]:
+    """
+    Crawl vietnamworks using Selenium WebDriver
+    
+    Args:
+        list_url_page1: URL of first search page
+        start_page: Starting page number
+        end_page: Ending page number
+        delay_between_pages: Tuple of (min_delay, max_delay) between page loads
+        prefer_next: Whether to prefer pagination
+        fetch_company: Whether to fetch company details
+        max_jobs: Maximum jobs to crawl (default 20 per keyword)
+        search_keyword: Search keyword
+    
+    Returns:
+        List of RawJobData objects
+    """
     raw_jobs: List[RawJobData] = []
     seen_jobs = set()
-    s = build_session()
-    print(f"[INFO] Date filter mode: {describe_date_filter()}")
-
-    for page in range(start_page, end_page + 1):
-        url = with_page(list_url_page1, page)
-        print(f"[INFO] Crawling search page {page}: {url}")
-
-        jobs = parse_search_page(s, url, prefer_next=prefer_next)
-        if not jobs:
-            print(f"[INFO] Trang {page} không còn job - dừng sớm.")
-            break
-
-        # Track if this page had any jobs that pass the date threshold
-        page_has_fresh_jobs = False
-
-        for j in jobs:
-            job_url = j["job_url"]
-            job_id = urlparse(job_url).path
-
-            if job_id in seen_jobs:
-                continue
-            seen_jobs.add(job_id)
-
-            # Check if this job passes the date threshold
-            is_fresh = is_job_fresh(j)
-            if is_fresh:
-                page_has_fresh_jobs = True
+    driver = None
+    
+    keyword = search_keyword or parse_keyword_from_url(list_url_page1)
+    print(f"[INFO] Crawling keyword: '{keyword}' using Selenium")
+    print(f"[INFO] Max jobs per keyword: {max_jobs}")
+    
+    # Respect caller-provided max_jobs; default to a safe value only when omitted.
+    if max_jobs is None:
+        max_jobs = 20
+    
+    try:
+        driver = init_selenium_driver()
+        
+        for page in range(start_page, end_page + 1):
+            print(f"\n[INFO] Processing page {page} for keyword '{keyword}'...")
+            api_page = max(page - 1, 0)
+            
+            # Build search URL
+            if page == 1:
+                search_url = list_url_page1
             else:
-                print(f"[SKIP OLD JOB] {job_url} | online_on={j.get('online_on')}")
-                continue
-
+                search_url = build_paginated_url(list_url_page1, page)
+            print(f"[INFO] Loading: {search_url}")
+            
             try:
-                detail = scrape_job_detail_raw(s, job_url)
-            except Exception as e:
-                print(f"[WARN] Lỗi job detail {job_url}: {e}")
-                detail = {
-                    "detail_title": None,
-                    "html_raw": None,
-                    "scraped_at": None,
-                }
-
+                load_page_with_retry(driver, search_url, wait_seconds=15, retries=2)
+            except TimeoutException:
+                print(f"[ERROR] Timeout waiting for job list on page {page}")
+                break
+            except WebDriverException as exc:
+                print(f"[ERROR] Browser session failed on page {page}: {type(exc).__name__}: {exc}")
+                break
+            
+            page_has_fresh_jobs = False
+            
             try:
-                raw_job = convert_to_raw_job_data(j, detail)
-                raw_job.search_keyword = search_keyword  # Add search keyword
-                raw_jobs.append(raw_job)
+                api_res = call_vietnamworks_search_api(keyword, api_page, hits_per_page=50)
+                jobs_list = api_res.get("data", [])
+                print(f"[INFO] Found {len(jobs_list)} jobs from API for web page {page} (api page {api_page})")
 
-                html_len = len(raw_job.description_html or "")
-                status = "OK" if html_len > 0 else "EMPTY_HTML"
-                freshness = "FRESH" if is_fresh else "OLD"
+                if not jobs_list:
+                    print(f"[INFO] Page {page} has no job data - stopping.")
+                    break
 
-                print(f"[{len(raw_jobs)}] {status} {freshness} | ID={raw_job.job_source_id} | TITLE={raw_job.title} | HTML_LEN={html_len}")
-                print(f"     URL: {raw_job.job_url}")
+                for job in jobs_list:
+                    try:
+                        job_id = str(job.get("jobId"))
+                        if job_id in seen_jobs:
+                            print(f"[SKIP DUPLICATE] ID={job_id}")
+                            continue
 
-                if max_jobs and len(raw_jobs) >= max_jobs:
-                    return raw_jobs
+                        # Record posted date for metadata but do not skip here; central filter will prune later
+                        online_on = _extract_first_value(job, ("onlineOn", "datePosted", "postedDate"))
+                        posted_dt = parse_iso_date(online_on)
+                        seen_jobs.add(job_id)
+                        page_has_fresh_jobs = True
 
+                        raw_job = map_api_job_to_raw_job_data(job, search_keyword=keyword)
+
+                        raw_jobs.append(raw_job)
+
+                        html_len = len(raw_job.description_html or "")
+                        print(f"[{len(raw_jobs)}] OK | ID={raw_job.job_source_id} | {raw_job.title[:60]} | HTML_LEN={html_len}")
+                        print(f"     Location: {raw_job.location_raw} | Salary: {raw_job.salary_raw}")
+
+                        if len(raw_jobs) >= max_jobs:
+                            print(f"\n[INFO] Reached max_jobs limit of {max_jobs} for keyword '{keyword}'")
+                            return raw_jobs
+
+                    except Exception as e:
+                        print(f"[ERROR] Failed to process job: {e}")
+                        continue
+
+                    smart_sleep(0.3, 0.6)
+                
             except Exception as e:
-                print(f"[ERROR] Không thể convert job {job_url}: {e}")
-
-        # Stop if page has no fresh jobs
-        if not page_has_fresh_jobs:
-            print(f"[INFO] Trang {page} toàn job cũ - dừng crawl")
-            break
-        else:
-            print(f"[INFO] Trang {page} có job mới - tiếp tục crawl")
-
-        smart_sleep(*delay_between_pages)
-
-    return raw_jobs
+                print(f"[ERROR] Failed to parse job list on page {page}: {e}")
+                break
+            
+            if not page_has_fresh_jobs:
+                print(f"[INFO] Page {page} contains only old jobs - stopping crawl.")
+                break
+            
+            # Delay between pages
+            if page < end_page:
+                print(f"[INFO] Waiting {delay_between_pages[0]:.1f}-{delay_between_pages[1]:.1f}s before next page...")
+                smart_sleep(*delay_between_pages)
+        
+    finally:
+        if driver:
+            print(f"[INFO] Closing Selenium driver...")
+            driver.quit()
+    
+    print(f"\n[INFO] Crawl completed. Total jobs collected: {len(raw_jobs)}")
+    try:
+        filtered = filter_recent_jobs(raw_jobs)
+        return filtered
+    except Exception:
+        return raw_jobs

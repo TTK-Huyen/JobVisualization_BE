@@ -28,7 +28,16 @@ if PROJECT_ROOT and str(PROJECT_ROOT) not in sys.path:
 
 def load_job_normalizer_module():
     repo_root = Path(__file__).resolve().parents[1]
-    normalizer_path = (
+    # Prefer v2 normalizer, fallback to original
+    normalizer_path_v2 = (
+        repo_root
+        / "Db"
+        / "pipeline"
+        / "normalize"
+        / "2_1_normalized_data"
+        / "normalize_pipeline_v2.py"
+    )
+    normalizer_path_old = (
         repo_root
         / "Db"
         / "pipeline"
@@ -37,8 +46,10 @@ def load_job_normalizer_module():
         / "normalize_embeddings.py"
     )
 
+    normalizer_path = normalizer_path_v2 if normalizer_path_v2.exists() else normalizer_path_old
+
     if not normalizer_path.exists():
-        raise RuntimeError(f"normalize_embeddings.py not found: {normalizer_path}")
+        raise RuntimeError(f"normalize normalizer not found: {normalizer_path}")
 
     spec = importlib.util.spec_from_file_location(
         "normalize_embeddings_shared",
@@ -47,6 +58,25 @@ def load_job_normalizer_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def get_normalize_skill_key_func(shared_module):
+    """Get the appropriate skill normalization function based on module version."""
+    # Try v2 first (clean_skill_name), then fallback to v1 (normalize_skill_key)
+    if hasattr(shared_module, 'clean_skill_name'):
+        return shared_module.clean_skill_name
+    elif hasattr(shared_module, 'normalize_skill_key'):
+        return shared_module.normalize_skill_key
+    else:
+        # Fallback: create a simple normalization function
+        def simple_normalize(text: str) -> str:
+            if not text:
+                return ""
+            text = str(text).lower()
+            text = re.sub(r"\([^)]*\)", "", text)
+            text = re.sub(r"\s+", " ", text)
+            return text.strip()
+        return simple_normalize
 
 def _find_skills_cache() -> Optional[Path]:
     # Common cache locations used by Db pipeline
@@ -128,11 +158,12 @@ def normalize_student_skills(
     model = SentenceTransformer(model_name)
 
     shared = load_job_normalizer_module()
+    normalize_skill_key = get_normalize_skill_key_func(shared)
 
     keyword_index = {
-        shared.normalize_skill_key(name): name
+        normalize_skill_key(name): name
         for _, name in skill_map
-        if shared.normalize_skill_key(name)
+        if normalize_skill_key(name)
     }
 
     skill_items = []

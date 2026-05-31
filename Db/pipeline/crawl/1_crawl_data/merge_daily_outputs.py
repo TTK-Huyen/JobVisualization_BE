@@ -37,6 +37,12 @@ FALLBACK_DIR.mkdir(parents=True, exist_ok=True)
 print(f"[MERGE] Reading crawled files from: {RAW_DIR}")
 print(f"[MERGE] Output directory: {OUTDIR}")
 
+sys.path.insert(0, str(BASE / "crawl_data"))
+try:
+    from central_filters import filter_recent_jobs
+except Exception:
+    filter_recent_jobs = None
+
 def load_json_file(p):
     try:
         with open(p, 'r', encoding='utf-8') as f:
@@ -166,6 +172,10 @@ def main():
     # Decide routing based on *required* fields only
     fallback_items = [d for d in items if missing_required_fields(d)]
     combined_items = [d for d in items if not missing_required_fields(d)]
+
+    job_date_mode = str(os.environ.get("JOB_DATE_MODE", "")).strip().lower()
+    if filter_recent_jobs and job_date_mode in {"on", "true", "yes", "1", "realtime"}:
+        combined_items = filter_recent_jobs(combined_items)
 
     # Lưu vào same folder
     out_file = OUTDIR / 'jobs_combined.json'

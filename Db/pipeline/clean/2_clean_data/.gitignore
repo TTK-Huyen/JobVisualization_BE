@@ -3,3 +3,6 @@ output/
 *.json
 *.csv
 __pycache__/
+cache/
+logs/
+output/
