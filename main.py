@@ -15,9 +15,11 @@ app = FastAPI(
 UPLOAD_DIR = Path(".tmp_cv_uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-if os.name == 'nt':  # Windows
+if Path("/.dockerenv").exists() or os.getenv("IS_DOCKER"):
+    PYTHON_EXEC = "python"
+elif os.name == 'nt':  # Windows Local
     PYTHON_EXEC = str(Path(".venv/Scripts/python.exe").resolve())
-else:  # Linux / MacOS / Docker
+else:  # Linux / MacOS Local
     PYTHON_EXEC = str(Path(".venv/bin/python").resolve())
 
 
