@@ -384,6 +384,9 @@ def export_to_excel(data, out_prefix=None):
     df.to_excel(out, index=False)
 
 def scrape_data(keyword, location, max_jobs=None, search_keyword=None, test_mode=False):
+    if max_jobs is not None and max_jobs <= 0:
+        print("[INFO] max_jobs is 0 or negative. Skipping crawl and returning empty list.")
+        return []
     print(f"[INFO] Dang crawl danh sach job cho '{keyword}' tai '{location}'...")
     print(f"[INFO] Date filter mode: {describe_date_filter()}")
     job_links = get_job_list(keyword, location, test_mode=test_mode, max_jobs=max_jobs)

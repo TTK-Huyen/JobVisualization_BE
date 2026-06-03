@@ -337,7 +337,7 @@ def upsert_user_cv(conn, user_id: int, file_name: str, file_url: str, extracted_
         row = cur.fetchone()
         if row:
             cv_id = row[0]
-            logger.info("Found existing CV (cv_id: %d) for user_id: %d, updating...", cv_id, user_id)
+            logger.info("Found existing CV (cv_id: %s) for user_id: %s, updating...", cv_id, user_id)
             cur.execute(
                 """
                 UPDATE public.user_cvs 
@@ -347,7 +347,7 @@ def upsert_user_cv(conn, user_id: int, file_name: str, file_url: str, extracted_
                 (extracted_text, file_url, cv_id)
             )
         else:
-            logger.info("Inserting new CV into public.user_cvs for user_id: %d...", user_id)
+            logger.info("Inserting new CV into public.user_cvs for user_id: %s...", user_id)
             cur.execute(
                 """
                 INSERT INTO public.user_cvs (user_id, file_name, file_url, extracted_text)
@@ -393,7 +393,7 @@ def save_user_cv_skills(conn, cv_id: int, student_skills: List[Dict[str, Any]]) 
                 rows
             )
         conn.commit()
-        logger.info("Saved %d skills to user_cv_skills for cv_id: %d.", len(rows), cv_id)
+        logger.info("Saved %d skills to user_cv_skills for cv_id: %s.", len(rows), cv_id)
     except Exception as e:
         conn.rollback()
         logger.error("Failed to save user CV skills: %s", e)
@@ -403,7 +403,7 @@ def save_user_cv_skills(conn, cv_id: int, student_skills: List[Dict[str, Any]]) 
 
 def save_cv_job_match(
     conn,
-    cv_id: int,
+    cv_id: str,
     search_group: str,
     match_percent: float,
     matched_skills: List[Dict[str, Any]],
@@ -430,7 +430,7 @@ def save_cv_job_match(
         row = cur.fetchone()
         if row:
             match_id = row[0]
-            logger.info("Updating existing cv_job_match (match_id: %d) for cv_id: %d...", match_id, cv_id)
+            logger.info("Updating existing cv_job_match (match_id: %s) for cv_id: %s...", match_id, cv_id)
             cur.execute(
                 """
                 UPDATE public.cv_job_matches
@@ -440,7 +440,7 @@ def save_cv_job_match(
                 (match_percent, json.dumps(radar_data), json.dumps(gap_report), match_id)
             )
         else:
-            logger.info("Inserting new cv_job_match for cv_id: %d...", cv_id)
+            logger.info("Inserting new cv_job_match for cv_id: %s...", cv_id)
             cur.execute(
                 """
                 INSERT INTO public.cv_job_matches (cv_id, match_type, search_group, match_score, radar_data, gap_report, model_version)
@@ -464,7 +464,7 @@ def main():
     parser.add_argument("--threshold-possessed", type=float, default=0.75, help="Similarity threshold for possessed skills")
     parser.add_argument("--threshold-partial", type=float, default=0.3, help="Similarity threshold for partial match skills")
     parser.add_argument("--confidence-threshold", type=float, default=0.85, help="LLM skill extraction confidence threshold")
-    parser.add_argument("--source-id", type=int, default=0, help="Source/Student ID associated with this CV")
+    parser.add_argument("--source-id", type=str, required=True, help="Source/Student UUID associated with this CV")
     parser.add_argument("--output", help="Path to save matching result JSON. Default: next to CV file with suffix '_matching_result.json'")
     
     args = parser.parse_args()
@@ -491,45 +491,99 @@ def main():
             logger.error("No text could be extracted from CV.")
             sys.exit(1)
 
-        # Extract skills using Gemini
-        logger.info("Extracting skills using Gemini...")
-        raw_skills = extract_student_skills_gemini(cv_text, confidence_threshold=args.confidence_threshold)
-        logger.info("Extracted %d skills from CV using Gemini.", len(raw_skills))
-
-        # Normalize skills using Lightcast
-        logger.info("Normalizing CV skills with Lightcast and mini-v6 embeddings...")
-        normalized_student_skills_raw = normalize_student_skills(raw_skills)
-        
-        student_skills = []
-        for item in normalized_student_skills_raw:
-            sid = item.get("skill_id")
-            if sid is not None and sid != -1:
-                student_skills.append({
-                    "original_skill": item.get("original"),
-                    "skill_id": int(sid),
-                    "skill_name": item.get("mapped_name"),
-                    "similarity_score": float(item.get("confidence", 0.0))
-                })
-
-        logger.info("Successfully normalized and mapped %d skills to DB skill IDs.", len(student_skills))
-
-        # --- DB UPDATE FOR USER CV ---
-        # Insert or update user CV information
+        # Check if CV already exists in database with identical text content
         file_name = Path(args.cv).name
-        cv_id = upsert_user_cv(conn, args.source_id, file_name, args.cv, cv_text)
-        if cv_id is not None:
-            # Save the mapped CV skills
-            save_user_cv_skills(conn, cv_id, student_skills)
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT cv_id, extracted_text 
+            FROM public.user_cvs 
+            WHERE user_id = %s AND file_name = %s
+            LIMIT 1
+            """,
+            (args.source_id, file_name)
+        )
+        existing_cv = cur.fetchone()
+        
+        cv_id = None
+        student_skills = []
+        cv_cache_hit = False
 
-        # Log unmatched CV skills
-        unmatched_skills = [
-            item for item in normalized_student_skills_raw
-            if item.get("skill_id") is None or item.get("skill_id") == -1
-        ]
-        if unmatched_skills:
-            log_source_id = cv_id if (cv_id is not None) else args.source_id
-            logger.info("Logging %d unmatched CV skills to database (source_id: %d, source_type: cv)...", len(unmatched_skills), log_source_id)
-            insert_unmatched_skills(conn, log_source_id, "cv", unmatched_skills)
+        if existing_cv:
+            db_cv_id, db_extracted_text = existing_cv
+            
+            # Normalize whitespace for comparison
+            clean_local_text = " ".join((cv_text or "").split())
+            clean_db_text = " ".join((db_extracted_text or "").split())
+            
+            if clean_local_text == clean_db_text:
+                logger.info("Found existing CV in database (cv_id: %s) with matching content. Fetching skills from database...", db_cv_id)
+                cur.execute(
+                    """
+                    SELECT ucs.skill_id, s.skill_name, ucs.raw_skill
+                    FROM public.user_cv_skills ucs
+                    INNER JOIN public.skills s ON ucs.skill_id = s.skill_id
+                    WHERE ucs.cv_id = %s
+                    """,
+                    (db_cv_id,)
+                )
+                skills_rows = cur.fetchall()
+                if skills_rows:
+                    cv_id = db_cv_id
+                    for r in skills_rows:
+                        student_skills.append({
+                            "original_skill": r[2],
+                            "skill_id": int(r[0]),
+                            "skill_name": r[1],
+                            "similarity_score": 1.0
+                        })
+                    logger.info("Loaded %d skills from database cache. Bypassing Gemini skill extraction and normalization.", len(student_skills))
+                    cv_cache_hit = True
+                else:
+                    logger.info("Existing CV in database has no skills recorded. Proceeding with extraction.")
+            else:
+                logger.info("Existing CV found in database but content has changed. Proceeding with re-extraction.")
+        cur.close()
+
+        if not cv_cache_hit:
+            # Extract skills using Gemini
+            logger.info("Extracting skills using Gemini...")
+            raw_skills = extract_student_skills_gemini(cv_text, confidence_threshold=args.confidence_threshold)
+            logger.info("Extracted %d skills from CV using Gemini.", len(raw_skills))
+
+            # Normalize skills using Lightcast
+            logger.info("Normalizing CV skills with Lightcast and mini-v6 embeddings...")
+            normalized_student_skills_raw = normalize_student_skills(raw_skills)
+            
+            student_skills = []
+            for item in normalized_student_skills_raw:
+                sid = item.get("skill_id")
+                if sid is not None and sid != -1:
+                    student_skills.append({
+                        "original_skill": item.get("original"),
+                        "skill_id": int(sid),
+                        "skill_name": item.get("mapped_name"),
+                        "similarity_score": float(item.get("confidence", 0.0))
+                    })
+
+            logger.info("Successfully normalized and mapped %d skills to DB skill IDs.", len(student_skills))
+
+            # --- DB UPDATE FOR USER CV ---
+            # Insert or update user CV information
+            cv_id = upsert_user_cv(conn, args.source_id, file_name, args.cv, cv_text)
+            if cv_id is not None:
+                # Save the mapped CV skills
+                save_user_cv_skills(conn, cv_id, student_skills)
+
+        # Log unmatched CV skills (Disabled per user decision: do not store unmatched CV skills in database)
+        # unmatched_skills = [
+        #     item for item in normalized_student_skills_raw
+        #     if item.get("skill_id") is None or item.get("skill_id") == -1
+        # ]
+        # if unmatched_skills:
+        #     log_source_id = cv_id if (cv_id is not None) else args.source_id
+        #     logger.info("Logging %d unmatched CV skills to database (source_id: %s, source_type: cv)...", len(unmatched_skills), log_source_id)
+        #     insert_unmatched_skills(conn, log_source_id, "cv", unmatched_skills)
 
         # Load skills embeddings cache
         logger.info("Loading skill embeddings cache...")

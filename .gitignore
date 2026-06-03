@@ -250,3 +250,5 @@ debug_*.txt
 /Db/pipeline/crawl/1_crawl_data/
 /Db/pipeline/crawl/data
 /Db/pipeline/import/3_import/Debug
+/matching_cv/evaluation
+/Db/scratch

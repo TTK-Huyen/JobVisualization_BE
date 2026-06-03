@@ -87,7 +87,7 @@ HTML_TAG_NAMES = (
     "div|p|span|a|li|ul|ol|h[1-6]|b|i|strong|em|u|br|hr|table|tr|td|th|thead|tbody|"
     "ins|del|code|pre|blockquote|section|article|aside|header|footer|nav|svg|template|"
     "script|style|img|iframe|button|form|input|label|select|option|textarea|hgroup|"
-    "figure|figcaption|details|summary|main|body|html|head|meta|link|title|picture|source"
+    "figure|figcaption|details|summary|main|body|html|head|meta|link|title|picture|source|icon"
 )
 HTML_TAG_RE = re.compile(rf'</?(?:{HTML_TAG_NAMES})\b[^>]*>', re.I)
 

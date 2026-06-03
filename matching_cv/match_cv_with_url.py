@@ -175,16 +175,67 @@ def crawl_job_url(url: str) -> Dict[str, Any]:
             
     elif "linkedin.com" in url_lower:
         module = load_scraper_module("crawl-linkedin-jobs", "scrape_linkedin.py")
-        driver = module.build_driver()
-        try:
-            job_detail = module.extract_job_detail_from_url(url, driver)
-            raw_job = module.convert_to_raw_job_data(job_detail)
-            if raw_job:
-                result = raw_job.to_dict()
-                _validate_raw_job(result, url)
-                return result
-        finally:
-            driver.quit()
+        # Trích xuất job_id từ LinkedIn URL dùng regex
+        job_id_match = re.search(r"/view/(\d+)", url) or re.search(r"/jobPosting/(\d+)", url) or re.search(r"currentJobId=(\d+)", url)
+        if not job_id_match:
+            job_id_match = re.search(r"\b(\d{9,11})\b", url)
+        if not job_id_match:
+            raise ValueError(f"Could not extract LinkedIn job ID from URL: {url}")
+        job_id = job_id_match.group(1)
+        
+        job_detail = module.extract_job_detail(job_id)
+        raw_job = module.convert_to_raw_job_data(job_detail)
+        
+        # If guest API failed (empty or invalid content), use Selenium fallback
+        if not raw_job or not (raw_job.description_html or "").strip():
+            logger.warning("LinkedIn guest API returned empty content. Trying Selenium fallback...")
+            try:
+                driver = module.build_driver()
+                if driver:
+                    try:
+                        driver.get(url)
+                        import time as _time
+                        _time.sleep(4)
+                        from bs4 import BeautifulSoup
+                        soup = BeautifulSoup(driver.page_source, "html.parser")
+                        
+                        # Find title, description, company
+                        title = None
+                        title_elem = soup.select_one("h1.top-card-layout__title, h1.job-title, h2.top-card-layout__title, h1")
+                        if title_elem:
+                            title = title_elem.get_text(strip=True)
+                            
+                        company = None
+                        company_elem = soup.select_one("a.topcard__org-name-link, div.company-name, a.top-card-layout__company-adjacent-link, a[href*='/company/']")
+                        if company_elem:
+                            company = company_elem.get_text(strip=True)
+                            
+                        desc_html = ""
+                        desc_elem = soup.select_one("div.description__text, section.show-more-less-html, div.show-more-less-html__markup, article, div.job-description")
+                        if desc_elem:
+                            desc_html = str(desc_elem)
+                            
+                        if title and desc_html:
+                            job_detail = {
+                                "job_id": job_id,
+                                "title": title,
+                                "job_url": url,
+                                "company": company or "Unknown Company",
+                                "desc_html": desc_html,
+                                "location_raw": "",
+                                "posted_date": None
+                            }
+                            raw_job = module.convert_to_raw_job_data(job_detail)
+                            logger.info("Selenium fallback: successfully scraped LinkedIn job title='%s'", title)
+                    finally:
+                        driver.quit()
+            except Exception as se:
+                logger.warning("Selenium fallback for LinkedIn failed: %s", se)
+
+        if raw_job:
+            result = raw_job.to_dict()
+            _validate_raw_job(result, url)
+            return result
     else:
         raise ValueError(f"Unsupported job URL domain: {url}")
         
@@ -281,7 +332,7 @@ def find_best_search_group(job_title: str, db_groups: List[str]) -> str:
 
 def save_cv_job_match_existing_job(
     conn,
-    cv_id: int,
+    cv_id: str,
     job_id: int,
     search_group: str,
     match_percent: float,
@@ -309,7 +360,7 @@ def save_cv_job_match_existing_job(
         row = cur.fetchone()
         if row:
             match_id = row[0]
-            logger.info("Updating existing cv_job_match (match_id: %d) for job_id: %d...", match_id, job_id)
+            logger.info("Updating existing cv_job_match (match_id: %s) for job_id: %d...", match_id, job_id)
             cur.execute(
                 """
                 UPDATE public.cv_job_matches
@@ -319,7 +370,7 @@ def save_cv_job_match_existing_job(
                 (match_percent, json.dumps(radar_data), json.dumps(gap_report), match_id)
             )
         else:
-            logger.info("Inserting new cv_job_match for cv_id: %d and job_id: %d...", cv_id, job_id)
+            logger.info("Inserting new cv_job_match for cv_id: %s and job_id: %d...", cv_id, job_id)
             cur.execute(
                 """
                 INSERT INTO public.cv_job_matches (cv_id, match_type, search_group, job_id, match_score, radar_data, gap_report, model_version)
@@ -339,7 +390,7 @@ def main():
     parser = argparse.ArgumentParser(description="Match CV skills with crawled JD URL requirements.")
     parser.add_argument("--cv", required=True, help="Path to student CV file (PDF/PNG/JPG/JPEG)")
     parser.add_argument("--url", required=True, help="Job posting URL to crawl and match against")
-    parser.add_argument("--source-id", type=int, default=0, help="Source/Student ID associated with this CV")
+    parser.add_argument("--source-id", type=str, required=True, help="Source/Student UUID associated with this CV")
     parser.add_argument("--threshold-possessed", type=float, default=0.75, help="Similarity threshold for possessed skills")
     parser.add_argument("--threshold-partial", type=float, default=0.3, help="Similarity threshold for partial match skills")
     parser.add_argument("--confidence-threshold", type=float, default=0.85, help="LLM skill extraction confidence threshold")
@@ -364,177 +415,275 @@ def main():
             logger.error("No text could be extracted from CV.")
             sys.exit(1)
             
-        logger.info("Extracting skills using Gemini...")
-        raw_student_skills = extract_student_skills_gemini(cv_text, confidence_threshold=args.confidence_threshold)
-        logger.info("Extracted %d skills from CV using Gemini.", len(raw_student_skills))
-        
-        logger.info("Normalizing CV skills...")
-        normalized_student_skills_raw = normalize_student_skills(raw_student_skills)
-        
-        student_skills = []
-        for item in normalized_student_skills_raw:
-            sid = item.get("skill_id")
-            if sid is not None and sid != -1:
-                student_skills.append({
-                    "original_skill": item.get("original"),
-                    "skill_id": int(sid),
-                    "skill_name": item.get("mapped_name"),
-                    "similarity_score": float(item.get("confidence", 0.0))
-                })
-                
-        logger.info("Successfully normalized and mapped %d student skills.", len(student_skills))
-        
-        # Save CV to database
+        # Check if CV already exists in database with identical text content
         file_name = Path(args.cv).name
-        cv_id = upsert_user_cv(conn, args.source_id, file_name, args.cv, cv_text)
-        if cv_id is not None:
-            save_user_cv_skills(conn, cv_id, student_skills)
-            
-        # Log unmatched CV skills
-        unmatched_skills = [
-            item for item in normalized_student_skills_raw
-            if item.get("skill_id") is None or item.get("skill_id") == -1
-        ]
-        if unmatched_skills and cv_id is not None:
-            logger.info("Logging %d unmatched CV skills to database (source_id: %d, source_type: cv)...", len(unmatched_skills), cv_id)
-            insert_unmatched_skills(conn, cv_id, "cv", unmatched_skills)
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT cv_id, extracted_text 
+            FROM public.user_cvs 
+            WHERE user_id = %s AND file_name = %s
+            LIMIT 1
+            """,
+            (args.source_id, file_name)
+        )
+        existing_cv = cur.fetchone()
+        
+        cv_id = None
+        student_skills = []
+        cv_cache_hit = False
 
-        # ==========================================
-        # STEP 2: Crawl Job JD from URL
-        # ==========================================
-        logger.info("\n--- STEP 2: CRAWL/LOAD JOB JD FROM URL ---")
-        tmp_dir = PROJECT_ROOT / ".tmp"
-        tmp_dir.mkdir(exist_ok=True)
-        raw_temp = tmp_dir / "raw_job_temp.json"
-        normalized_temp = tmp_dir / "normalized_temp.json"
+        if existing_cv:
+            db_cv_id, db_extracted_text = existing_cv
+            
+            # Normalize whitespace for comparison
+            clean_local_text = " ".join((cv_text or "").split())
+            clean_db_text = " ".join((db_extracted_text or "").split())
+            
+            if clean_local_text == clean_db_text:
+                logger.info("Found existing CV in database (cv_id: %s) with matching content. Fetching skills from database...", db_cv_id)
+                cur.execute(
+                    """
+                    SELECT ucs.skill_id, s.skill_name, ucs.raw_skill
+                    FROM public.user_cv_skills ucs
+                    INNER JOIN public.skills s ON ucs.skill_id = s.skill_id
+                    WHERE ucs.cv_id = %s
+                    """,
+                    (db_cv_id,)
+                )
+                skills_rows = cur.fetchall()
+                if skills_rows:
+                    cv_id = db_cv_id
+                    for r in skills_rows:
+                        student_skills.append({
+                            "original_skill": r[2],
+                            "skill_id": int(r[0]),
+                            "skill_name": r[1],
+                            "similarity_score": 1.0
+                        })
+                    logger.info("Loaded %d skills from database cache. Bypassing Gemini skill extraction and normalization.", len(student_skills))
+                    cv_cache_hit = True
+                else:
+                    logger.info("Existing CV in database has no skills recorded. Proceeding with extraction.")
+            else:
+                logger.info("Existing CV found in database but content has changed. Proceeding with re-extraction.")
+        cur.close()
+
+        if not cv_cache_hit:
+            logger.info("Extracting skills using Gemini...")
+            raw_student_skills = extract_student_skills_gemini(cv_text, confidence_threshold=args.confidence_threshold)
+            logger.info("Extracted %d skills from CV using Gemini.", len(raw_student_skills))
+            
+            logger.info("Normalizing CV skills...")
+            normalized_student_skills_raw = normalize_student_skills(raw_student_skills)
+            
+            student_skills = []
+            for item in normalized_student_skills_raw:
+                sid = item.get("skill_id")
+                if sid is not None and sid != -1:
+                    student_skills.append({
+                        "original_skill": item.get("original"),
+                        "skill_id": int(sid),
+                        "skill_name": item.get("mapped_name"),
+                        "similarity_score": float(item.get("confidence", 0.0))
+                    })
+                    
+            logger.info("Successfully normalized and mapped %d student skills.", len(student_skills))
+            
+            # Save CV to database
+            cv_id = upsert_user_cv(conn, args.source_id, file_name, args.cv, cv_text)
+            if cv_id is not None:
+                save_user_cv_skills(conn, cv_id, student_skills)
+            
+        # Log unmatched CV skills (Disabled per user decision: do not store unmatched CV skills in database)
+        # unmatched_skills = [
+        #     item for item in normalized_student_skills_raw
+        #     if item.get("skill_id") is None or item.get("skill_id") == -1
+        # ]
+        # if unmatched_skills and cv_id is not None:
+        #     logger.info("Logging %d unmatched CV skills to database (source_id: %s, source_type: cv)...", len(unmatched_skills), cv_id)
+        #     insert_unmatched_skills(conn, cv_id, "cv", unmatched_skills)
+
+        # Check if the job already exists in the database
+        clean_url = args.url.split("?")[0].rstrip("/")
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT job_id, title, search_group FROM public.jobs WHERE job_posting_url = %s OR job_posting_url = %s OR job_posting_url = %s LIMIT 1",
+            (args.url, clean_url, clean_url + "/")
+        )
+        existing_job = cur.fetchone()
         
-        use_cached = False
-        if raw_temp.exists() and normalized_temp.exists() and normalized_temp.stat().st_size > 2:
-            try:
-                with open(raw_temp, "r", encoding="utf-8") as f:
-                    raw_data = json.load(f)
-                if raw_data and raw_data[0].get("job_url") == args.url:
-                    use_cached = True
-            except Exception:
-                pass
-                
-        if use_cached:
-            logger.info("Using cached raw and normalized job details for URL: %s", args.url)
-            with open(raw_temp, "r", encoding="utf-8") as f:
-                raw_job = json.load(f)[0]
+        job_id = None
+        job_rec = None
+        matched_search_group = None
+        
+        if existing_job:
+            job_id, job_title, db_search_group = existing_job
+            logger.info("Found existing job in database (Job ID: %d, Search Group: '%s'). Skipping crawling/importing.", job_id, db_search_group)
+            
+            # Fetch normalized skills from database
+            cur.execute(
+                """
+                SELECT js.skill_id, s.skill_name 
+                FROM public.job_skills js
+                JOIN public.skills s ON js.skill_id = s.skill_id
+                WHERE js.job_id = %s
+                """,
+                (job_id,)
+            )
+            skills_rows = cur.fetchall()
+            
+            job_rec = {
+                "title": job_title,
+                "normalized_skills": [
+                    {"skill_id": r[0], "mapped_name": r[1]}
+                    for r in skills_rows
+                ]
+            }
+            matched_search_group = db_search_group or "unknown"
+            cur.close()
         else:
-            raw_job = crawl_job_url(args.url)
-            logger.info("Crawled job title: '%s' from %s", raw_job.get("title"), raw_job.get("source_name"))
+            cur.close()
+            # ==========================================
+            # STEP 2: Crawl Job JD from URL
+            # ==========================================
+            logger.info("\n--- STEP 2: CRAWL/LOAD JOB JD FROM URL ---")
+            tmp_dir = PROJECT_ROOT / ".tmp"
+            tmp_dir.mkdir(exist_ok=True)
+            raw_temp = tmp_dir / "raw_job_temp.json"
+            normalized_temp = tmp_dir / "normalized_temp.json"
             
-            # Clean existing temp files in .tmp directory to avoid idempotency/deduplication skips
-            for filename in ["raw_job_temp.json", "pending_llm_temp.json", "extracted_temp.json", "normalized_temp.json", "fallback_temp.json"]:
-                file_path = tmp_dir / filename
-                if file_path.exists():
-                    try:
-                        file_path.unlink()
-                    except Exception as e:
-                        logger.warning("Could not delete old temp file %s: %s", filename, e)
-            
-            with open(raw_temp, "w", encoding="utf-8") as f:
-                json.dump([raw_job], f, ensure_ascii=False, indent=2, default=json_serializable)
+            use_cached = False
+            if raw_temp.exists() and normalized_temp.exists() and normalized_temp.stat().st_size > 2:
+                try:
+                    with open(raw_temp, "r", encoding="utf-8") as f:
+                        raw_data = json.load(f)
+                    if raw_data and raw_data[0].get("job_url") == args.url:
+                        use_cached = True
+                except Exception:
+                    pass
+                    
+            if use_cached:
+                logger.info("Using cached raw and normalized job details for URL: %s", args.url)
+                with open(raw_temp, "r", encoding="utf-8") as f:
+                    raw_job = json.load(f)[0]
+            else:
+                raw_job = crawl_job_url(args.url)
+                logger.info("Crawled job title: '%s' from %s", raw_job.get("title"), raw_job.get("source_name"))
                 
-            # Add search_keyword if missing (required by some downstream processors)
-            with open(raw_temp, "r", encoding="utf-8") as f:
-                jobs_data = json.load(f)
-            for job in jobs_data:
-                if not job.get("search_keyword"):
-                    # Extract keyword from title or use default
-                    job_title = job.get("title", "").lower()
-                    if "developer" in job_title or "engineer" in job_title:
-                        job["search_keyword"] = "software developer"
-                    else:
-                        job["search_keyword"] = "it job"
-            with open(raw_temp, "w", encoding="utf-8") as f:
-                json.dump(jobs_data, f, ensure_ascii=False, indent=2, default=json_serializable)
+                # Clean existing temp files in .tmp directory to avoid idempotency/deduplication skips
+                for filename in ["raw_job_temp.json", "pending_llm_temp.json", "extracted_temp.json", "normalized_temp.json", "fallback_temp.json"]:
+                    file_path = tmp_dir / filename
+                    if file_path.exists():
+                        try:
+                            file_path.unlink()
+                        except Exception as e:
+                            logger.warning("Could not delete old temp file %s: %s", filename, e)
+                
+                with open(raw_temp, "w", encoding="utf-8") as f:
+                    json.dump([raw_job], f, ensure_ascii=False, indent=2, default=json_serializable)
+                    
+                # Add search_keyword if missing (required by some downstream processors)
+                with open(raw_temp, "r", encoding="utf-8") as f:
+                    jobs_data = json.load(f)
+                for job in jobs_data:
+                    if not job.get("search_keyword"):
+                        # Extract keyword from title or use default
+                        job_title = job.get("title", "").lower()
+                        if "developer" in job_title or "engineer" in job_title:
+                            job["search_keyword"] = "software developer"
+                        else:
+                            job["search_keyword"] = "it job"
+                with open(raw_temp, "w", encoding="utf-8") as f:
+                    json.dump(jobs_data, f, ensure_ascii=False, indent=2, default=json_serializable)
+                    
+                # ==========================================
+                # STEP 3: Clean, Extract, Normalize Job via Subprocesses
+                # ==========================================
+                logger.info("\n--- STEP 3: PROCESS AND NORMALIZE JOB JD ---")
+                python_exe = sys.executable
+                
+                pending_temp = tmp_dir / "pending_llm_temp.json"
+                clean_script = PROJECT_ROOT / "Db" / "pipeline" / "clean" / "2_clean_data" / "clean_process.py"
+                logger.info("Running clean_process.py...")
+                subprocess.run([
+                    python_exe, str(clean_script), str(raw_temp), "--step", "1", "--output", str(pending_temp)
+                ], check=True)
+                
+                extracted_temp = tmp_dir / "extracted_temp.json"
+                fallback_temp = tmp_dir / "fallback_temp.json"
+                extract_script = PROJECT_ROOT / "Db" / "pipeline" / "extract" / "process_pending_llm.py"
+                logger.info("Running process_pending_llm.py...")
+                # Set PYTHONPATH so Db package imports work correctly
+                env = os.environ.copy()
+                env["PYTHONPATH"] = os.pathsep.join([str(PROJECT_ROOT), str(PROJECT_ROOT.parent)]) + (os.pathsep + env.get("PYTHONPATH", "") if env.get("PYTHONPATH") else "")
+                subprocess.run([
+                    python_exe, str(extract_script), "--input-path", str(pending_temp), "--output-path", str(extracted_temp), "--fallback-path", str(fallback_temp)
+                ], env=env, check=True)
+                
+                normalize_script = PROJECT_ROOT / "Db" / "pipeline" / "normalize" / "2_1_normalized_data" / "normalize_embeddings.py"
+                logger.info("Running normalize_embeddings.py...")
+                subprocess.run([
+                    python_exe, str(normalize_script), "--input", str(extracted_temp), "--output", str(normalized_temp)
+                ], check=True)
+            
+            # ==========================================
+            # STEP 4: Match Job Title to search_group via vector embedding
+            # ==========================================
+            logger.info("\n--- STEP 4: MAP JOB TITLE TO SEARCH GROUP ---")
+            with open(normalized_temp, "r", encoding="utf-8") as f:
+                normalized_jobs = json.load(f)
+            if not normalized_jobs:
+                raise RuntimeError("Normalization step returned empty output")
+            job_rec = normalized_jobs[0]
+            job_title = job_rec.get("title") or raw_job.get("title")
+            # The LLM pipeline stores some fields as {"value": "...", "confidence": N} dicts.
+            # Unwrap to a plain string before passing to sentence-transformers.
+            if isinstance(job_title, dict):
+                job_title = job_title.get("value") or job_title.get("name") or ""
+            job_title = str(job_title).strip() if job_title else ""
+            
+            # Get unique search groups from database
+            cur = conn.cursor()
+            cur.execute("SELECT DISTINCT search_group FROM public.job_group_skill_weights")
+            db_groups = [r[0] for r in cur.fetchall() if r[0]]
+            cur.close()
+            
+            # Find best matching search_group
+            matched_search_group = find_best_search_group(job_title, db_groups)
+            
+            # Inject matched search group into normalized job record so import.py handles it
+            if "job" not in job_rec:
+                job_rec["job"] = {}
+            job_rec["job"]["search_group"] = matched_search_group
+            job_rec["search_group"] = matched_search_group
+            
+            # Rewrite normalized job record
+            with open(normalized_temp, "w", encoding="utf-8") as f:
+                json.dump([job_rec], f, ensure_ascii=False, indent=2, default=json_serializable)
                 
             # ==========================================
-            # STEP 3: Clean, Extract, Normalize Job via Subprocesses
+            # STEP 5: Import Job into DB
             # ==========================================
-            logger.info("\n--- STEP 3: PROCESS AND NORMALIZE JOB JD ---")
-            python_exe = sys.executable
-            
-            pending_temp = tmp_dir / "pending_llm_temp.json"
-            clean_script = PROJECT_ROOT / "Db" / "pipeline" / "clean" / "2_clean_data" / "clean_process.py"
-            logger.info("Running clean_process.py...")
+            logger.info("\n--- STEP 5: IMPORT JOB TO DATABASE ---")
+            import_script = PROJECT_ROOT / "Db" / "pipeline" / "import" / "3_import" / "import.py"
             subprocess.run([
-                python_exe, str(clean_script), str(raw_temp), "--step", "1", "--output", str(pending_temp)
+                python_exe, str(import_script), "--input", str(normalized_temp)
             ], check=True)
             
-            extracted_temp = tmp_dir / "extracted_temp.json"
-            fallback_temp = tmp_dir / "fallback_temp.json"
-            extract_script = PROJECT_ROOT / "Db" / "pipeline" / "extract" / "process_pending_llm.py"
-            logger.info("Running process_pending_llm.py...")
-            # Set PYTHONPATH so Db package imports work correctly
-            env = os.environ.copy()
-            env["PYTHONPATH"] = os.pathsep.join([str(PROJECT_ROOT), str(PROJECT_ROOT.parent)]) + (os.pathsep + env.get("PYTHONPATH", "") if env.get("PYTHONPATH") else "")
-            subprocess.run([
-                python_exe, str(extract_script), "--input-path", str(pending_temp), "--output-path", str(extracted_temp), "--fallback-path", str(fallback_temp)
-            ], env=env, check=True)
-            
-            normalize_script = PROJECT_ROOT / "Db" / "pipeline" / "normalize" / "2_1_normalized_data" / "normalize_embeddings.py"
-            logger.info("Running normalize_embeddings.py...")
-            subprocess.run([
-                python_exe, str(normalize_script), "--input", str(extracted_temp), "--output", str(normalized_temp)
-            ], check=True)
-        
-        # ==========================================
-        # STEP 4: Match Job Title to search_group via vector embedding
-        # ==========================================
-        logger.info("\n--- STEP 4: MAP JOB TITLE TO SEARCH GROUP ---")
-        with open(normalized_temp, "r", encoding="utf-8") as f:
-            normalized_jobs = json.load(f)
-        if not normalized_jobs:
-            raise RuntimeError("Normalization step returned empty output")
-        job_rec = normalized_jobs[0]
-        job_title = job_rec.get("title") or raw_job.get("title")
-        # The LLM pipeline stores some fields as {"value": "...", "confidence": N} dicts.
-        # Unwrap to a plain string before passing to sentence-transformers.
-        if isinstance(job_title, dict):
-            job_title = job_title.get("value") or job_title.get("name") or ""
-        job_title = str(job_title).strip() if job_title else ""
-        
-        # Get unique search groups from database
-        cur = conn.cursor()
-        cur.execute("SELECT DISTINCT search_group FROM public.job_group_skill_weights")
-        db_groups = [r[0] for r in cur.fetchall() if r[0]]
-        cur.close()
-        
-        # Find best matching search_group
-        matched_search_group = find_best_search_group(job_title, db_groups)
-        
-        # Inject matched search group into normalized job record so import.py handles it
-        if "job" not in job_rec:
-            job_rec["job"] = {}
-        job_rec["job"]["search_group"] = matched_search_group
-        job_rec["search_group"] = matched_search_group
-        
-        # Rewrite normalized job record
-        with open(normalized_temp, "w", encoding="utf-8") as f:
-            json.dump([job_rec], f, ensure_ascii=False, indent=2, default=json_serializable)
-            
-        # ==========================================
-        # STEP 5: Import Job into DB
-        # ==========================================
-        logger.info("\n--- STEP 5: IMPORT JOB TO DATABASE ---")
-        import_script = PROJECT_ROOT / "Db" / "pipeline" / "import" / "3_import" / "import.py"
-        subprocess.run([
-            python_exe, str(import_script), "--input", str(normalized_temp)
-        ], check=True)
-        
-        # Query generated/updated job_id from DB
-        cur = conn.cursor()
-        cur.execute("SELECT job_id FROM public.jobs WHERE job_posting_url = %s", (args.url,))
-        row = cur.fetchone()
-        if not row:
-            raise RuntimeError(f"Failed to find imported job in database for URL: {args.url}")
-        job_id = row[0]
-        logger.info("Imported/Updated job successfully. Job ID: %d", job_id)
-        cur.close()
+            # Query generated/updated job_id from DB
+            cur = conn.cursor()
+            clean_url = args.url.split("?")[0].rstrip("/")
+            cur.execute(
+                "SELECT job_id FROM public.jobs WHERE job_posting_url = %s OR job_posting_url = %s OR job_posting_url = %s",
+                (args.url, clean_url, clean_url + "/")
+            )
+            row = cur.fetchone()
+            if not row:
+                raise RuntimeError(f"Failed to find imported job in database for URL: {args.url} (Cleaned: {clean_url})")
+            job_id = row[0]
+            logger.info("Imported/Updated job successfully. Job ID: %d", job_id)
+            cur.close()
 
         # ==========================================
         # STEP 6: Match CV Skills with Job Skills (weights from search_group)

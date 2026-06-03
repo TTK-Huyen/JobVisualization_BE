@@ -1130,6 +1130,9 @@ def crawl_list_url_to_raw_jobs(list_url_page1: str, start_page: int = 1, end_pag
     Returns:
         List[RawJobData]: Danh sách các job đã được chuẩn hóa theo schema
     """
+    if max_jobs is not None and max_jobs <= 0:
+        print("[INFO] max_jobs is 0 or negative. Skipping crawl and returning empty list.")
+        return []
     raw_jobs: List[RawJobData] = []
     seen_jobs = set()
     s = build_session()

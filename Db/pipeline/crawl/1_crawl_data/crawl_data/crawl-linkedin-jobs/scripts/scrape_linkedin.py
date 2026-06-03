@@ -644,6 +644,9 @@ def scrape_data(
     driver=None,
     close_driver: bool = True,
 ) -> List[RawJobData]:
+    if max_jobs is not None and max_jobs <= 0:
+        print("[INFO] max_jobs is 0 or negative. Skipping crawl and returning empty list.")
+        return []
     keyword_start = time.time()
 
     if max_jobs is None:

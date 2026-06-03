@@ -427,6 +427,9 @@ def crawl_list_url_to_raw_jobs(
     Returns:
         List of RawJobData objects
     """
+    if max_jobs is not None and max_jobs <= 0:
+        print("[INFO] max_jobs is 0 or negative. Skipping crawl and returning empty list.")
+        return []
     raw_jobs: List[RawJobData] = []
     seen_jobs = set()
     driver = None

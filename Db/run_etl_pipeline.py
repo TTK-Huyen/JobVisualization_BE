@@ -518,14 +518,14 @@ def _make_daily_parallel_workers(
     itviec_limit = domestic_max_jobs if itviec_max_jobs is None else itviec_max_jobs
 
     return {
-        "ITviec": lambda: itviec_scrape_data(keyword, location, max_jobs=itviec_limit, search_keyword=keyword),
+        "ITviec": lambda: itviec_scrape_data(keyword, location, max_jobs=itviec_limit, search_keyword=keyword) if itviec_limit > 0 else [],
         "VietnamWorks": lambda: vietnamworks_crawl(
             list_url_page1=vietnamworks_url,
             start_page=1,
             end_page=domestic_max_pages,
             max_jobs=domestic_max_jobs,
             search_keyword=keyword,
-        ),
+        ) if domestic_max_jobs > 0 else [],
         "CareerViet": lambda: careerviet_crawl(
             list_url_page1=careerviet_url,
             start_page=1,
@@ -533,13 +533,13 @@ def _make_daily_parallel_workers(
             delay_between_pages=(0.1, 0.2),
             search_keyword=keyword,
             max_jobs=domestic_max_jobs,
-        ),
+        ) if domestic_max_jobs > 0 else [],
         "LinkedIn": lambda: linkedin_scrape_data(
             keyword,
             location,
             search_keyword=keyword,
             max_jobs=linkedin_max_jobs,
-        ),
+        ) if linkedin_max_jobs > 0 else [],
     }
 
 
@@ -956,6 +956,7 @@ def estimate_and_display_runtime():
 # MAIN
 # ============================================================================
 def main():
+    global RUN_DATE, DATA_FOLDER, RAW_FOLDER, CLEAN_FOLDER, FALLBACK_FOLDER, LOGS_FOLDER
     # Parse command line arguments
     parser = argparse.ArgumentParser(
         description="ETL Pipeline: Crawl → Clean → Import",
@@ -1145,11 +1146,10 @@ Examples:
     if args.input:
         try:
             input_path = Path(args.input).resolve()
-            # Tìm phần "crawl_YYYYMMDD_HHMMSS" trong path
+            # Tìm phần "crawl_YYYYMMDD_HHMMSS" hoặc "bootstrap" trong path
             for part in input_path.parts:
-                if part.startswith("crawl_") and len(part) > 10:
+                if (part.startswith("crawl_") and len(part) > 10) or part == "bootstrap":
                     inferred_run_date = part.replace("crawl_", "")
-                    global RUN_DATE, DATA_FOLDER, RAW_FOLDER, CLEAN_FOLDER, FALLBACK_FOLDER, LOGS_FOLDER
                     RUN_DATE = inferred_run_date
                     DATA_FOLDER = BASE_DIR / "data" / part
                     RAW_FOLDER  = DATA_FOLDER / "raw"
@@ -1188,6 +1188,15 @@ Examples:
 
     effective_crawl_mode = resolve_crawl_mode(args.crawl_mode)
     log(f"[MODE] Effective crawl mode: {effective_crawl_mode}")
+    
+    if effective_crawl_mode == "bootstrap":
+        RUN_DATE = "bootstrap"
+        DATA_FOLDER = BASE_DIR / "data" / "bootstrap"
+        RAW_FOLDER  = DATA_FOLDER / "raw"
+        CLEAN_FOLDER   = DATA_FOLDER / "clean"
+        FALLBACK_FOLDER = DATA_FOLDER / "fallback"
+        LOGS_FOLDER    = DATA_FOLDER / "logs"
+        log(f"[AUTO] Redirecting bootstrap output to: {DATA_FOLDER}")
     
     log("=" * 80)
     log("ETL PIPELINE START")
@@ -1510,14 +1519,14 @@ Examples:
                 else:
                     log("Crawl failed")
         elif effective_crawl_mode == "test":
-            selected_keywords = select_daily_keywords(reset_rotation=args.reset_keywords, num_keywords=4)
+            selected_keywords = select_daily_keywords(reset_rotation=args.reset_keywords, num_keywords=1)
             if not selected_keywords:
-                selected_keywords = ["software engineer", "backend engineer", "data engineer", "qa engineer"]
+                selected_keywords = ["software engineer"]
 
             keyword = ", ".join(selected_keywords)
             location = "Vietnam"
-            max_jobs_per_source = 10
-            itviec_max_jobs = 10
+            max_jobs_per_source = 1
+            itviec_max_jobs = 1
             selected_keywords_file = write_selected_keywords_file(selected_keywords)
             keywords_json = json.dumps(selected_keywords, ensure_ascii=False)
 
