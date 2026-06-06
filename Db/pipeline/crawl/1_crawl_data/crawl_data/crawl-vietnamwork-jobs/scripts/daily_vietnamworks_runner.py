@@ -121,7 +121,14 @@ def pick_keywords(cfg: dict):
         if group_names:
             # Chọn 1 nhóm dựa trên ngày trong năm
             picked_group_name = group_names[(doy - 1) % len(group_names)]
-            selected = groups[picked_group_name].get("roles", [])
+            group_cfg = groups.get(picked_group_name, {})
+            selected = []
+            if isinstance(group_cfg, dict):
+                for lang_key in ("en", "vi", "roles"):
+                    lang_keywords = group_cfg.get(lang_key, [])
+                    if isinstance(lang_keywords, list):
+                        selected.extend(lang_keywords)
+            selected = list(dict.fromkeys(selected))  # Deduplicate
             print(f"[KEYWORDS] Day {doy} group picked: '{picked_group_name}' with {len(selected)} keywords.")
             return selected
         return []
@@ -287,9 +294,10 @@ def main():
     total_fallback = 0
 
     for keyword in keywords_list:
-        list_url = BASE.format(keyword=keyword.replace(" ", "+"))
+        clean_query = " ".join(keyword.replace("/", " ").split())
+        list_url = BASE.format(keyword=clean_query.replace(" ", "+"))
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        keyword_safe = keyword.lower().replace(" ", "_")
+        keyword_safe = clean_query.lower().replace(" ", "_")
         out_prefix = os.path.join(output_dir, f"vietnamworks_{keyword_safe}_{timestamp}")
 
         print(f"\n[{keyword}] Crawling multiple pages...")

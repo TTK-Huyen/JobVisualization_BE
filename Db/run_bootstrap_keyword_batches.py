@@ -90,7 +90,7 @@ def load_keywords(keywords_file: Path) -> list[str]:
     with open(keywords_file, encoding="utf-8") as f:
         config = json.load(f)
 
-    keywords = pipeline._flatten_keywords_with_groupnames(config)
+    keywords = pipeline._flatten_keywords_daily(config)
     if not keywords:
         raise ValueError(f"No keywords found in: {keywords_file}")
     return keywords

@@ -168,7 +168,51 @@ def main():
                 if existing is None or prefer_record(existing, d):
                     items_by_key[key] = d
 
+    # Load keywords config to translate search_keywords
+    keyword_cfg = {}
+    keywords_file = BASE / "crawl_data" / "keywords_daily.json"
+    if not keywords_file.exists():
+        keywords_file = BASE.parent / "crawl_data" / "keywords_daily.json"
+    if not keywords_file.exists():
+        keywords_file = BASE.parents[1] / "input" / "keywords_daily.json"
+        
+    if keywords_file.exists():
+        try:
+            with open(keywords_file, encoding="utf-8") as f:
+                keyword_cfg = json.load(f)
+        except Exception as e:
+            print(f"[MERGE][WARN] Failed to read keywords file: {e}")
+
+    # Build translation map from Vietnamese to English
+    groups = keyword_cfg.get("groups", {})
+    vi_to_en = {}
+    if isinstance(groups, dict):
+        for group_cfg in groups.values():
+            if not isinstance(group_cfg, dict):
+                continue
+            en_list = group_cfg.get("en", [])
+            vi_list = group_cfg.get("vi", [])
+            if not isinstance(en_list, list) or not en_list:
+                continue
+            if isinstance(vi_list, list):
+                for i, vi_kw in enumerate(vi_list):
+                    vi_kw_clean = str(vi_kw).strip().lower()
+                    corresponding_en = en_list[i] if i < len(en_list) else en_list[0]
+                    vi_to_en[vi_kw_clean] = str(corresponding_en).strip()
+
     items = list(items_by_key.values())
+    for item in items:
+        # Normalize search_keyword to its English counterpart
+        kw = item.get("search_keyword")
+        if isinstance(kw, str):
+            kw_clean = kw.strip().lower()
+            if kw_clean in vi_to_en:
+                item["search_keyword"] = vi_to_en[kw_clean]
+        
+        # Enforce no search_group field
+        if "search_group" in item:
+            del item["search_group"]
+
     # Decide routing based on *required* fields only
     fallback_items = [d for d in items if missing_required_fields(d)]
     combined_items = [d for d in items if not missing_required_fields(d)]

@@ -20,9 +20,59 @@ python_exe = os.path.join(BASE_DIR, ".venv", "Scripts", "python.exe")
 pipeline_script = os.path.join(BASE_DIR, "run_etl_pipeline.py")
 
 # Configurations
-TOTAL_KEYWORDS = 132
+def get_total_keywords():
+    try:
+        config_path = os.path.join(BASE_DIR, "input", "keywords_daily.json")
+        if not os.path.exists(config_path):
+            config_path = os.path.join(BASE_DIR, "keywords_daily.json")
+        if not os.path.exists(config_path):
+            return 132
+            
+        with open(config_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+            
+        keywords = []
+        for tier_key in ("tier_1", "tier_2", "tier_3"):
+            tier_keywords = cfg.get(tier_key, [])
+            if isinstance(tier_keywords, list):
+                keywords.extend(tier_keywords)
+                
+        groups = cfg.get("groups", {})
+        if isinstance(groups, dict):
+            for group_cfg in groups.values():
+                if not isinstance(group_cfg, dict):
+                    continue
+                for lang_key in ("en", "vi", "roles"):
+                    lang_keywords = group_cfg.get(lang_key, [])
+                    if isinstance(lang_keywords, list):
+                        keywords.extend(lang_keywords)
+                        
+                clusters = group_cfg.get("clusters", {})
+                if isinstance(clusters, dict):
+                    for cluster_roles in clusters.values():
+                        if isinstance(cluster_roles, list):
+                            keywords.extend(cluster_roles)
+                            
+        seen = set()
+        deduped = []
+        for kw in keywords:
+            kw_clean = str(kw).strip()
+            if not kw_clean:
+                continue
+            kw_lower = kw_clean.lower()
+            if kw_lower not in seen:
+                seen.add(kw_lower)
+                deduped.append(kw_clean)
+                
+        return len(deduped)
+    except Exception as e:
+        print(f"[WARN] Error reading keyword count: {e}. Using fallback 132.")
+        return 132
+
+import json
+TOTAL_KEYWORDS = get_total_keywords()
 BATCH_SIZE = 4
-TOTAL_RUNS = (TOTAL_KEYWORDS + BATCH_SIZE - 1) // BATCH_SIZE  # 33 runs
+TOTAL_RUNS = (TOTAL_KEYWORDS + BATCH_SIZE - 1) // BATCH_SIZE
 PAUSE_MINUTES = 5  # Rest time in minutes between batches
 PAUSE_SECONDS = PAUSE_MINUTES * 60
 

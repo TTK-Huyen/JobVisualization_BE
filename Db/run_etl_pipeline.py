@@ -512,13 +512,16 @@ def _make_daily_parallel_workers(
     careerviet_crawl = careerviet_module.crawl_list_url_to_raw_jobs
     linkedin_scrape_data = linkedin_module.scrape_data
 
-    vietnamworks_url = f"https://www.vietnamworks.com/viec-lam?q={quote_plus(keyword)}"
-    careerviet_url = f"https://careerviet.vn/viec-lam/{slugify_keyword(keyword)}-k-vi.html"
+    # Format query to replace slashes with spaces and strip duplicate whitespace
+    search_query = " ".join(keyword.replace("/", " ").split())
+
+    vietnamworks_url = f"https://www.vietnamworks.com/viec-lam?q={quote_plus(search_query)}"
+    careerviet_url = f"https://careerviet.vn/viec-lam/{slugify_keyword(search_query)}-k-vi.html"
 
     itviec_limit = domestic_max_jobs if itviec_max_jobs is None else itviec_max_jobs
 
     return {
-        "ITviec": lambda: itviec_scrape_data(keyword, location, max_jobs=itviec_limit, search_keyword=keyword) if itviec_limit > 0 else [],
+        "ITviec": lambda: itviec_scrape_data(search_query, location, max_jobs=itviec_limit, search_keyword=keyword) if itviec_limit > 0 else [],
         "VietnamWorks": lambda: vietnamworks_crawl(
             list_url_page1=vietnamworks_url,
             start_page=1,
@@ -535,7 +538,7 @@ def _make_daily_parallel_workers(
             max_jobs=domestic_max_jobs,
         ) if domestic_max_jobs > 0 else [],
         "LinkedIn": lambda: linkedin_scrape_data(
-            keyword,
+            search_query,
             location,
             search_keyword=keyword,
             max_jobs=linkedin_max_jobs,
@@ -628,6 +631,27 @@ def run_daily_crawl_parallel(
                         else:
                             results_tracker[source_name] = 0
                         log(f"[ERROR] {source_name} ({current_keyword}): {exc}")
+
+    # Load keywords config to translate search_keywords
+    keyword_cfg = {}
+    keywords_file = _resolve_project_path(KEYWORD_CONFIG["keywords_file"])
+    if not keywords_file.exists():
+        fallback_candidates = [
+            BASE_DIR / "input" / "keywords_daily.json",
+            BASE_DIR / "keywords_daily.json",
+        ]
+        for cand in fallback_candidates:
+            if cand.exists():
+                keywords_file = cand
+                break
+    if keywords_file.exists():
+        try:
+            with open(keywords_file, encoding="utf-8") as f:
+                keyword_cfg = json.load(f)
+        except Exception:
+            pass
+
+    normalize_job_search_keywords(combined_raw_jobs, keyword_cfg)
 
     combined_raw_jobs = filter_recent_jobs_safe(combined_raw_jobs)
     raw_output_path = _write_raw_jobs_json(combined_raw_jobs, build_daily_raw_output_path())
@@ -724,13 +748,52 @@ def _parse_enabled_sources() -> set[str] | None:
     return enabled or None
 
 
+def normalize_job_search_keywords(jobs: list, config: dict):
+    """
+    Map each job's search_keyword to its English counterpart if searched by a Vietnamese keyword.
+    Modifies the jobs in-place. Handles both objects (RawJobData) and dictionaries.
+    Also removes the `search_group` field from dictionary jobs.
+    """
+    groups = config.get("groups", {})
+    vi_to_en = {}
+    if isinstance(groups, dict):
+        for group_cfg in groups.values():
+            if not isinstance(group_cfg, dict):
+                continue
+            en_list = group_cfg.get("en", [])
+            vi_list = group_cfg.get("vi", [])
+            if not isinstance(en_list, list) or not en_list:
+                continue
+            if isinstance(vi_list, list):
+                for i, vi_kw in enumerate(vi_list):
+                    vi_kw_clean = str(vi_kw).strip().lower()
+                    corresponding_en = en_list[i] if i < len(en_list) else en_list[0]
+                    vi_to_en[vi_kw_clean] = str(corresponding_en).strip()
+
+    for job in jobs:
+        if hasattr(job, "search_keyword"):
+            kw = getattr(job, "search_keyword")
+            if isinstance(kw, str):
+                kw_clean = kw.strip().lower()
+                if kw_clean in vi_to_en:
+                    setattr(job, "search_keyword", vi_to_en[kw_clean])
+        elif isinstance(job, dict):
+            kw = job.get("search_keyword")
+            if isinstance(kw, str):
+                kw_clean = kw.strip().lower()
+                if kw_clean in vi_to_en:
+                    job["search_keyword"] = vi_to_en[kw_clean]
+            if "search_group" in job:
+                del job["search_group"]
+
+
 def _flatten_keywords_daily(config: dict) -> list:
     """
-    Support both old tier format and new group_rotation format.
+    Support both old tier format, old group_rotation format, and new bilingual format.
 
     Accepted formats:
       - {"tier_1": [...], "tier_2": [...], "tier_3": [...]}
-      - {"mode": "group_rotation", "groups": {"group": {"roles": [...], "clusters": {...}}}}
+      - {"mode": "group_rotation", "groups": {"group": {"en": [...], "vi": [...], "roles": [...], "clusters": {...}}}}
     """
     keywords = []
 
@@ -745,9 +808,11 @@ def _flatten_keywords_daily(config: dict) -> list:
             if not isinstance(group_cfg, dict):
                 continue
 
-            roles = group_cfg.get("roles", [])
-            if isinstance(roles, list):
-                keywords.extend(roles)
+            # Support bilingual config format: "en", "vi", and fallback to "roles"
+            for lang_key in ("en", "vi", "roles"):
+                lang_keywords = group_cfg.get(lang_key, [])
+                if isinstance(lang_keywords, list):
+                    keywords.extend(lang_keywords)
 
             clusters = group_cfg.get("clusters", {})
             if isinstance(clusters, dict):
@@ -841,7 +906,7 @@ def select_daily_keywords(reset_rotation: bool = False, num_keywords: int | None
             log(f"❌ Still cannot parse keywords file: {keywords_file} -> {exc2}")
             return []
 
-    all_keywords = _flatten_keywords_with_groupnames(keyword_cfg)
+    all_keywords = _flatten_keywords_daily(keyword_cfg)
     if not all_keywords:
         log(f"⚠️ No keywords found in: {keywords_file}")
         return []

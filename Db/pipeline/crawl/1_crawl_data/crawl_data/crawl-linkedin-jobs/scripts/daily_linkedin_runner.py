@@ -68,7 +68,14 @@ def pick_keywords(cfg: dict):
         if group_names:
             # Chọn 1 nhóm dựa trên ngày trong năm
             picked_group_name = group_names[(doy - 1) % len(group_names)]
-            selected = groups[picked_group_name].get("roles", [])
+            group_cfg = groups.get(picked_group_name, {})
+            selected = []
+            if isinstance(group_cfg, dict):
+                for lang_key in ("en", "vi", "roles"):
+                    lang_keywords = group_cfg.get(lang_key, [])
+                    if isinstance(lang_keywords, list):
+                        selected.extend(lang_keywords)
+            selected = list(dict.fromkeys(selected))  # Deduplicate
             print(f"[KEYWORDS] Day {doy} group picked: '{picked_group_name}' with {len(selected)} keywords.")
             return selected
         return []
@@ -269,11 +276,12 @@ def main():
     try:
         for kw_idx, keyword in enumerate(keywords_list, 1):
             keyword = keyword.strip()
+            clean_query = " ".join(keyword.replace("/", " ").split())
             kw_start = datetime.now()
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             # Replace spaces in keyword for filename
-            keyword_safe = keyword.lower().replace(" ", "_")
+            keyword_safe = clean_query.lower().replace(" ", "_")
             out_prefix = os.path.join(output_dir, f"linkedin_{keyword_safe}_{location.lower().replace(' ', '_')}_{timestamp}")
 
             print(f"\n{'─'*85}")
@@ -287,7 +295,7 @@ def main():
                 sys.stdout.flush()
 
                 scrape_start = datetime.now()
-                jobs = scrape_data(keyword, location, search_keyword=keyword, max_jobs=max_jobs, driver=shared_driver, close_driver=False)
+                jobs = scrape_data(clean_query, location, search_keyword=keyword, max_jobs=max_jobs, driver=shared_driver, close_driver=False)
                 scrape_elapsed = (datetime.now() - scrape_start).total_seconds()
 
                 print(f"[{keyword}] ✓ Scrape done: {len(jobs)} jobs in {scrape_elapsed:.1f}s")

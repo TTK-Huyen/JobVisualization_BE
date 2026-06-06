@@ -93,7 +93,14 @@ def pick_keywords(cfg: dict):
         if group_names:
             # Chọn 1 nhóm dựa trên ngày trong năm
             picked_group_name = group_names[(doy - 1) % len(group_names)]
-            selected = groups[picked_group_name].get("roles", [])
+            group_cfg = groups.get(picked_group_name, {})
+            selected = []
+            if isinstance(group_cfg, dict):
+                for lang_key in ("en", "vi", "roles"):
+                    lang_keywords = group_cfg.get(lang_key, [])
+                    if isinstance(lang_keywords, list):
+                        selected.extend(lang_keywords)
+            selected = list(dict.fromkeys(selected))  # Deduplicate
             print(f"[KEYWORDS] Day {doy} group picked: '{picked_group_name}' with {len(selected)} keywords.")
             return selected
         return []
@@ -253,15 +260,16 @@ def main():
     # Run for each keyword
     for keyword in keywords_list:
         keyword = keyword.strip()
+        clean_query = " ".join(keyword.replace("/", " ").split())
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         # Replace spaces in keyword for filename
-        keyword_safe = keyword.lower().replace(" ", "_")
+        keyword_safe = clean_query.lower().replace(" ", "_")
         out_prefix = os.path.join(output_dir, f"itviec_{keyword_safe}_{location.lower().replace(' ', '_')}_{timestamp}")
         
         limit_text = "unlimited jobs" if max_jobs is None else f"max_jobs={max_jobs}"
         print(f"\n[{keyword}] Scraping... ({limit_text}, max pages)")
         print(f"[PLANNED PATH] {out_prefix}.json")
-        jobs_data = scrape_data(keyword, location, max_jobs=max_jobs, search_keyword=keyword)
+        jobs_data = scrape_data(clean_query, location, max_jobs=max_jobs, search_keyword=keyword)
         if not jobs_data:
             print(f"[WARN] No jobs found for '{keyword}'.")
             continue

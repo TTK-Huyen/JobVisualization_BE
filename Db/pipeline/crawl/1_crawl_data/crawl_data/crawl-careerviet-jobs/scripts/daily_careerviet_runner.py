@@ -78,7 +78,14 @@ def pick_keywords(cfg: dict):
         if group_names:
             # Chọn 1 nhóm dựa trên ngày trong năm
             picked_group_name = group_names[(doy - 1) % len(group_names)]
-            selected = groups[picked_group_name].get("roles", [])
+            group_cfg = groups.get(picked_group_name, {})
+            selected = []
+            if isinstance(group_cfg, dict):
+                for lang_key in ("en", "vi", "roles"):
+                    lang_keywords = group_cfg.get(lang_key, [])
+                    if isinstance(lang_keywords, list):
+                        selected.extend(lang_keywords)
+            selected = list(dict.fromkeys(selected))  # Deduplicate
             print(f"[KEYWORDS] Day {doy} group picked: '{picked_group_name}' with {len(selected)} keywords.")
             return selected
         return []
@@ -236,7 +243,8 @@ def main():
     # Run for each keyword
     for keyword in keywords_list:
         keyword = keyword.strip()
-        slug = slugify(keyword)
+        clean_query = " ".join(keyword.replace("/", " ").split())
+        slug = slugify(clean_query)
         list_url = BASE.format(slug=slug)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         out_prefix = os.path.join(output_dir, f"careerviet_{slug}_{timestamp}")
