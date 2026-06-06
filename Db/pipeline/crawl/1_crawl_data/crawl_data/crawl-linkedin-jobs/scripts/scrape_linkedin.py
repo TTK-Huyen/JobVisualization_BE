@@ -58,6 +58,7 @@ from date_filter import (
     describe_date_filter,
     is_posted_date_allowed,
     parse_relative_time_to_date,
+    get_date_filter_mode,
 )
 from bs4 import BeautifulSoup
 import requests
@@ -300,8 +301,11 @@ def _build_linkedin_search_url(keywords: str, location: str, start: int, search_
         f"location={location_q}",
         f"start={start}",
     ]
+    # f_TPR is not supported in LinkedIn Guest Search and causes 0 results.
+    # Instead, we sort by date (sortBy=DD) to get the newest jobs first, and let
+    # our Python code do the date filtering.
     if search_tpr not in {"", "off", "all", "none"}:
-        params.append(f"f_TPR={quote_plus(search_tpr)}")
+        params.append("sortBy=DD")
     return "https://www.linkedin.com/jobs/search/?" + "&".join(params)
 
 
@@ -661,7 +665,11 @@ def scrape_data(
     job_delay = float(os.environ.get("LINKEDIN_JOB_DELAY", "1.5"))
     print(f"[INFO] Per-job delay: {job_delay}s + jitter")
 
-    id_list = extract_job_ids(keyword, location, max_jobs=max_jobs)
+    # If date filter is active, we extract more job IDs (e.g. up to 150)
+    # to find enough candidate jobs that meet the date criteria.
+    date_filter_active = get_date_filter_mode() != "off"
+    extract_limit = max(max_jobs, 150) if date_filter_active else max_jobs
+    id_list = extract_job_ids(keyword, location, max_jobs=extract_limit)
 
     selenium_fallback_enabled = _should_enable_selenium_fallback()
     selenium_fallback_min_ids = int(os.environ.get("LINKEDIN_SELENIUM_FALLBACK_MIN_IDS", "150"))
@@ -676,7 +684,8 @@ def scrape_data(
             f"{selenium_fallback_min_ids}. Trying Selenium fallback..."
         )
         try:
-            selenium_ids = extract_job_ids_with_selenium(keyword, location, selenium_fallback_max_jobs, driver=driver)
+            selenium_extract_limit = max(selenium_fallback_max_jobs, 150) if date_filter_active else selenium_fallback_max_jobs
+            selenium_ids = extract_job_ids_with_selenium(keyword, location, selenium_extract_limit, driver=driver)
             if selenium_ids:
                 merged_ids = []
                 seen_ids = set()
@@ -684,7 +693,7 @@ def scrape_data(
                     if job_id not in seen_ids:
                         seen_ids.add(job_id)
                         merged_ids.append(job_id)
-                id_list = merged_ids[:max_jobs]
+                id_list = merged_ids[:extract_limit]
                 print(f"[INFO] Selenium fallback added {len(id_list)} total job IDs after merge")
             else:
                 print("[WARN] Selenium fallback did not add any job IDs")

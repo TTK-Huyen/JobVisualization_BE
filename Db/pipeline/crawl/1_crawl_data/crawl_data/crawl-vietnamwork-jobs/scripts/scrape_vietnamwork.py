@@ -217,14 +217,23 @@ def fetch_and_parse_full_job_details(job_url: str) -> tuple:
         # Regex matching double-quoted string with escapes
         desc_val_match = re.search(r'"jobDescription"\s*:\s*"((?:[^"\\]|\\.)*)"', normalized)
         req_val_match = re.search(r'"jobRequirement"\s*:\s*"((?:[^"\\]|\\.)*)"', normalized)
+        approved_on_match = re.search(r'"approvedOn"\s*:\s*"((?:[^"\\]|\\.)*)"', normalized)
+        created_on_match = re.search(r'"createdOn"\s*:\s*"((?:[^"\\]|\\.)*)"', normalized)
         th_start_match = re.search(r'"serviceCode"\s*:\s*"TH"[^\{\}]*?"startOn"\s*:\s*"((?:[^"\\]|\\.)*)"', normalized)
         date_posted_match = re.search(r'"datePosted"\s*:\s*"((?:[^"\\]|\\.)*)"', normalized)
         online_on_match = re.search(r'"onlineOn"\s*:\s*"((?:[^"\\]|\\.)*)"', normalized)
-        raw_date_text = (
-            th_start_match.group(1)
-            if th_start_match
-            else (date_posted_match.group(1) if date_posted_match else (online_on_match.group(1) if online_on_match else None))
-        )
+        
+        raw_date_text = None
+        if approved_on_match:
+            raw_date_text = approved_on_match.group(1)
+        elif created_on_match:
+            raw_date_text = created_on_match.group(1)
+        elif th_start_match:
+            raw_date_text = th_start_match.group(1)
+        elif date_posted_match:
+            raw_date_text = date_posted_match.group(1)
+        elif online_on_match:
+            raw_date_text = online_on_match.group(1)
         
         if not desc_val_match or not req_val_match:
             return None, None, raw_date_text, soup
