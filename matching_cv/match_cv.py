@@ -171,6 +171,61 @@ def extract_student_skills_gemini(cv_text: str, confidence_threshold: float = 0.
     raise RuntimeError(f"Failed to extract skills via Gemini: {last_exc}")
 
 
+def extract_student_skills_keyword_fallback(cv_text: str, conn) -> List[Dict[str, Any]]:
+    """
+    Extract skills using rule-based exact keyword matching from PostgreSQL skills database.
+    Used as fallback when Gemini API hits quota limit or throws error.
+    """
+    logger.warning("Gemini API quota exhausted or error occurred. Switching to database-driven keyword matching fallback...")
+    cur = conn.cursor()
+    try:
+        # Load all skills from the system taxonomy
+        cur.execute("SELECT skill_name FROM public.skills")
+        rows = cur.fetchall()
+        db_skills = [str(row[0]) for row in rows if row[0]]
+    except Exception as e:
+        logger.error("Failed to load skills taxonomy for fallback matching: %s", e)
+        return []
+    finally:
+        cur.close()
+
+    cv_text_lower = f" {cv_text.lower()} "
+    extracted_set = set()
+    extracted_skills = []
+
+    for skill_name in db_skills:
+        # Remove parenthesized parts, e.g. "Docker (Software)" -> "Docker"
+        cleaned_name = re.sub(r"\([^)]*\)", "", skill_name)
+        cleaned_name = re.sub(r"\s+", " ", cleaned_name).strip()
+        if not cleaned_name:
+            continue
+            
+        cleaned_lower = cleaned_name.lower()
+        if cleaned_lower in extracted_set:
+            continue
+
+        matched = False
+        # Word boundary matching for short skill keywords (e.g. C, R, Git, Go)
+        if len(cleaned_lower) <= 3:
+            pattern = rf"\b{re.escape(cleaned_lower)}\b"
+            if re.search(pattern, cv_text_lower):
+                matched = True
+        else:
+            if cleaned_lower in cv_text_lower:
+                matched = True
+
+        if matched:
+            extracted_set.add(cleaned_lower)
+            extracted_skills.append({
+                "skill": cleaned_name,
+                "evidence": f"Found mention of '{cleaned_name}' in CV text (Keyword Fallback)",
+                "confidence": 0.85
+            })
+
+    logger.info("Fallback keyword extraction completed. Found %d skills.", len(extracted_skills))
+    return extracted_skills
+
+
 def fetch_job_group_weights(conn, search_group: str) -> List[Dict[str, Any]]:
     """
     Fetch the list of standard skills and their weights for a given search group.
@@ -548,8 +603,12 @@ def main():
         if not cv_cache_hit:
             # Extract skills using Gemini
             logger.info("Extracting skills using Gemini...")
-            raw_skills = extract_student_skills_gemini(cv_text, confidence_threshold=args.confidence_threshold)
-            logger.info("Extracted %d skills from CV using Gemini.", len(raw_skills))
+            try:
+                raw_skills = extract_student_skills_gemini(cv_text, confidence_threshold=args.confidence_threshold)
+                logger.info("Extracted %d skills from CV using Gemini.", len(raw_skills))
+            except RuntimeError as e:
+                logger.warning("Gemini extraction failed: %s. Initiating keyword matching fallback...", e)
+                raw_skills = extract_student_skills_keyword_fallback(cv_text, conn)
 
             # Normalize skills using Lightcast
             logger.info("Normalizing CV skills with Lightcast and mini-v6 embeddings...")
