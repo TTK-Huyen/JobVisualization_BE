@@ -290,6 +290,11 @@ def build_llm_input_text(job: Dict[str, Any], max_chars: int = 8000) -> str:
     if location:
         parts.append(str(location).strip())
 
+    # Salary candidates
+    salary = _safe_get('salary_raw', 'salary')
+    if salary:
+        parts.append(f"Salary: {str(salary).strip()}")
+
     # Description: remove noisy tags then strip HTML
     desc_html = _safe_get('description_html', 'description')
     if isinstance(desc_html, str) and desc_html.strip():
@@ -577,9 +582,11 @@ def _validate_and_normalize(extracted: Dict[str, Any], original_job: Dict[str, A
     return extracted
 
 
-def process_job(job: Dict[str, Any], api_key: str, config_path: Path) -> Dict[str, Any]:
+def process_job(job: Dict[str, Any], api_key: str, config_path: Path, api_key_name: Optional[str] = None) -> Dict[str, Any]:
     base_record = dict(job)
     base_record["status"] = "pending_llm"
+    if api_key_name:
+        base_record["api_key_used"] = api_key_name
 
     llm_out = None
 
@@ -1182,12 +1189,13 @@ def main() -> int:
 
         try:
             # call process_job which internally calls call_llm adapter
-            processed = process_job(job, api_key_val, args.config_path)
+            processed = process_job(job, api_key_val, args.config_path, api_key_name=env_name)
         except Exception as exc:
             processed = dict(job)
             processed['status'] = 'llm_api_fail'
             processed['error'] = str(exc)
 
+        processed['api_key_used'] = env_name
         status = processed.get('status')
         err_text = (processed.get('error') or '')
         low = err_text.lower() if isinstance(err_text, str) else ''
