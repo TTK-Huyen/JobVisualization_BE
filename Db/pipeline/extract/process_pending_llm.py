@@ -468,6 +468,146 @@ def _extract_json_from_text(text: str) -> Dict[str, Any]:
     raise ValueError("No JSON object could be extracted from model output")
 
 
+def parse_salary_locally(salary_raw: str) -> Optional[Dict[str, Any]]:
+    """Try to parse the salary raw string locally using Regex rules.
+    Bypasses Gemini API calls for standard formats.
+    """
+    s = str(salary_raw).strip().lower()
+    if not s:
+        return None
+        
+    # Determine currency
+    currency = "unknown"
+    if any(x in s for x in ("vnd", "đ", "₫", "triệu", "tr", "nghìn", "k", "dong", "đồng")):
+        currency = "VND"
+    elif any(x in s for x in ("usd", "$", "dollar")):
+        currency = "USD"
+        
+    # Determine pay period
+    pay_period = "monthly"  # default
+    if any(x in s for x in ("năm", "year", "yearly", "annually")):
+        pay_period = "yearly"
+    elif any(x in s for x in ("giờ", "hour", "hourly")):
+        pay_period = "hourly"
+    elif any(x in s for x in ("ngày", "day", "daily")):
+        pay_period = "daily"
+    elif any(x in s for x in ("tuần", "week", "weekly")):
+        pay_period = "weekly"
+        
+    # Clean separators for full digits (e.g. 15.000.000 -> 15000000, 1,500 -> 1500)
+    s_clean = s
+    if re.search(r'\d{1,3}(?:[.,]\d{3}){1,3}', s):
+        s_clean = re.sub(r'(\d+)[.,](\d{3})(?![0-9])', r'\1\2', s_clean)
+        s_clean = re.sub(r'(\d+)[.,](\d{3})(?![0-9])', r'\1\2', s_clean)  # double pass
+        
+    # Normalize remaining commas to dots (e.g. 4,5 -> 4.5)
+    s_clean = s_clean.replace(',', '.')
+
+    # Clean up common non-salary numbers to avoid false extraction (e.g. "13th-month", "5 YOE")
+    s_clean = re.sub(r'\b13[- ]*(th)?[- ]*month\b', '', s_clean)
+    s_clean = re.sub(r'\blương[- ]*tháng[- ]*13\b', '', s_clean)
+    s_clean = re.sub(r'\btháng[- ]*13\b', '', s_clean)
+    s_clean = re.sub(r'\b\d+\s*\+?\s*(yoe|year|năm|tháng)\s*(kinh nghiệm|exp|experience)?\b', '', s_clean)
+    s_clean = re.sub(r'\b\d+\s*([-–—]|đến|tới|to)\s*\d+\s*(tuổi|t|age)\b', '', s_clean)
+    s_clean = re.sub(r'\b(từ)?\s*\d+\s*(tuổi|t|age)\b', '', s_clean)
+    s_clean = re.sub(r'\b(tuyển|số lượng|headcount|sl)\s*[:\s-]*\d+\b', '', s_clean)
+    s_clean = re.sub(r'\b\d+\s*(nhân sự|người|dev|developer|vị trí|slot)\b', '', s_clean)
+        
+    # Find all numbers and their potential multipliers
+    num_matches = list(re.finditer(r'(\d+(?:\.\d+)?)\s*(tr|triệu|k|nghìn|million|m|vnd|usd|\$|₫)?', s_clean))
+    
+    if num_matches:
+        def get_val(num_str, suffix):
+            val = float(num_str)
+            if not suffix:
+                if any(x in s_clean for x in ("triệu", "tr", "million")) and val < 500:
+                    val *= 1000000
+                elif (re.search(r'\b(nghìn|k)\b', s_clean) or re.search(r'\d+\s*k\b', s_clean)) and val < 10000:
+                    val *= 1000
+            else:
+                if suffix in ("tr", "triệu", "million", "m"):
+                    val *= 1000000
+                elif suffix in ("k", "nghìn"):
+                    val *= 1000
+            return int(val)
+            
+        if len(num_matches) >= 2:
+            try:
+                vals = [get_val(m.group(1), m.group(2)) for m in num_matches]
+                if len(set(vals)) == 1:
+                    num_matches = [num_matches[0]]
+            except Exception:
+                pass
+                
+        is_range = any(x in s_clean for x in ("-", "–", "—", "đến", "tới", "to"))
+        
+        if len(num_matches) >= 2 and is_range:
+            n1_str, suff1 = num_matches[0].groups()
+            n2_str, suff2 = num_matches[1].groups()
+            
+            if not suff1 and suff2:
+                suff1 = suff2
+                
+            min_s = get_val(n1_str, suff1)
+            max_s = get_val(n2_str, suff2)
+            
+            if min_s < 1000 and currency == "VND":
+                min_s *= 1000000
+                max_s *= 1000000
+                
+            med_s = (min_s + max_s) // 2
+            return {
+                "min_salary": min_s,
+                "max_salary": max_s,
+                "med_salary": med_s,
+                "currency": currency,
+                "pay_period": pay_period
+            }
+        elif len(num_matches) >= 1:
+            n_str, suff = num_matches[0].groups()
+            val = get_val(n_str, suff)
+            
+            if val < 1000 and currency == "VND":
+                val *= 1000000
+                
+            if any(x in s_clean for x in ("lên đến", "lên tới", "upto", "up to", "tối đa", "max", "dưới")):
+                return {
+                    "min_salary": None,
+                    "max_salary": val,
+                    "med_salary": None,
+                    "currency": currency,
+                    "pay_period": pay_period
+                }
+            elif any(x in s_clean for x in ("từ", "from", "tối thiểu", "min", "trên")):
+                return {
+                    "min_salary": val,
+                    "max_salary": None,
+                    "med_salary": None,
+                    "currency": currency,
+                    "pay_period": pay_period
+                }
+            else:
+                return {
+                    "min_salary": val,
+                    "max_salary": val,
+                    "med_salary": val,
+                    "currency": currency,
+                    "pay_period": pay_period
+                }
+
+    negotiable_keywords = ("thỏa thuận", "thoả thuận", "thương lượng", "cạnh tranh", "negotiable", "competitive")
+    if any(neg in s for neg in negotiable_keywords):
+        return {
+            "min_salary": None,
+            "max_salary": None,
+            "med_salary": None,
+            "currency": "unknown",
+            "pay_period": "negotiable"
+        }
+        
+    return None
+
+
 def _validate_and_normalize(extracted: Dict[str, Any], original_job: Dict[str, Any]) -> Dict[str, Any]:
     warnings: List[str] = []
     errors: List[str] = []
@@ -477,6 +617,21 @@ def _validate_and_normalize(extracted: Dict[str, Any], original_job: Dict[str, A
     company = extracted.get('company') or {}
     salary = extracted.get('salary') or {}
     raw = extracted.get('raw') or {}
+
+    # Failsafe fallback: if salary fields are empty, try local parsing first
+    if (salary.get('min_salary') is None and salary.get('max_salary') is None 
+            and salary.get('pay_period') not in ('negotiable', 'yearly', 'monthly', 'hourly', 'daily', 'weekly')):
+        raw_sal_str = original_job.get('salary_raw') or original_job.get('salary') or extracted.get('salary_raw')
+        if raw_sal_str:
+            local_extracted = parse_salary_locally(raw_sal_str)
+            if local_extracted:
+                salary.update({
+                    'min_salary': local_extracted.get('min_salary'),
+                    'max_salary': local_extracted.get('max_salary'),
+                    'med_salary': local_extracted.get('med_salary'),
+                    'currency': local_extracted.get('currency'),
+                    'pay_period': local_extracted.get('pay_period')
+                })
 
     # 2. Validate work_type enum
     allowed_work = {
