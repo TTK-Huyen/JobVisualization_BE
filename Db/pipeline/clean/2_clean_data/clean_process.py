@@ -43,13 +43,27 @@ def _find_crawl_run_dir(path_like):
             return ancestor
     return None
 
-# Load .env for config override
-env_file = Path(__file__).parent.parent / ".env"
-if env_file.exists():
-    load_dotenv(env_file)
-    print(f"[*] Loaded .env from {env_file}")
+# Load .env for config override — search upward from this file's directory
+# so the single /app/Db/.env used in production is found regardless of depth.
+_script_dir = Path(__file__).resolve().parent
+_env_file_found = None
+for _candidate in [
+    _script_dir / ".env",
+    _script_dir.parent / ".env",
+    _script_dir.parent.parent / ".env",
+    _script_dir.parent.parent.parent / ".env",
+    _script_dir.parent.parent.parent.parent / ".env",
+]:
+    if _candidate.exists():
+        _env_file_found = _candidate
+        break
+
+env_file = _env_file_found or (_script_dir.parent / ".env")
+if _env_file_found:
+    load_dotenv(_env_file_found)
+    print(f"[*] Loaded .env from {_env_file_found}")
 else:
-    print(f"[!] .env not found at {env_file}, using defaults")
+    print(f"[!] .env not found (searched up to {_script_dir.parent.parent.parent.parent}), using defaults")
 
 print(f"[*] Importing cache_manager...", flush=True)
 from cache_manager import initialize_all_caches, save_all_caches, save_pending_failed_jobs, get_job_fingerprint
