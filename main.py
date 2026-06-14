@@ -15,7 +15,7 @@ UPLOAD_DIR = Path(".tmp_cv_uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 if Path("/.dockerenv").exists() or os.getenv("IS_DOCKER"):
-    PYTHON_EXEC = "python"
+    PYTHON_EXEC = "python3"
 elif os.name == 'nt':
     PYTHON_EXEC = str(Path(".venv/Scripts/python.exe").resolve())
 else:
@@ -109,7 +109,17 @@ def background_etl_worker(step: str):
     else:
         cmd = [PYTHON_EXEC, "run_etl_pipeline.py", "--step", step]
     
-    run_cli_command(cmd, working_dir="/app/Db")
+    try:
+        with open("/app/Db/api_etl_debug.log", "w") as log_file:
+            subprocess.run(
+                cmd,
+                stdout=log_file,
+                stderr=log_file,
+                cwd="/app/Db",
+                env=os.environ.copy()
+            )
+    except Exception as e:
+        print(f"--- KHÔNG THỂ GHI FILE LOG OUGHT: {str(e)} ---")
 
 
 @app.post("/api/v1/pipeline/trigger")
