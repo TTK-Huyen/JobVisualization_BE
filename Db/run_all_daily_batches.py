@@ -7,6 +7,7 @@ import time
 import subprocess
 import argparse
 from datetime import datetime
+from dotenv import load_dotenv
 
 # Configure UTF-8 encoding for console output (Windows compatibility)
 if sys.stdout.encoding != 'utf-8':
@@ -16,13 +17,16 @@ if sys.stderr.encoding != 'utf-8':
 
 # Paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(BASE_DIR, ".env"))
 python_exe = os.path.join(BASE_DIR, ".venv", "Scripts", "python.exe")
 pipeline_script = os.path.join(BASE_DIR, "run_etl_pipeline.py")
 
 # Configurations
 def get_total_keywords():
     try:
-        config_path = os.path.join(BASE_DIR, "input", "keywords_daily.json")
+        config_path = os.getenv("KEYWORDS_DAILY_PATH")
+        if not config_path or not os.path.exists(config_path):
+            config_path = os.path.join(BASE_DIR, "input", "keywords_daily.json")
         if not os.path.exists(config_path):
             config_path = os.path.join(BASE_DIR, "keywords_daily.json")
         if not os.path.exists(config_path):
@@ -73,7 +77,7 @@ import json
 TOTAL_KEYWORDS = get_total_keywords()
 BATCH_SIZE = 4
 TOTAL_RUNS = (TOTAL_KEYWORDS + BATCH_SIZE - 1) // BATCH_SIZE
-PAUSE_MINUTES = 5  # Rest time in minutes between batches
+PAUSE_MINUTES = int(os.getenv("PAUSE_MINUTES", "5"))  # Rest time in minutes between batches
 PAUSE_SECONDS = PAUSE_MINUTES * 60
 
 def parse_args() -> argparse.Namespace:
@@ -85,20 +89,30 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Reset keyword rotation back to the beginning (index 0) on the first run of the day."
     )
+    parser.add_argument(
+        "--max-runs",
+        type=int,
+        default=None,
+        help="Limit the number of runs/batches to execute."
+    )
     return parser.parse_args()
 
 def main():
     args = parse_args()
+    runs_to_execute = TOTAL_RUNS
+    if args.max_runs is not None:
+        runs_to_execute = min(TOTAL_RUNS, args.max_runs)
+
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting daily crawl batches...")
-    print(f"Total runs: {TOTAL_RUNS}, batch size: {BATCH_SIZE} keywords, pause: {PAUSE_MINUTES} minutes")
+    print(f"Total runs to execute: {runs_to_execute} (out of {TOTAL_RUNS} total runs), batch size: {BATCH_SIZE} keywords, pause: {PAUSE_MINUTES} minutes")
     print(f"Reset keywords on start: {args.reset_keywords}")
     print(f"Working Directory: {BASE_DIR}")
     print(f"Python Venv Executable: {python_exe}")
     print(f"Pipeline Script: {pipeline_script}")
     
-    for run in range(1, TOTAL_RUNS + 1):
+    for run in range(1, runs_to_execute + 1):
         print("\n" + "=" * 80)
-        print(f"RUN {run} OF {TOTAL_RUNS} - Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"RUN {run} OF {runs_to_execute} - Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print("=" * 80)
         
         # Build the command
@@ -115,11 +129,11 @@ def main():
         except Exception as e:
             print(f"[ERROR] Run {run} failed with exception: {e}")
             
-        if run < TOTAL_RUNS:
+        if run < runs_to_execute:
             print(f"Waiting for {PAUSE_MINUTES} minutes to avoid rate limit/blocking before next batch...")
             time.sleep(PAUSE_SECONDS)
 
-    print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] All {TOTAL_RUNS} batches completed successfully!")
+    print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] All {runs_to_execute} batches completed successfully!")
 
 if __name__ == "__main__":
     main()

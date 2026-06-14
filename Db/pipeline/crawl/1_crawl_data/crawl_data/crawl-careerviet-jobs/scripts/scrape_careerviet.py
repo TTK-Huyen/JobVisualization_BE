@@ -1,4 +1,5 @@
 import time
+import os
 import re
 import random
 import sys
@@ -22,8 +23,8 @@ from requests.adapters import HTTPAdapter
 # Import schema chuẩn
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from schema import RawJobData
-from date_filter import describe_date_filter, is_posted_date_allowed, parse_iso_date
-from central_filters import filter_recent_jobs
+from date_filter import describe_date_filter, is_posted_date_allowed, parse_iso_date, parse_careerviet_date
+from central_filters import filter_recent_jobs, filter_existing_jobs_by_url, stats_collector
 
 BASE = "https://careerviet.vn"
 HEADERS = {
@@ -142,6 +143,7 @@ def smart_sleep(min_s=0.6, max_s=1.4):
 def get_soup(session: requests.Session, url: str) -> BeautifulSoup:
     for attempt in range(1, 6):
         r = session.get(url, timeout=30)
+        stats_collector.record_http_status("CareerViet", r.status_code)
         if r.status_code == 429:
             retry_after = r.headers.get("Retry-After")
             if retry_after:
@@ -183,6 +185,8 @@ def parse_search_page(session: requests.Session, url: str) -> List[Dict]:
     if not cards:
         # Fallback: bất kỳ thẻ có link tới trang job detail
         cards = [a.parent for a in soup.select("a[href*='/vi/tim-viec-lam/']")]
+
+    stats_collector.record_list_count("CareerViet", len(cards))
 
     for card in cards:
         a_title = None
@@ -235,6 +239,18 @@ def parse_search_page(session: requests.Session, url: str) -> List[Dict]:
                 exp = text(el)
                 break
 
+        # Date filter logic
+        card_text = card.get_text(" ", strip=True)
+        # Chỉ tìm phần ngày đi sau chữ "cập nhật" hoặc "ngày cập nhật"
+        update_match = re.search(r"(?:cập nhật|update)[:\s]+(\d{1,2}[-/]\d{1,2}[-/]\d{4})", card_text, re.I)
+        raw_date_text = update_match.group(0) if update_match else None
+        posted_date = parse_careerviet_date(raw_date_text) if raw_date_text else None
+        if not is_posted_date_allowed(posted_date):
+            print(f"[FILTER] Dropped CareerViet job: {job_url} (date: {posted_date})")
+            stats_collector.record_date_dropped("CareerViet", 1, [job_url])
+            continue
+
+
         jobs.append({
             "title": title,
             "job_url": job_url,
@@ -243,7 +259,9 @@ def parse_search_page(session: requests.Session, url: str) -> List[Dict]:
             "salary_list": salary,
             "address_list": address,
             "exp_list": exp,
+            "posted_date": posted_date.isoformat() if posted_date else None,
         })
+
     return jobs
 
 # ---------- Job detail ----------
@@ -668,6 +686,7 @@ def extract_job_detail_html(soup: BeautifulSoup, fallback_company_tab_html: Opti
 
     if fallback_company_tab_html:
         html_parts.append(fallback_company_tab_html)
+
 
     if html_parts:
         return "\n".join(part for part in html_parts if part)
@@ -1130,6 +1149,8 @@ def crawl_list_url_to_raw_jobs(list_url_page1: str, start_page: int = 1, end_pag
     Returns:
         List[RawJobData]: Danh sách các job đã được chuẩn hóa theo schema
     """
+    stats_collector.set_active_keyword(search_keyword)
+    stats_collector.record_max_jobs("CareerViet", max_jobs or 0)
     if max_jobs is not None and max_jobs <= 0:
         print("[INFO] max_jobs is 0 or negative. Skipping crawl and returning empty list.")
         return []
@@ -1139,11 +1160,21 @@ def crawl_list_url_to_raw_jobs(list_url_page1: str, start_page: int = 1, end_pag
 
     for page in range(start_page, end_page + 1):
         url = build_paged_url(list_url_page1, page)
+        stats_collector.record_search_list_url("CareerViet", url)
         print(f"[INFO] Crawling search page {page}: {url}")
         jobs = parse_search_page(s, url)
         if not jobs:
             print(f"[INFO] Trang {page} không còn job — dừng sớm.")
             break
+
+        # DB Deduplication: Filter out jobs that already exist in the database
+        original_count = len(jobs)
+        original_urls = [j["job_url"] for j in jobs]
+        filtered_urls = set(filter_existing_jobs_by_url(original_urls, source="CareerViet"))
+        jobs = [j for j in jobs if j["job_url"] in filtered_urls]
+        filtered_count = len(jobs)
+        if original_count != filtered_count:
+            print(f"[DB_FILTER] Bỏ qua {original_count - filtered_count} jobs trên trang {page} đã tồn tại trong database. Còn lại {filtered_count} jobs.")
 
         for j in jobs:
             if max_jobs and len(raw_jobs) >= max_jobs:
@@ -1156,36 +1187,77 @@ def crawl_list_url_to_raw_jobs(list_url_page1: str, start_page: int = 1, end_pag
                 continue
             seen_jobs.add(job_id)
 
-            # Job detail
-            try:
-                detail = scrape_job_detail(s, job_url)
-            except Exception as e:
-                print(f"[WARN] Lỗi job detail {job_url}: {e}")
-                detail = {k: None for k in [
-                    "detail_title", "detail_salary", "detail_location",
-                    "detail_experience", "deadline", "tags", "desc_mota",
-                    "desc_yeucau", "desc_quyenloi", "working_addresses",
-                    "working_times", "employment_type", "degree",
-                    "age_requirement", "company_url_from_job",
-                    "company_name_from_job", "company_logo_url",
-                    "company_profile_summary", "company_type",
-                    "company_industry_from_job", "company_size_from_job",
-                    "company_country", "company_working_days",
-                    "company_overtime_policy", "company_rating",
-                    "company_review_url", "job_detail_html"
-                ]}
+            # Job detail & Company detail
+            if os.environ.get("CRAWL_ONLY") == "true":
+                detail = {
+                    "detail_title": j.get("title", "Crawl Only Mock"),
+                    "detail_salary": j.get("salary_list"),
+                    "detail_location": j.get("address_list"),
+                    "detail_experience": j.get("exp_list"),
+                    "deadline": None,
+                    "tags": "",
+                    "desc_mota": "Crawl Only Mock",
+                    "desc_yeucau": "Crawl Only Mock",
+                    "desc_quyenloi": "Crawl Only Mock",
+                    "working_addresses": None,
+                    "working_times": None,
+                    "employment_type": "Full-time",
+                    "degree": None,
+                    "age_requirement": None,
+                    "company_url_from_job": None,
+                    "company_name_from_job": j.get("company"),
+                    "company_logo_url": None,
+                    "company_profile_summary": None,
+                    "company_type": None,
+                    "company_industry_from_job": None,
+                    "company_size_from_job": None,
+                    "company_country": None,
+                    "company_working_days": None,
+                    "company_overtime_policy": None,
+                    "company_rating": None,
+                    "company_review_url": None,
+                    "job_detail_html": "Crawl Only Mock",
+                    "detail_posted_date": j.get("posted_date")
+                }
 
-            company_url = detail.get("company_url_from_job") or j.get("company_url")
+                comp = {
+                    "company_name_full": j.get("company"),
+                    "company_website": None,
+                    "company_size": None,
+                    "company_industry": None,
+                    "company_address": None,
+                    "company_description": None
+                }
+            else:
+                try:
+                    detail = scrape_job_detail(s, job_url)
+                except Exception as e:
+                    print(f"[WARN] Lỗi job detail {job_url}: {e}")
+                    detail = {k: None for k in [
+                        "detail_title", "detail_salary", "detail_location",
+                        "detail_experience", "deadline", "tags", "desc_mota",
+                        "desc_yeucau", "desc_quyenloi", "working_addresses",
+                        "working_times", "employment_type", "degree",
+                        "age_requirement", "company_url_from_job",
+                        "company_name_from_job", "company_logo_url",
+                        "company_profile_summary", "company_type",
+                        "company_industry_from_job", "company_size_from_job",
+                        "company_country", "company_working_days",
+                        "company_overtime_policy", "company_rating",
+                        "company_review_url", "job_detail_html", "detail_posted_date"
+                    ]}
 
-            # Company detail
-            try:
-                comp = scrape_company(s, company_url)
-            except Exception as e:
-                print(f"[WARN] Lỗi company {company_url}: {e}")
-                comp = {k: None for k in [
-                    "company_name_full", "company_website", "company_size",
-                    "company_industry", "company_address", "company_description"
-                ]}
+                company_url = detail.get("company_url_from_job") or j.get("company_url")
+
+                # Company detail
+                try:
+                    comp = scrape_company(s, company_url)
+                except Exception as e:
+                    print(f"[WARN] Lỗi company {company_url}: {e}")
+                    comp = {k: None for k in [
+                        "company_name_full", "company_website", "company_size",
+                        "company_industry", "company_address", "company_description"
+                    ]}
 
             comp = merge_company_info(comp, {
                 "company_name_full": detail.get("company_name_from_job"),
@@ -1209,12 +1281,11 @@ def crawl_list_url_to_raw_jobs(list_url_page1: str, start_page: int = 1, end_pag
         if max_jobs and len(raw_jobs) >= max_jobs:
             break
 
-    # Apply central recent-job filter before returning
-    try:
-        filtered = filter_recent_jobs(raw_jobs)
-        return filtered
-    except Exception:
-        return raw_jobs
+    stats_collector.record_detail_scraped("CareerViet", len(raw_jobs), [j.job_url for j in raw_jobs])
+    stats_collector.calculate_missing_fields("CareerViet", raw_jobs)
+
+    # Apply central recent-job filter bypassed per user request (relying on early filter at list crawl phase)
+    return raw_jobs
 
 def crawl_list_url_to_dataframe(list_url_page1: str, start_page: int = 1, end_page: int = 1,
                                 delay_between_pages=(0.5, 1.0)) -> pd.DataFrame:
@@ -1327,138 +1398,74 @@ def crawl_many_lists(list_urls: Iterable[str], start_page: int = 1, end_page: in
 
 
 if __name__ == "__main__":
+    import argparse
     import os
     import json
-    
-    # ========== TEST SCHEMA: Crawl 5 jobs và export theo RawJobData ==========
-    print("[TEST SCHEMA] Testing with RawJobData schema...")
-    test_url = "https://careerviet.vn/viec-lam/ai-k-vi.html"
-    
-    # Crawl 5 jobs với schema chuẩn
-    raw_jobs = crawl_list_url_to_raw_jobs(test_url, start_page=1, end_page=1)
-    
-    if raw_jobs:
-        # Export to JSON
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        data_files_dir = os.path.join(script_dir, "..", "data-files")
-        os.makedirs(data_files_dir, exist_ok=True)
-        
-        # Export raw schema
-        schema_json_file = os.path.join(data_files_dir, "test_raw_schema.json")
-        raw_jobs_dicts = [job.to_dict() for job in raw_jobs[:5]]  # Giới hạn 5 jobs
-        
-        with open(schema_json_file, "w", encoding="utf-8") as f:
-            json.dump(raw_jobs_dicts, f, ensure_ascii=False, indent=2)
-        
-        print(f"\n{'='*80}")
-        print(f"[OK] Exported {len(raw_jobs_dicts)} jobs (RawJobData schema) to:")
-        print(f"     {schema_json_file}")
-        print(f"{'='*80}")
-        
-        # Show sample
-        if raw_jobs_dicts:
-            print("\n[SAMPLE] First job with RawJobData schema:")
-            first_job = raw_jobs_dicts[0]
-            for key, value in first_job.items():
-                val_str = str(value)[:80] + ("..." if len(str(value)) > 80 else "")
-                print(f"  {key:25} : {val_str}")
-    
-    print("\n" + "="*80)
-    
-    # ========== TEST 5 MẪU CÔNG VIỆC (ĐẦY ĐỦ THÔNG TIN - OLD FORMAT) ==========
-    print("\n[TEST OLD FORMAT] Testing 5 sample jobs with full info (backward compatibility)...")
-    s = build_session()
-    
-    # Crawl search page
-    test_list_url = "https://careerviet.vn/viec-lam/ai-k-vi.html"
-    print(f"\n[1] Parsing search page: {test_list_url}")
-    jobs = parse_search_page(s, test_list_url)
-    
-    if not jobs:
-        print("[ERROR] No jobs found in search page!")
-    else:
-        # Lấy 5 jobs đầu tiên
-        test_count = min(5, len(jobs))
-        print(f"[2] Found {len(jobs)} jobs, testing first {test_count}:")
-        
-        all_rows = []
-        
-        for idx, job in enumerate(jobs[:test_count], 1):
-            print(f"\n{'='*80}")
-            print(f"[Job {idx}/{test_count}] {job['title']}")
-            print(f"URL: {job['job_url']}")
-            print(f"{'='*80}")
-            
-            try:
-                # Crawl job detail
-                print(f"  [3.{idx}] Scraping job detail...")
-                detail = scrape_job_detail(s, job['job_url'])
-                
-                # Crawl company info
-                company_url = detail.get("company_url_from_job") or job.get("company_url")
-                print(f"  [4.{idx}] Scraping company info...")
-                company = scrape_company(s, company_url)
-                
-                # Merge all info
-                full_row = {**job, **detail, **company}
-                all_rows.append(full_row)
-                
-                print(f"  ✓ Job {idx} completed successfully")
-                
-            except Exception as e:
-                print(f"  ✗ Error processing job {idx}: {e}")
-                continue
-        
-        # Export to JSON
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        data_files_dir = os.path.join(script_dir, "..", "data-files")
-        os.makedirs(data_files_dir, exist_ok=True)
-        test_json_file = os.path.join(data_files_dir, "test_5_jobs.json")
-        
-        with open(test_json_file, "w", encoding="utf-8") as f:
-            json.dump(all_rows, f, ensure_ascii=False, indent=2)
-        
-        print(f"\n{'='*80}")
-        print(f"[OK] Exported {len(all_rows)} test jobs to: {test_json_file}")
-        print(f"Full path: {os.path.abspath(test_json_file)}")
-        print(f"{'='*80}")
-        
-        # Show summary
-        print("\nSummary of extracted fields:")
-        if all_rows:
-            first_job = all_rows[0]
-            print(f"Total fields: {len(first_job)}")
-            print("\nSample data from first job:")
-            for k, v in list(first_job.items())[:10]:
-                val_str = str(v)[:100] + ("..." if len(str(v)) > 100 else "")
-                print(f"  {k:30} : {val_str}")
-    
-    # ========== CRAWL TOÀN BỘ (BỎ COMMENT NẾU SỰ DỤNG) ==========
-    """
-    parser = argparse.ArgumentParser(description="Crawl CareerViet jobs (giữ nguyên schema như TopCV) và lưu CSV/XLSX.")
-    parser.add_argument("--list-urls", "-u", nargs="+", required=False, default=[
-        "https://careerviet.vn/viec-lam/ai-k-vi.html",
-        "https://careerviet.vn/viec-lam/backend-k-vi.html",
-        "https://careerviet.vn/viec-lam/cntt-phan-mem-c1-vi.html",
-    ], help="URL danh mục trang 1. VD: -u https://careerviet.vn/viec-lam/ai-k-vi.html")
-    parser.add_argument("--start-page", type=int, default=1, help="CareerViet trang tối đa thường là 1")
-    parser.add_argument("--end-page", type=int, default=1, help="Nếu >=2 sẽ dùng dạng -trang-{page}-vi.html")
-    parser.add_argument("--out-prefix", default="../data-files/careerviet_it_jobs", help="Prefix file đầu ra (không kèm đuôi).")
+    from pathlib import Path
+    try:
+        from dotenv import load_dotenv
+        # Tìm thư mục Db và load .env
+        p = Path(__file__).resolve()
+        for parent in p.parents:
+            if parent.name.lower() == "db":
+                env_path = parent / ".env"
+                if env_path.exists():
+                    load_dotenv(env_path)
+                    print(f"[INFO] Loaded environment from {env_path}")
+                break
+    except Exception as e:
+        print(f"[WARN] Failed to load .env: {e}")
+
+
+
+    parser = argparse.ArgumentParser(description="Crawl CareerViet jobs")
+    parser.add_argument("--keyword", default=os.getenv("CRAWL_KEYWORD") or os.getenv("KEYWORD") or "software engineer", help="Job keyword to search")
+    parser.add_argument("--location", default=os.getenv("CRAWL_LOCATION") or os.getenv("LOCATION") or "Vietnam", help="Location (unused for URL building)")
+    parser.add_argument("--max_jobs", type=int, default=int(os.getenv("JOBS_PER_KEYWORD") or os.getenv("MAX_JOBS") or "20"), help="Max jobs to crawl")
+    parser.add_argument("--crawl-only", action="store_true", default=os.getenv("CRAWL_ONLY", "false").lower() in ("true", "1", "yes"), help="Only crawl list cards (mock details)")
+    parser.add_argument("--out_prefix", default=None, help="Output prefix path without extension")
     args = parser.parse_args()
 
-    print(f"[INFO] Crawling {len(args.list_urls)} danh mục | pages {args.start_page}..{args.end_page}")
-    df = crawl_many_lists(args.list_urls, start_page=args.start_page, end_page=args.end_page)
+    if args.crawl_only:
+        os.environ["CRAWL_ONLY"] = "true"
 
-    os.makedirs(os.path.dirname(args.out_prefix), exist_ok=True)
-    out_csv = f"{args.out_prefix}_combined.csv"
-    out_xlsx = f"{args.out_prefix}_combined.xlsx"
-    out_json = f"{args.out_prefix}_combined.json"
+    if not args.out_prefix:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        base_dir = os.path.dirname(__file__)
+        output_dir = os.path.join(base_dir, "../../output")
+        args.out_prefix = os.path.join(output_dir, f"{args.keyword}_{timestamp}")
 
-    print(df.head())
-    df.to_csv(out_csv, index=False, encoding="utf-8-sig")
+    # Build CareerViet URL from keyword
+    q_slug = args.keyword.strip().lower().replace(" ", "-")
+    q_slug = "".join(ch for ch in q_slug if ch.isalnum() or ch == "-")
+    list_url = f"https://careerviet.vn/viec-lam/{q_slug}-k-vi.html"
+
+    # 1 page has 50 jobs in CareerViet
+    end_page = max(1, (args.max_jobs + 49) // 50)
+
+    print(f"Scraping '{args.keyword}' on CareerViet (max_jobs={args.max_jobs}, pages=1..{end_page}, crawl_only={args.crawl_only})...")
+    raw_jobs = crawl_list_url_to_raw_jobs(
+        list_url_page1=list_url,
+        start_page=1,
+        end_page=end_page,
+        search_keyword=args.keyword,
+        max_jobs=args.max_jobs
+    )
+
+    # In báo cáo thống kê crawler & scraper chi tiết
     try:
-        df.to_excel(out_xlsx, index=False)
+        from central_filters import stats_collector
+        stats_collector.end_time = datetime.now()
+        print(stats_collector.get_summary_report())
     except Exception as e:
-        print(f"[WARN] XLSX write failed: {e}")
-    print(f"[OK] Saved: {out_csv}")
-    """
+        print(f"[WARN] Failed to print summary report: {e}")
+
+    if raw_jobs:
+        output_file = f"{args.out_prefix}.json"
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump([job.to_dict() for job in raw_jobs], f, ensure_ascii=False, indent=2)
+        print(f"✓ Completed! Output generated at: {os.path.abspath(output_file)}")
+    else:
+        print("[WARN] No jobs found!")
+

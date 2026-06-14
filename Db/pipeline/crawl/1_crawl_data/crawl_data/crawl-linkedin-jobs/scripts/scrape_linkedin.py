@@ -59,12 +59,18 @@ from date_filter import (
     is_posted_date_allowed,
     parse_relative_time_to_date,
     get_date_filter_mode,
+    parse_iso_date,
 )
+from central_filters import filter_existing_jobs_by_url, stats_collector
 from bs4 import BeautifulSoup
 import requests
 
+# Global map to store posted dates for crawl_only mode
+_LINKEDIN_POSTED_DATES = {}
+
 try:
     import platform
+
     from selenium import webdriver
     from selenium.webdriver.chrome.options import Options
     from selenium.webdriver.chrome.service import Service
@@ -188,7 +194,7 @@ def proxied_requests_get(url, *args, **kwargs):
         headers.setdefault("Pragma", "no-cache")
         kwargs["headers"] = headers
     if 'timeout' not in kwargs:
-        kwargs['timeout'] = 15
+        kwargs['timeout'] = 30
     return _original_requests_get(url, *args, **kwargs)
 requests.get = proxied_requests_get
 
@@ -311,6 +317,7 @@ def _build_linkedin_search_url(keywords: str, location: str, start: int, search_
 
 def _collect_job_ids_from_soup(soup, id_list: List[str], max_jobs: int) -> int:
     jobs = soup.find_all("div", {"class": "base-card"})
+    stats_collector.record_list_count("LinkedIn", len(jobs))
     if not jobs:
         return 0
 
@@ -320,11 +327,32 @@ def _collect_job_ids_from_soup(soup, id_list: List[str], max_jobs: int) -> int:
         if not job_id:
             continue
         job_id = job_id.split(":")[-1]
+        
+        # Date filter logic
+        time_elem = job.find("time")
+        raw_date_text = None
+        posted_date = None
+        if time_elem:
+            if time_elem.has_attr("datetime"):
+                raw_date_text = time_elem["datetime"]
+                posted_date = parse_iso_date(raw_date_text)
+            else:
+                raw_date_text = time_elem.get_text(strip=True)
+                posted_date = parse_relative_time_to_date(raw_date_text)
+        
+        if posted_date and not is_posted_date_allowed(posted_date):
+            print(f"[FILTER] Dropped LinkedIn job card {job_id} (raw date: {raw_date_text})")
+            stats_collector.record_date_dropped("LinkedIn", 1, [f"https://www.linkedin.com/jobs/view/{job_id}"])
+            continue
+
         if job_id not in id_list:
             id_list.append(job_id)
             added_this_page += 1
+            if posted_date:
+                _LINKEDIN_POSTED_DATES[job_id] = posted_date.isoformat()
             if len(id_list) >= max_jobs:
                 break
+
     return added_this_page
 
 
@@ -358,6 +386,7 @@ def extract_job_ids_with_selenium(
         for page_index in range(max_pages):
             start = page_index * 25
             url = _build_linkedin_search_url(keywords, location, start, search_tpr)
+            stats_collector.record_search_list_url("LinkedIn", url)
             try:
                 selenium_driver.get(url)
                 time.sleep(float(os.environ.get("LINKEDIN_SELENIUM_LOAD_WAIT", "3")))
@@ -506,6 +535,7 @@ def linkedin_request_get(url: str, label: str, retries: int = 3):
     for attempt in range(1, retries + 1):
         try:
             response = requests.get(url)
+            stats_collector.record_http_status("LinkedIn", response.status_code)
         except Exception as e:
             debug_log(f"{label} request failed on attempt {attempt}/{retries}: {e}", "WARN")
             time.sleep(2 + random.uniform(0, 1.5))
@@ -533,7 +563,9 @@ def extract_job_ids(keywords: str, location: str, max_jobs: int = 100) -> List:
 
     while len(id_list) < max_jobs and request_count < max_pages:
         request_count += 1
-        url = _build_linkedin_search_url(keywords, location, start, search_tpr).replace("/jobs/search/", "/jobs-guest/jobs/api/seeMoreJobPostings/search")
+        user_url = _build_linkedin_search_url(keywords, location, start, search_tpr)
+        stats_collector.record_search_list_url("LinkedIn", user_url)
+        url = user_url.replace("/jobs/search/", "/jobs-guest/jobs/api/seeMoreJobPostings/search")
         response = linkedin_request_get(url, f"search page start={start}")
 
         if response is None:
@@ -648,6 +680,7 @@ def scrape_data(
     driver=None,
     close_driver: bool = True,
 ) -> List[RawJobData]:
+    stats_collector.set_active_keyword(search_keyword or keyword)
     if max_jobs is not None and max_jobs <= 0:
         print("[INFO] max_jobs is 0 or negative. Skipping crawl and returning empty list.")
         return []
@@ -657,6 +690,7 @@ def scrape_data(
         max_jobs_env = os.environ.get("LINKEDIN_MAX_JOBS")
         max_jobs = int(max_jobs_env) if max_jobs_env and max_jobs_env.isdigit() else 999999
 
+    stats_collector.record_max_jobs("LinkedIn", max_jobs)
     debug_log(f"START KEYWORD [{keyword}]")
     print(f"[INFO] Date filter mode: {describe_date_filter()}")
     print(f"[INFO] Max jobs to crawl: {'unlimited' if max_jobs == 999999 else max_jobs}")
@@ -700,6 +734,15 @@ def scrape_data(
         except Exception as exc:
             debug_log(f"Selenium fallback failed; continue with guest API results only: {exc}", "WARN")
 
+    # DB Deduplication: Filter out jobs that already exist in the database
+    original_count = len(id_list)
+    id_to_url = {jid: f"https://www.linkedin.com/jobs/view/{jid}" for jid in id_list}
+    filtered_urls = set(filter_existing_jobs_by_url(list(id_to_url.values()), source="LinkedIn"))
+    id_list = [jid for jid in id_list if id_to_url[jid] in filtered_urls]
+    filtered_count = len(id_list)
+    if original_count != filtered_count:
+        print(f"[DB_FILTER] Bỏ qua {original_count - filtered_count} jobs đã tồn tại trong database. Còn lại {filtered_count} jobs.")
+
     job_list = []
 
     # Emergency breaker to avoid excessive requests/processing
@@ -709,6 +752,24 @@ def scrape_data(
         MAX_JOBS_LIMIT = 500
 
     for i, job_id in enumerate(id_list, 1):
+        if os.environ.get("CRAWL_ONLY") == "true":
+            posted_date_str = _LINKEDIN_POSTED_DATES.get(job_id)
+            raw_job = RawJobData(
+                source_name="linkedin",
+                job_url=f"https://www.linkedin.com/jobs/view/{job_id}",
+                job_source_id=job_id,
+                title="Crawl Only Mock",
+                description_html="Crawl Only Mock",
+                posted_date=posted_date_str,
+                scraped_at=datetime.now().isoformat()
+            )
+
+            raw_job.search_keyword = search_keyword or keyword
+            job_list.append(raw_job)
+            if len(job_list) >= max_jobs:
+                break
+            continue
+
         job_start = time.time()
         job_post = extract_job_detail(job_id)
         debug_log(f"[{i}/{len(id_list)}] Processed job_id={job_id} in {time.time() - job_start:.2f}s")
@@ -717,24 +778,8 @@ def scrape_data(
             time.sleep(job_delay + random.uniform(0, 0.8))
             continue
 
-        hours_old_env = os.environ.get("LINKEDIN_HOURS_OLD")
-        if hours_old_env and job_post.get("time_posted"):
-            try:
-                hours = int(hours_old_env)
-                cutoff_dt = datetime.now() - timedelta(hours=hours)
-                parsed_dt = parse_relative_time_to_datetime(job_post.get("time_posted"))
-                if parsed_dt and parsed_dt < cutoff_dt:
-                    print(f"[SKIP] job_id={job_id} - older than {hours} hours: {parsed_dt}")
-                    time.sleep(job_delay + random.uniform(0, 0.8))
-                    continue
-            except Exception:
-                pass
-
-        posted_date = parse_relative_time_to_date(job_post.get("time_posted"))
-        if not is_posted_date_allowed(posted_date):
-            print(f"[SKIP] job_id={job_id} - posted_date={posted_date}")
-            time.sleep(job_delay + random.uniform(0, 0.8))
-            continue
+        # Post-scrape date checks bypassed per user request (relying on early filter at list crawl phase)
+        pass
 
         raw_job = convert_to_raw_job_data(job_post)
         raw_job.search_keyword = search_keyword or keyword
@@ -756,15 +801,22 @@ def scrape_data(
             pass
 
     debug_log(f"KEYWORD [{keyword}] DONE: {len(job_list)} jobs in {time.time() - keyword_start:.2f}s total")
+    stats_collector.record_detail_scraped("LinkedIn", len(job_list), [j.job_url for j in job_list])
+    stats_collector.calculate_missing_fields("LinkedIn", job_list)
     return job_list
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="LinkedIn Job Scraper (Selenium)")
-    parser.add_argument("--keyword", default="software engineer", help="Job keyword to search")
-    parser.add_argument("--location", default="Vietnam", help="Location")
+    parser.add_argument("--keyword", default=os.getenv("CRAWL_KEYWORD") or os.getenv("KEYWORD") or "software engineer", help="Job keyword to search")
+    parser.add_argument("--location", default=os.getenv("CRAWL_LOCATION") or os.getenv("LOCATION") or "Vietnam", help="Location")
+    parser.add_argument("--max_jobs", type=int, default=int(os.getenv("JOBS_PER_KEYWORD") or os.getenv("MAX_JOBS") or "20"), help="Max jobs to crawl")
+    parser.add_argument("--crawl-only", action="store_true", default=os.getenv("CRAWL_ONLY", "false").lower() in ("true", "1", "yes"), help="Only crawl list cards (mock details)")
     parser.add_argument("--out_prefix", default=None, help="Output prefix path without extension")
 
     args = parser.parse_args()
+
+    if args.crawl_only:
+        os.environ["CRAWL_ONLY"] = "true"
 
     # Auto-generate output prefix with timestamp if not provided
     if not args.out_prefix:
@@ -772,8 +824,16 @@ if __name__ == "__main__":
         output_dir = os.path.join(os.path.dirname(__file__), "../../output")
         args.out_prefix = os.path.join(output_dir, f"{args.keyword}_{args.location.lower().replace(' ', '_')}_{timestamp}")
 
-    print(f"[INFO] Scraping: {args.keyword} in {args.location} ...")
-    jobs = scrape_data(args.keyword, args.location)
+    print(f"[INFO] Scraping: {args.keyword} in {args.location} (max_jobs={args.max_jobs}, crawl_only={args.crawl_only})...")
+    jobs = scrape_data(args.keyword, args.location, max_jobs=args.max_jobs)
+
+    # In báo cáo thống kê crawler & scraper chi tiết
+    try:
+        from central_filters import stats_collector
+        stats_collector.end_time = datetime.now()
+        print(stats_collector.get_summary_report())
+    except Exception as e:
+        print(f"[WARN] Failed to print summary report: {e}")
 
     if not jobs:
         print("[WARN] No jobs found.")
@@ -781,4 +841,5 @@ if __name__ == "__main__":
         print(f"[OK] Found {len(jobs)} jobs")
         export_to_json(jobs, args.out_prefix)
         print(f"[OK] Completed! Output: {args.out_prefix}.json")
+
 

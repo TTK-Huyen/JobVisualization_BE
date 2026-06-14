@@ -46,7 +46,7 @@ if sys.stdout.encoding != 'utf-8':
 # the crawler working directory and producing duplicated prefixes like "Db/Db/...".
 BASE_DIR = Path(__file__).parent.resolve()
 ENV_FILE = BASE_DIR / ".env"
-load_dotenv(ENV_FILE, override=True)
+load_dotenv(ENV_FILE, override=False)
 print(f"✓ Loaded .env from: {ENV_FILE}")
 
 # Support optional pipeline/ layout while keeping backward compatibility.
@@ -75,17 +75,8 @@ ensure_crawler_import_paths()
 
 
 def filter_recent_jobs_safe(raw_jobs):
-    """Apply the shared recent-job filter when available, otherwise return the input unchanged."""
-    try:
-        shared_filters_module = importlib.import_module("central_filters")
-        shared_filter_recent_jobs = shared_filters_module.filter_recent_jobs
-    except Exception:
-        return raw_jobs
-
-    try:
-        return shared_filter_recent_jobs(raw_jobs)
-    except Exception:
-        return raw_jobs
+    """Post-scrape date filtering bypassed per user request (relying on early filter at list crawl phase)"""
+    return raw_jobs
 
 
 def resolve_pipeline_path(*parts: str) -> Path:
@@ -214,21 +205,77 @@ CLEAN_FOLDER = DATA_FOLDER / "clean"
 FALLBACK_FOLDER = DATA_FOLDER / "fallback"
 LOGS_FOLDER = DATA_FOLDER / "logs"
 
+# Global log file handle - will be set when LOGS_FOLDER is created in main()
+_LOG_FILE_HANDLE = None
+_ORIGINAL_STDOUT = sys.stdout
+_ORIGINAL_STDERR = sys.stderr
+
+class TeeStream:
+    def __init__(self, original_stream):
+        self.original_stream = original_stream
+
+    def write(self, data):
+        self.original_stream.write(data)
+        self.original_stream.flush()
+        if _LOG_FILE_HANDLE is not None:
+            try:
+                _LOG_FILE_HANDLE.write(data)
+                _LOG_FILE_HANDLE.flush()
+            except Exception:
+                pass
+
+    def flush(self):
+        self.original_stream.flush()
+        if _LOG_FILE_HANDLE is not None:
+            try:
+                _LOG_FILE_HANDLE.flush()
+            except Exception:
+                pass
+
+    def __getattr__(self, attr):
+        return getattr(self.original_stream, attr)
+
 # ============================================================================
 # HELPER
 # ============================================================================
 def log(msg):
-    """Simple logging"""
+    """Simple logging — writes to stdout (which TeeStream replicates to the log file)."""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{timestamp}] {msg}")
+    line = f"[{timestamp}] {msg}"
+    print(line)
+
+
+def _open_log_file(logs_folder: Path) -> None:
+    """Open (or create) the session log file and store the handle globally."""
+    global _LOG_FILE_HANDLE
+    try:
+        logs_folder.mkdir(parents=True, exist_ok=True)
+        log_path = logs_folder / f"pipeline_{RUN_DATE}.log"
+        _LOG_FILE_HANDLE = open(log_path, "a", encoding="utf-8", buffering=1)
+        sys.stdout = TeeStream(_ORIGINAL_STDOUT)
+        sys.stderr = TeeStream(_ORIGINAL_STDERR)
+        log(f"📄 Log file: {log_path}")
+    except Exception as exc:
+        print(f"[WARN] Could not open log file: {exc}")
+
+
+def _close_log_file() -> None:
+    """Close the session log file and restore original stdout/stderr streams."""
+    global _LOG_FILE_HANDLE
+    sys.stdout = _ORIGINAL_STDOUT
+    sys.stderr = _ORIGINAL_STDERR
+    if _LOG_FILE_HANDLE is not None:
+        try:
+            _LOG_FILE_HANDLE.close()
+        except Exception:
+            pass
+        _LOG_FILE_HANDLE = None
 
 
 def validate_crawl_date_filter(raw_combined_path: Path, crawl_env: dict, crawl_mode: str):
     """Check whether crawled jobs respect the configured date filter."""
-    job_date_mode = str(crawl_env.get("JOB_DATE_MODE", "")).strip().lower()
-    if job_date_mode not in {"on", "true", "yes", "1", "realtime"}:
-        log(f"Date filter check skipped for {crawl_mode} (JOB_DATE_MODE={job_date_mode or 'unset'})")
-        return
+    # Bỏ hoàn toàn việc lọc/cảnh báo ngày ở bước sau theo yêu cầu người dùng (Phương án 2)
+    return
 
     def parse_job_date(value):
         if value is None:
@@ -253,11 +300,12 @@ def validate_crawl_date_filter(raw_combined_path: Path, crawl_env: dict, crawl_m
 
         return None
 
-    days_back_text = str(crawl_env.get("DAYS_BACK") or crawl_env.get("REALTIME_DAYS") or "2").strip()
+    days_back_text = str(crawl_env.get("DAYS_BACK") or "2").strip()
     try:
         days_back = int(days_back_text)
     except ValueError:
         days_back = 2
+
 
     cutoff = date.today() - timedelta(days=days_back)
     if not raw_combined_path.exists():
@@ -331,21 +379,35 @@ def run_step(name, script_path, args=None, timeout=600, cwd=None, env=None, is_b
         run_env.update(env)
     
     try:
-        # Stream output in realtime instead of buffering (no capture_output)
-        result = subprocess.run(
+        run_env["PYTHONUNBUFFERED"] = "1"
+        run_env["PYTHONIOENCODING"] = "utf-8"
+        process = subprocess.Popen(
             cmd,
             cwd=str(cwd or script_path.parent),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
             encoding='utf-8',
-            timeout=timeout,
+            errors='replace',
             env=run_env
         )
         
-        if result.returncode == 0:
+        # Stream output in realtime to console and log file
+        while True:
+            line = process.stdout.readline()
+            if not line and process.poll() is not None:
+                break
+            if line:
+                sys.stdout.write(line)
+                sys.stdout.flush()
+        
+        returncode = process.wait(timeout=timeout)
+        
+        if returncode == 0:
             log(f"{name} thành công\n")
             return True
         else:
-            log(f"{name} thất bại\n")
+            log(f"{name} thất bại với mã thoát: {returncode}\n")
             return False
     except subprocess.TimeoutExpired:
         log(f"{name} timeout\n")
@@ -515,7 +577,7 @@ def _make_daily_parallel_workers(
     # Format query to replace slashes with spaces and strip duplicate whitespace
     search_query = " ".join(keyword.replace("/", " ").split())
 
-    vietnamworks_url = f"https://www.vietnamworks.com/viec-lam?q={quote_plus(search_query)}"
+    vietnamworks_url = f"https://www.vietnamworks.com/viec-lam?q={quote_plus(search_query)}&sorting=lasted"
     careerviet_url = f"https://careerviet.vn/viec-lam/{slugify_keyword(search_query)}-k-vi.html"
 
     itviec_limit = domestic_max_jobs if itviec_max_jobs is None else itviec_max_jobs
@@ -561,6 +623,8 @@ def run_daily_crawl_parallel(
     results_tracker = {"ITviec": 0, "VietnamWorks": 0, "CareerViet": 0, "LinkedIn": 0}
     source_status = {}
     combined_raw_jobs = []
+    # keyword_stats: {keyword -> {source -> count}}
+    keyword_stats: dict = {}
 
     if isinstance(keyword, str):
         keyword_list = [part.strip() for part in keyword.split(",") if part.strip()]
@@ -574,6 +638,7 @@ def run_daily_crawl_parallel(
     if crawl_dir:
         log(f"[PARALLEL] Crawl scripts path: {crawl_dir}")
     for current_keyword in keyword_list:
+        keyword_stats[current_keyword] = {}
         keyword_env = dict(crawl_env)
         keyword_json = json.dumps([current_keyword], ensure_ascii=False)
         keyword_env.update({
@@ -609,18 +674,35 @@ def run_daily_crawl_parallel(
                     try:
                         raw_jobs = future.result()
                         raw_jobs = raw_jobs or []
+                        n = len(raw_jobs)
                         value = results_tracker.get(source_name, 0)
                         if isinstance(value, int):
-                            results_tracker[source_name] = value + len(raw_jobs)
+                            results_tracker[source_name] = value + n
                         else:
-                            results_tracker[source_name] = len(raw_jobs)
+                            results_tracker[source_name] = n
+
+                        # Get processed count from stats_collector (thread-safe, global inside process)
+                        from central_filters import stats_collector
+                        scraped_list = 0
+                        detail_scraped = n
+                        with stats_collector.lock:
+                            kw_map = stats_collector.keyword_stats.get(current_keyword, {})
+                            src_map = kw_map.get(source_name, {})
+                            scraped_list = src_map.get("scraped_list", 0)
+                            detail_scraped = max(n, src_map.get("detail_scraped", 0))
+
+                        keyword_stats[current_keyword][source_name] = {
+                            "scraped_list": scraped_list,
+                            "detail_scraped": detail_scraped
+                        }
+
                         previous_status = source_status.get(source_name)
                         if previous_status and previous_status != "Thành công":
                             source_status[source_name] = previous_status
                         else:
                             source_status[source_name] = "Thành công"
                         combined_raw_jobs.extend(raw_jobs)
-                        log(f"[OK] {source_name}: {len(raw_jobs)} jobs for '{current_keyword}'")
+                        log(f"[OK] {source_name}: {n} jobs for '{current_keyword}'")
                     except Exception as exc:
                         existing_status = source_status.get(source_name)
                         if not existing_status or existing_status == "Thành công":
@@ -630,6 +712,20 @@ def run_daily_crawl_parallel(
                             results_tracker[source_name] = value
                         else:
                             results_tracker[source_name] = 0
+
+                        from central_filters import stats_collector
+                        scraped_list = 0
+                        detail_scraped = 0
+                        with stats_collector.lock:
+                            kw_map = stats_collector.keyword_stats.get(current_keyword, {})
+                            src_map = kw_map.get(source_name, {})
+                            scraped_list = src_map.get("scraped_list", 0)
+                            detail_scraped = src_map.get("detail_scraped", 0)
+
+                        keyword_stats[current_keyword][source_name] = {
+                            "scraped_list": scraped_list,
+                            "detail_scraped": detail_scraped
+                        }
                         log(f"[ERROR] {source_name} ({current_keyword}): {exc}")
 
     # Load keywords config to translate search_keywords
@@ -657,8 +753,16 @@ def run_daily_crawl_parallel(
     raw_output_path = _write_raw_jobs_json(combined_raw_jobs, build_daily_raw_output_path())
     log(f"[CRAWL] Combined raw output saved: {raw_output_path}")
 
+    # In báo cáo thống kê crawler & scraper chi tiết
+    try:
+        from central_filters import stats_collector
+        stats_collector.end_time = datetime.now()
+        print(stats_collector.get_summary_report())
+    except Exception as e:
+        log(f"[WARN] Failed to print summary report: {e}")
+
     crawl_ok = len(combined_raw_jobs) > 0
-    return crawl_ok, results_tracker, source_status, raw_output_path
+    return crawl_ok, results_tracker, source_status, raw_output_path, keyword_stats
 
 
 def format_daily_crawl_summary(
@@ -669,6 +773,8 @@ def format_daily_crawl_summary(
     source_status: dict,
     raw_output_path: Path,
     clean_output_path: Path,
+    import_stats: dict = None,
+    keyword_stats: dict = None,
 ) -> str:
     """Render a concise daily crawl summary for console output."""
     mode_key = (crawl_mode or "daily").strip().lower()
@@ -699,7 +805,49 @@ def format_daily_crawl_summary(
             source_line = f" ✓ Nguồn {display_name:<14}: {value}"
         else:
             status_text = source_status.get(display_name, "Thành công")
-            source_line = f" ✓ Nguồn {display_name:<14}: {value} jobs ({status_text})"
+            
+            # Fetch max jobs from stats_collector
+            from central_filters import stats_collector
+            max_jobs = 0
+            with stats_collector.lock:
+                max_jobs = stats_collector.stats.get(display_name, {}).get("max_jobs", 0)
+            
+            # Robust fallback from environment variables
+            if not max_jobs:
+                if display_name == "ITviec":
+                    max_jobs_val = os.getenv("ITVIEC_MAX_JOBS") or os.getenv("DOMESTIC_MAX_JOBS")
+                elif display_name == "VietnamWorks":
+                    max_jobs_val = os.getenv("VNWORKS_DAILY_MAX_JOBS") or os.getenv("VNWORKS_TEST_MAX_JOBS") or os.getenv("DOMESTIC_MAX_JOBS")
+                elif display_name == "CareerViet":
+                    max_jobs_val = os.getenv("CAREERVIET_MAX_JOBS") or os.getenv("DOMESTIC_MAX_JOBS")
+                elif display_name == "LinkedIn":
+                    max_jobs_val = os.getenv("LINKEDIN_MAX_JOBS")
+                else:
+                    max_jobs_val = None
+                
+                if max_jobs_val:
+                    try:
+                        max_jobs = int(max_jobs_val)
+                    except Exception:
+                        max_jobs = 0
+
+            # Default fallbacks based on mode if still 0
+            if not max_jobs:
+                if mode_key == "test":
+                    max_jobs = 1
+                elif mode_key == "bootstrap":
+                    max_jobs = 150
+                else:  # daily
+                    if display_name == "LinkedIn":
+                        max_jobs = 150
+                    else:
+                        max_jobs = 0
+
+            max_jobs_str = "không giới hạn" if max_jobs >= 999999 else str(max_jobs)
+            if max_jobs > 0:
+                source_line = f" ✓ Nguồn {display_name:<14}: {value} / {max_jobs_str} jobs ({status_text})"
+            else:
+                source_line = f" ✓ Nguồn {display_name:<14}: {value} jobs ({status_text})"
         lines.append(source_line)
     lines.append("-" * 81)
     total_jobs = 0
@@ -707,10 +855,58 @@ def format_daily_crawl_summary(
         if isinstance(value, int):
             total_jobs += value
     lines.append(f" 🔥 TỔNG CỘNG RECORD CÀO ĐƯỢC: {total_jobs} jobs")
-    lines.append(f" 📂 Trạng thái lưu trữ   : Đã xuất file raw tại '{raw_output_path.relative_to(BASE_DIR)}'")
-    lines.append(f"                             và file sạch tại '{clean_output_path.relative_to(BASE_DIR)}'")
+
+    # Per-keyword breakdown
+    if keyword_stats:
+        lines.append("-" * 81)
+        lines.append(" [Thống kê theo từ khóa (Duyệt / Cào)]:")
+        sources_shown = ["ITviec", "VietnamWorks", "CareerViet", "LinkedIn"]
+        header = f"  {'Từ khóa':<35}" + "".join(f" {s:<14}" for s in sources_shown) + "  Tổng"
+        lines.append(header)
+        lines.append("  " + "-" * 77)
+        for kw, src_counts in keyword_stats.items():
+            kw_display = (kw[:33] + ".." if len(kw) > 35 else kw)
+            row = f"  {kw_display:<35}"
+            total_list = 0
+            total_detail = 0
+            for src in sources_shown:
+                val = src_counts.get(src, 0)
+                if isinstance(val, dict):
+                    sl = val.get("scraped_list", 0)
+                    ds = val.get("detail_scraped", 0)
+                else:
+                    sl = 0
+                    ds = val
+                total_list += sl
+                total_detail += ds
+                row += f" {f'{sl} / {ds}':<14}"
+            row += f"  {total_list} / {total_detail}"
+            lines.append(row)
+
+    lines.append("-" * 81)
+    if import_stats:
+        lines.append(" [Thống kê xử lý trong database (IMPORT)]:")
+        lines.append(f"  • Đã thêm mới (Inserted)  : {import_stats.get('inserted', 0)} jobs")
+        lines.append(f"  • Đã cập nhật (Updated)   : {import_stats.get('updated', 0)} jobs")
+        lines.append(f"  • Bỏ qua (Skipped)        : {import_stats.get('skipped', 0)} jobs")
+        lines.append(f"  • Lỗi (Errors)            : {import_stats.get('errors', 0)} jobs")
+        lines.append("-" * 81)
+    def _safe_relative_path(p):
+        if not p:
+            return ""
+        try:
+            return str(p.relative_to(BASE_DIR))
+        except ValueError:
+            try:
+                return str(p.relative_to(BASE_DIR.parent))
+            except ValueError:
+                return str(p)
+
+    lines.append(f" 📂 Trạng thái lưu trữ   : Đã xuất file raw tại '{_safe_relative_path(raw_output_path)}'")
+    lines.append(f"                             và file sạch tại '{_safe_relative_path(clean_output_path)}'")
     lines.append("=" * 81)
     return "\n".join(lines)
+
 
 
 
@@ -736,16 +932,38 @@ def _dedupe_keep_order(items):
 
 
 def _parse_enabled_sources() -> set[str] | None:
+    """Return the set of enabled source names, or None (= run all).
+
+    Priority:
+    1. PIPELINE_CRAWL_SOURCES / CRAWL_SOURCES  – explicit comma-separated list
+    2. CRAWL_*_JOBS flags in .env              – 0 / "false" / "off" disables that source
+    3. If nothing is configured               – return None (run all sources)
+    """
+    # 1. Explicit allowlist takes priority
     raw = os.getenv("PIPELINE_CRAWL_SOURCES") or os.getenv("CRAWL_SOURCES")
-    if not raw:
+    if raw:
+        enabled = {part.strip().lower() for part in raw.split(",") if part.strip()}
+        return enabled or None
+
+    # 2. Per-source on/off flags  (CRAWL_ITVIEC_JOBS, CRAWL_LINKEDIN_JOBS, …)
+    _DISABLED_VALUES = {"0", "false", "off", "no"}
+    crawl_flags = {
+        "itviec":       os.getenv("CRAWL_ITVIEC_JOBS"),
+        "vietnamworks": os.getenv("CRAWL_VIETNAMWORKS_JOBS"),
+        "careerviet":   os.getenv("CRAWL_CAREERVIET_JOBS"),
+        "linkedin":     os.getenv("CRAWL_LINKEDIN_JOBS"),
+    }
+
+    # If none of the flags are set, run all sources
+    if not any(v is not None for v in crawl_flags.values()):
         return None
 
+    # Sources explicitly set to 0/false are disabled; unset or non-zero are enabled
     enabled = {
-        part.strip().lower()
-        for part in raw.split(",")
-        if part.strip()
+        src for src, val in crawl_flags.items()
+        if val is None or str(val).strip().lower() not in _DISABLED_VALUES
     }
-    return enabled or None
+    return enabled if enabled else None
 
 
 def normalize_job_search_keywords(jobs: list, config: dict):
@@ -809,7 +1027,7 @@ def _flatten_keywords_daily(config: dict) -> list:
                 continue
 
             # Support bilingual config format: "en", "vi", and fallback to "roles"
-            for lang_key in ("en", "vi", "roles"):
+            for lang_key in ("en", "roles"):
                 lang_keywords = group_cfg.get(lang_key, [])
                 if isinstance(lang_keywords, list):
                     keywords.extend(lang_keywords)
@@ -1100,14 +1318,27 @@ Examples:
         action="store_true",
         help="Run crawl phase with ThreadPoolExecutor (parallel is default; sequential is used automatically on failure)",
     )
-    # Deprecated duplicate alias (kept as comments for traceability):
-    # parser.add_argument(
-    #     "--parallel",
-    #     action="store_true",
-    #     help="Alias for --parallel-crawl (runs crawlers in parallel)",
-    # )
+    parser.add_argument(
+        "--debug-out",
+        action="store_true",
+        help="Output results to the root Debug folder instead of the data folder",
+    )
     
     args = parser.parse_args()
+
+    # Load accumulated stats if running daily
+    stats_file = BASE_DIR / "data" / "accumulated_stats.json"
+    if args.reset_keywords:
+        if stats_file.exists():
+            try:
+                stats_file.unlink()
+            except Exception:
+                pass
+        from central_filters import stats_collector
+        stats_collector.reset()
+    else:
+        from central_filters import stats_collector
+        stats_collector.load_from_disk(str(stats_file))
 
     # Default behavior: always try parallel crawl first.
     # If parallel mode fails, each crawl mode will automatically fallback to sequential.
@@ -1263,6 +1494,14 @@ Examples:
         LOGS_FOLDER    = DATA_FOLDER / "logs"
         log(f"[AUTO] Redirecting bootstrap output to: {DATA_FOLDER}")
     
+    if args.debug_out:
+        DATA_FOLDER = BASE_DIR.parent / "Debug"
+        RAW_FOLDER  = DATA_FOLDER
+        CLEAN_FOLDER   = DATA_FOLDER
+        FALLBACK_FOLDER = DATA_FOLDER
+        LOGS_FOLDER    = DATA_FOLDER
+        log(f"[DEBUG OUT] Redirecting all pipeline outputs to root Debug folder: {DATA_FOLDER}")
+    
     log("=" * 80)
     log("ETL PIPELINE START")
     log(f"Run Date: {RUN_DATE}")
@@ -1286,6 +1525,7 @@ Examples:
     CLEAN_FOLDER.mkdir(parents=True, exist_ok=True)
     FALLBACK_FOLDER.mkdir(parents=True, exist_ok=True)
     LOGS_FOLDER.mkdir(parents=True, exist_ok=True)
+    _open_log_file(LOGS_FOLDER)
     
     crawl_ok = True
     clean_ok = True
@@ -1327,9 +1567,8 @@ Examples:
                 "ITVIEC_MAX_JOBS": "0",
                 "CAREERVIET_MAX_JOBS": "0",
                 "PIPELINE_DAILY_MAX_JOBS_PER_SOURCE": "0",
-                "JOB_DATE_MODE": "off",
+                "JOB_DATE_MODE": os.getenv("JOB_DATE_MODE", "off"),
                 "DAYS_BACK": "",
-                "REALTIME_DAYS": "",
             })
         elif effective_crawl_mode == "test":
             crawl_env.update({
@@ -1342,9 +1581,8 @@ Examples:
                 "CAREERVIET_MAX_JOBS": "5",
                 "ITVIEC_LOCATION": "Vietnam",
                 "LINKEDIN_LOCATION": "Vietnam",
-                "JOB_DATE_MODE": "on",
-                "DAYS_BACK": "3",
-                "REALTIME_DAYS": "3",
+                "JOB_DATE_MODE": os.getenv("JOB_DATE_MODE", "realtime"),
+                "DAYS_BACK": os.getenv("DAYS_BACK", "3"),
             })
         else:
             daily_domestic_max_jobs = 0
@@ -1361,9 +1599,8 @@ Examples:
                 "CAREERVIET_MAX_JOBS": str(daily_domestic_max_jobs),
                 "ITVIEC_LOCATION": "Vietnam",
                 "LINKEDIN_LOCATION": "Vietnam",
-                "JOB_DATE_MODE": "on",
-                "DAYS_BACK": "3",
-                "REALTIME_DAYS": "3",
+                "JOB_DATE_MODE": os.getenv("JOB_DATE_MODE", "realtime"),
+                "DAYS_BACK": os.getenv("DAYS_BACK", "3"),
             })
 
         if effective_crawl_mode == "daily":
@@ -1373,8 +1610,10 @@ Examples:
 
             keyword = ", ".join(selected_keywords)
             location = "Vietnam"
-            domestic_max_jobs = 0
-            linkedin_max_jobs = 150
+            
+            # Read from environment variables if defined (useful for tests/overrides)
+            domestic_max_jobs = int(os.getenv("DOMESTIC_MAX_JOBS", os.getenv("JOBS_PER_KEYWORD", "0")))
+            linkedin_max_jobs = int(os.getenv("LINKEDIN_MAX_JOBS", os.getenv("JOBS_PER_KEYWORD", "150")))
             selected_keywords_file = write_selected_keywords_file(selected_keywords)
             keywords_json = json.dumps(selected_keywords, ensure_ascii=False)
 
@@ -1395,11 +1634,10 @@ Examples:
                 "CAREERVIET_MAX_JOBS": str(domestic_max_jobs),
                 "VNWORKS_DAILY_MAX_JOBS": str(domestic_max_jobs),
                 "LINKEDIN_MAX_JOBS": str(linkedin_max_jobs),
-                "LINKEDIN_MAX_JOBS_LIMIT": "150",
+                "LINKEDIN_MAX_JOBS_LIMIT": str(linkedin_max_jobs),
                 "PIPELINE_DAILY_MAX_JOBS_PER_SOURCE": str(domestic_max_jobs),
-                "JOB_DATE_MODE": "on",
-                "DAYS_BACK": "3",
-                "REALTIME_DAYS": "3",
+                "JOB_DATE_MODE": os.getenv("JOB_DATE_MODE", "realtime"),
+                "DAYS_BACK": os.getenv("DAYS_BACK", "3"),
             })
 
             enabled_sources = _parse_enabled_sources()
@@ -1412,7 +1650,7 @@ Examples:
             run_sequential_fallback = False
             if args.parallel_crawl:
                 try:
-                    crawl_ok, results_tracker, source_status, raw_combined = run_daily_crawl_parallel(
+                    crawl_ok, results_tracker, source_status, raw_combined, keyword_stats = run_daily_crawl_parallel(
                         selected_keywords,
                         location,
                         domestic_max_jobs,
@@ -1426,10 +1664,18 @@ Examples:
                         "results_tracker": results_tracker,
                         "source_status": source_status,
                         "raw_output_path": raw_combined,
+                        "keyword_stats": keyword_stats,
                     }
                     if not crawl_ok:
-                        log("⚠️ Parallel crawl produced no records. Falling back to sequential crawl...")
-                        run_sequential_fallback = True
+                        has_errors = any(
+                            str(s).startswith("Lỗi") for s in source_status.values()
+                        )
+                        if has_errors:
+                            log("⚠️ Parallel crawl had source errors. Falling back to sequential crawl...")
+                            run_sequential_fallback = True
+                        else:
+                            log("ℹ️ Parallel crawl completed — 0 jobs found (keyword may have no recent postings).")
+                            crawl_ok = True  # crawlers ran OK, just no new jobs
                 except Exception as exc:
                     log(f"⚠️ Parallel crawl crashed: {exc}")
                     log("↩️ Falling back to sequential crawl...")
@@ -1508,9 +1754,8 @@ Examples:
                 "VNWORKS_CRAWL_MODE": "bootstrap",
                 "VNWORKS_FORCE_FULL_CRAWL": "1",
                 "LINKEDIN_DETAIL_SCRAPE": "true",
-                "JOB_DATE_MODE": "off",
+                "JOB_DATE_MODE": os.getenv("JOB_DATE_MODE", "off"),
                 "DAYS_BACK": "",
-                "REALTIME_DAYS": "",
             })
 
             enabled_sources = _parse_enabled_sources()
@@ -1523,7 +1768,7 @@ Examples:
             run_sequential_fallback = False
             if args.parallel_crawl:
                 try:
-                    crawl_ok, results_tracker, source_status, raw_combined = run_daily_crawl_parallel(
+                    crawl_ok, results_tracker, source_status, raw_combined, keyword_stats = run_daily_crawl_parallel(
                         selected_keywords,
                         location,
                         domestic_max_jobs,
@@ -1538,10 +1783,18 @@ Examples:
                         "results_tracker": results_tracker,
                         "source_status": source_status,
                         "raw_output_path": raw_combined,
+                        "keyword_stats": keyword_stats,
                     }
                     if not crawl_ok:
-                        log("⚠️ Parallel crawl produced no records. Falling back to sequential crawl...")
-                        run_sequential_fallback = True
+                        has_errors = any(
+                            str(s).startswith("Lỗi") for s in source_status.values()
+                        )
+                        if has_errors:
+                            log("⚠️ Parallel crawl had source errors. Falling back to sequential crawl...")
+                            run_sequential_fallback = True
+                        else:
+                            log("ℹ️ Parallel crawl completed — 0 jobs found (keyword may have no recent postings).")
+                            crawl_ok = True  # crawlers ran OK, just no new jobs
                 except Exception as exc:
                     log(f"⚠️ Parallel crawl crashed: {exc}")
                     log("↩️ Falling back to sequential crawl...")
@@ -1614,9 +1867,8 @@ Examples:
                 "VNWORKS_DAILY_MAX_JOBS": str(max_jobs_per_source),
                 "LINKEDIN_MAX_JOBS": str(max_jobs_per_source),
                 "LINKEDIN_SEARCH_TPR": "r259200",
-                "JOB_DATE_MODE": "on",
-                "DAYS_BACK": "3",
-                "REALTIME_DAYS": "3",
+                "JOB_DATE_MODE": os.getenv("JOB_DATE_MODE", "realtime"),
+                "DAYS_BACK": os.getenv("DAYS_BACK", "3"),
             })
 
             log("🧪 Test keywords:")
@@ -1627,7 +1879,7 @@ Examples:
             run_sequential_fallback = False
             if args.parallel_crawl:
                 try:
-                    crawl_ok, results_tracker, source_status, raw_combined = run_daily_crawl_parallel(
+                    crawl_ok, results_tracker, source_status, raw_combined, keyword_stats = run_daily_crawl_parallel(
                         keyword,
                         location,
                         max_jobs_per_source,
@@ -1642,10 +1894,18 @@ Examples:
                         "results_tracker": results_tracker,
                         "source_status": source_status,
                         "raw_output_path": raw_combined,
+                        "keyword_stats": keyword_stats,
                     }
                     if not crawl_ok:
-                        log("⚠️ Parallel crawl produced no records. Falling back to sequential crawl...")
-                        run_sequential_fallback = True
+                        has_errors = any(
+                            str(s).startswith("Lỗi") for s in source_status.values()
+                        )
+                        if has_errors:
+                            log("⚠️ Parallel crawl had source errors. Falling back to sequential crawl...")
+                            run_sequential_fallback = True
+                        else:
+                            log("ℹ️ Parallel crawl completed — 0 jobs found (keyword may have no recent postings).")
+                            crawl_ok = True  # crawlers ran OK, just no new jobs
                 except Exception as exc:
                     log(f"⚠️ Parallel crawl crashed: {exc}")
                     log("↩️ Falling back to sequential crawl...")
@@ -1855,9 +2115,11 @@ Examples:
 
             if import_input.exists():
                 log(f"Using normalized output: {import_input.name}")
+                import_stats_path = FALLBACK_FOLDER / "import_stats.json"
                 import_args = [
                     "--input", str(import_input),
-                    "--fallback", str(FALLBACK_FOLDER / "import_fallback.json")
+                    "--fallback", str(FALLBACK_FOLDER / "import_fallback.json"),
+                    "--stats-output", str(import_stats_path)
                 ]
 
                 import_ok = run_step(
@@ -1901,8 +2163,17 @@ Examples:
     log(f"Duration: {duration}")
 
     if crawl_summary_bundle:
-        print()
-        print(format_daily_crawl_summary(
+        # Load import stats from file if available
+        _import_stats = None
+        try:
+            stats_path = FALLBACK_FOLDER / "import_stats.json"
+            if stats_path.exists():
+                with open(stats_path, encoding="utf-8") as _sf:
+                    _import_stats = json.load(_sf)
+        except Exception:
+            pass
+
+        summary_text = format_daily_crawl_summary(
             keyword=crawl_summary_bundle["keyword"],
             activated_at=crawl_summary_bundle["activated_at"],
             crawl_mode=crawl_summary_bundle["crawl_mode"],
@@ -1910,7 +2181,12 @@ Examples:
             source_status=crawl_summary_bundle["source_status"],
             raw_output_path=crawl_summary_bundle["raw_output_path"],
             clean_output_path=CLEAN_FOLDER / "normalized.json",
-        ))
+            import_stats=_import_stats,
+            keyword_stats=crawl_summary_bundle.get("keyword_stats"),
+        )
+        print()
+        print(summary_text)
+
 
     log("=" * 80)
 
@@ -1918,6 +2194,22 @@ Examples:
     if success and effective_crawl_mode == "bootstrap" and step_crawl and step_clean and step_import:
         save_pipeline_crawl_state("bootstrap")
 
+    # Save accumulated stats
+    try:
+        stats_file = BASE_DIR / "data" / "accumulated_stats.json"
+        from central_filters import stats_collector
+        stats_collector.save_to_disk(str(stats_file))
+    except Exception as e:
+        log(f"[WARN] Failed to save accumulated stats: {e}")
+
+    # Print log path at the end of execution for user convenience
+    try:
+        log_path = (LOGS_FOLDER / f"pipeline_{RUN_DATE}.log").resolve()
+        log(f"📄 Session log saved at: {log_path}")
+    except Exception:
+        pass
+
+    _close_log_file()
     return success
 
 if __name__ == "__main__":

@@ -285,7 +285,8 @@ def step_1_clean_html(input_file, output_file="clean/pending_llm.json", limit=No
         from datetime import datetime
         for job in jobs:
             cleaned_job = dict(job)
-            raw_text = cleaned_job.get('description_html') or ''
+            # Prioritize requirements_text from scraper, fallback to description_html
+            raw_text = cleaned_job.get('requirements_text') or cleaned_job.get('description_html') or ''
             cleaned_text = clean_description_html(str(raw_text))
 
             # Validation checks before including into cleaned_jobs
@@ -404,22 +405,23 @@ def step_1_clean_html(input_file, output_file="clean/pending_llm.json", limit=No
             print("\n" + "=" * 80)
             print("  📋  SANDBOX REPORT — NGHIỆM THU 5 JOBS MẪU")
             print("=" * 80)
-            header = f"{'#':<3} {'HTML Chars':>11} {'Clean Chars':>11} {'Giảm %':>7}  {'URL / Title'}"
+            header = f"{'#':<3} {'Raw Chars':>11} {'Clean Chars':>11} {'Giảm %':>7}  {'URL / Title'}"
             print(header)
             print("-" * 80)
             for i, cj in enumerate(cleaned_jobs, 1):
-                raw_html = cj.get('description_html') or ''
+                orig_job = jobs[i-1]
+                raw_txt = orig_job.get('requirements_text') or orig_job.get('description_html') or ''
                 clean_txt = cj.get('requirements_text') or ''
-                html_len  = len(raw_html)
+                raw_len  = len(raw_txt)
                 clean_len = len(clean_txt)
-                ratio = (1 - clean_len / html_len) * 100 if html_len > 0 else 0.0
+                ratio = (1 - clean_len / raw_len) * 100 if raw_len > 0 else 0.0
                 label = (cj.get('job_url') or cj.get('title') or 'N/A')[:60]
-                print(f"{i:<3} {html_len:>11,} {clean_len:>11,} {ratio:>6.1f}%  {label}")
+                print(f"{i:<3} {raw_len:>11,} {clean_len:>11,} {ratio:>6.1f}%  {label}")
             print("-" * 80)
-            total_html  = sum(len(cj.get('description_html') or '') for cj in cleaned_jobs)
+            total_raw  = sum(len(orig_job.get('requirements_text') or orig_job.get('description_html') or '') for orig_job in jobs[:len(cleaned_jobs)])
             total_clean = sum(len(cj.get('requirements_text') or '') for cj in cleaned_jobs)
-            avg_ratio = (1 - total_clean / total_html) * 100 if total_html > 0 else 0.0
-            print(f"{'AVG':<3} {total_html//len(cleaned_jobs):>11,} {total_clean//len(cleaned_jobs):>11,} {avg_ratio:>6.1f}%  (trung bình)")
+            avg_ratio = (1 - total_clean / total_raw) * 100 if total_raw > 0 else 0.0
+            print(f"{'AVG':<3} {total_raw//len(cleaned_jobs):>11,} {total_clean//len(cleaned_jobs):>11,} {avg_ratio:>6.1f}%  (trung bình)")
             print("=" * 80)
 
         return cleaned_jobs
@@ -608,7 +610,13 @@ def step_2_extract_sections(input_file, output_file="clean/extracted.json"):
             # Validate LLM outputs before merge (pre-merge validation)
             try:
                 import importlib
-                val_mod = importlib.import_module('Db.2_clean_data.extract_validation_rules')
+                try:
+                    val_mod = importlib.import_module('Db.pipeline.clean.2_clean_data.extract_validation_rules')
+                except ImportError:
+                    try:
+                        val_mod = importlib.import_module('pipeline.clean.2_clean_data.extract_validation_rules')
+                    except ImportError:
+                        val_mod = importlib.import_module('Db.2_clean_data.extract_validation_rules')
                 validate_record = getattr(val_mod, 'validate_record')
             except Exception:
                 validate_record = None

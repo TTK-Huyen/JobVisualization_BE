@@ -10,11 +10,6 @@ from __future__ import annotations
 import os
 from typing import Any
 
-try:
-    pass
-except Exception as e:
-    raise ImportError("google.generativeai (genai) is required for debug_llm_adapter") from e
-
 
 def call_llm(prompt: str, api_key: str, timeout_seconds: int | None = None, request_options: dict | None = None) -> Any:
     """Call Gemini with the given prompt and API key.
@@ -26,34 +21,11 @@ def call_llm(prompt: str, api_key: str, timeout_seconds: int | None = None, requ
     if not api_key:
         raise ValueError("api_key is required")
 
-    # Delay importing requests/urllib3 until needed so module import still works
-    try:
-        import requests as _requests
-        from requests.adapters import HTTPAdapter as _HTTPAdapter
-        from urllib3.util.retry import Retry as _Retry
-        # capture original Session constructor
-        orig_session_ctor = _requests.Session
-
-        def _no_retry_session():
-            # use the original session constructor to avoid recursion when patched
-            s = orig_session_ctor()
-            adapter = _HTTPAdapter(max_retries=_Retry(total=0))
-            s.mount("https://", adapter)
-            s.mount("http://", adapter)
-            return s
-    except Exception:
-        # If requests/urllib3 not available or import fails, fall back to unpatched behavior
-        _requests = None
-        _no_retry_session = None
-        orig_session_ctor = None
-
-    # Monkeypatch requests.Session globally for the duration of the SDK call
-    orig_Session = None
-    if _requests and _no_retry_session and orig_session_ctor is not None:
-        orig_Session = _requests.Session
-        _requests.Session = _no_retry_session
-
     # Use a subprocess helper to isolate SDK and enforce a hard timeout.
+    # NOTE: We do NOT monkeypatch requests.Session here because this function
+    # is called from multiple threads simultaneously and global patching is
+    # NOT thread-safe. The child subprocess runs in its own process space
+    # so it is completely isolated from the parent's session state.
     import subprocess
     import sys
     from pathlib import Path
@@ -62,9 +34,6 @@ def call_llm(prompt: str, api_key: str, timeout_seconds: int | None = None, requ
 
     child = Path(__file__).parent / "debug_llm_child.py"
     if not child.exists():
-        # restore if patched then raise
-        if orig_Session is not None and _requests is not None:
-            _requests.Session = orig_Session
         raise RuntimeError("debug_llm_child.py missing; cannot call LLM safely")
 
     payload = json.dumps({"prompt": prompt, "api_key": api_key, "timeout_seconds": timeout_seconds})
@@ -119,7 +88,5 @@ def call_llm(prompt: str, api_key: str, timeout_seconds: int | None = None, requ
             raise RuntimeError(result.get("error") or "LLM child failure")
 
         return result.get("text")
-    finally:
-        # Restore original requests.Session to avoid side-effects
-        if orig_Session is not None and _requests is not None:
-            _requests.Session = orig_Session
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"LLM child process timed out after {parent_timeout}s")

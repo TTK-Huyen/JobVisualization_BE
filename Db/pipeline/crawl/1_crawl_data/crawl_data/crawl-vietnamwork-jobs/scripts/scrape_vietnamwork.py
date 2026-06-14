@@ -26,8 +26,8 @@ if sys.stderr.encoding != "utf-8":
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from schema import RawJobData
-from date_filter import is_posted_date_allowed, parse_iso_date
-from central_filters import filter_recent_jobs
+from date_filter import is_posted_date_allowed, parse_iso_date, parse_vietnamworks_date
+from central_filters import filter_recent_jobs, filter_existing_jobs_by_url, stats_collector
 
 
 BASE = "https://www.vietnamworks.com"
@@ -134,17 +134,19 @@ def call_vietnamworks_search_api(keyword: str, page: int, hits_per_page: int = 5
         "Content-Type": "application/json",
         "Origin": "https://www.vietnamworks.com",
         "Referer": "https://www.vietnamworks.com/",
+        "X-Source": "Page-Container",
     }
     payload = {
         "userId": 0,
         "query": keyword,
         "filter": [],
         "ranges": [],
-        "order": [],
+        "order": [{"field": "approvedOn", "value": "desc"}],
         "hitsPerPage": hits_per_page,
         "page": page
     }
     r = requests.post(url, headers=headers, json=payload, timeout=30)
+    stats_collector.record_http_status("VietnamWorks", r.status_code)
     r.raise_for_status()
     return r.json()
 
@@ -166,6 +168,7 @@ def fetch_and_parse_full_job_details(job_url: str) -> tuple:
     try:
         r = requests.get(job_url, headers=headers, timeout=15)
         decode_html_response(r)
+        stats_collector.record_http_status("VietnamWorks", r.status_code)
         if r.status_code != 200:
             print(f"[WARN] Failed to fetch job detail from {job_url}: Status {r.status_code}")
             return None, None, None, None
@@ -436,6 +439,8 @@ def crawl_list_url_to_raw_jobs(
     Returns:
         List of RawJobData objects
     """
+    stats_collector.set_active_keyword(search_keyword or parse_keyword_from_url(list_url_page1))
+    stats_collector.record_max_jobs("VietnamWorks", max_jobs or 0)
     if max_jobs is not None and max_jobs <= 0:
         print("[INFO] max_jobs is 0 or negative. Skipping crawl and returning empty list.")
         return []
@@ -463,6 +468,7 @@ def crawl_list_url_to_raw_jobs(
                 search_url = list_url_page1
             else:
                 search_url = build_paginated_url(list_url_page1, page)
+            stats_collector.record_search_list_url("VietnamWorks", search_url)
             print(f"[INFO] Loading: {search_url}")
             
             try:
@@ -476,14 +482,64 @@ def crawl_list_url_to_raw_jobs(
             
             page_has_fresh_jobs = False
             
+            # Build UI dates map
+            ui_dates = {}
+            try:
+                from bs4 import BeautifulSoup
+                html = driver.page_source
+                list_soup = BeautifulSoup(html, "html.parser")
+                job_links = list_soup.find_all("a", href=lambda h: h and "-jv" in h)
+                for link in job_links:
+                    href = link.get("href", "")
+                    m = re.search(r"-(\d+)-jv", href)
+                    if not m:
+                        m = re.search(r"-(\d+)(?:[/?]|$)", href)
+                    if m:
+                        jid = m.group(1)
+                        parent = link
+                        raw_date = None
+                        for _ in range(8):
+                            if parent is None:
+                                break
+                            text_nodes = parent.find_all(string=lambda t: t and ("ngày trước" in t.lower() or "hôm nay" in t.lower() or "giờ trước" in t.lower() or "phút trước" in t.lower() or "ngày" in t.lower()))
+                            time_texts = []
+                            for t in text_nodes:
+                                norm = t.strip()
+                                if re.search(r"(đăng|cập nhật|hôm nay|trước)", norm, re.I):
+                                    time_texts.append(norm)
+                            if time_texts:
+                                raw_date = time_texts[0]
+                                break
+                            parent = parent.parent
+                        if raw_date:
+                            ui_dates[jid] = raw_date
+            except Exception as e:
+                print(f"[WARN] Failed to extract UI dates: {e}")
+            
             try:
                 api_res = call_vietnamworks_search_api(keyword, api_page, hits_per_page=50)
                 jobs_list = api_res.get("data", [])
                 print(f"[INFO] Found {len(jobs_list)} jobs from API for web page {page} (api page {api_page})")
 
+                stats_collector.record_list_count("VietnamWorks", len(jobs_list))
+
                 if not jobs_list:
                     print(f"[INFO] Page {page} has no job data - stopping.")
                     break
+
+                # DB Deduplication: Filter out jobs that already exist in the database
+                original_count = len(jobs_list)
+                job_url_map = {}
+                for job in jobs_list:
+                    jid = str(job.get("jobId"))
+                    jurl = job.get("jobUrl") or f"https://www.vietnamworks.com/{job.get('alias')}-{jid}-jv"
+                    job_url_map[jurl] = job
+                
+                filtered_urls = set(filter_existing_jobs_by_url(list(job_url_map.keys()), source="VietnamWorks"))
+                jobs_list = [job_url_map[u] for u in job_url_map if u in filtered_urls]
+                filtered_count = len(jobs_list)
+                if original_count != filtered_count:
+                    print(f"[DB_FILTER] Bỏ qua {original_count - filtered_count} jobs trên trang {page} đã tồn tại trong database. Còn lại {filtered_count} jobs.")
 
                 for job in jobs_list:
                     try:
@@ -492,13 +548,48 @@ def crawl_list_url_to_raw_jobs(
                             print(f"[SKIP DUPLICATE] ID={job_id}")
                             continue
 
-                        # Record posted date for metadata but do not skip here; central filter will prune later
-                        online_on = _extract_first_value(job, ("onlineOn", "datePosted", "postedDate"))
-                        posted_dt = parse_iso_date(online_on)
+                        job_url = job.get("jobUrl") or f"https://www.vietnamworks.com/{job.get('alias')}-{job_id}-jv"
+
+                        # Check raw date text from UI map or fallback
+                        raw_date_text = ui_dates.get(job_id)
+                        
+                        # Date filter logic
+                        posted_date = None
+                        if raw_date_text:
+                            posted_date = parse_vietnamworks_date(raw_date_text)
+                        else:
+                            online_on = _extract_first_value(job, ("onlineOn", "datePosted", "postedDate"))
+                            posted_date = parse_iso_date(online_on)
+                            if posted_date:
+                                days_ago = (datetime.now().date() - posted_date).days
+                                if days_ago == 0:
+                                    raw_date_text = "Cập nhật hôm nay"
+                                else:
+                                    raw_date_text = f"Đăng {days_ago} ngày trước"
+                        
+                        if posted_date and not is_posted_date_allowed(posted_date):
+                            print(f"[FILTER] Dropped VietnamWorks job: ID={job_id} (date: {raw_date_text})")
+                            stats_collector.record_date_dropped("VietnamWorks", 1, [job_url])
+                            continue
+
                         seen_jobs.add(job_id)
                         page_has_fresh_jobs = True
 
-                        raw_job = map_api_job_to_raw_job_data(job, search_keyword=keyword)
+                        if os.environ.get("CRAWL_ONLY") == "true":
+                            raw_job = RawJobData(
+                                source_name="vietnamworks",
+                                job_url=job_url,
+                                job_source_id=job_id,
+                                title=job.get("jobTitle", "Crawl Only Mock"),
+                                description_html="Crawl Only Mock",
+                                posted_date=posted_date.isoformat() if posted_date else None,
+                                scraped_at=datetime.now().isoformat()
+                            )
+                            raw_job.search_keyword = keyword
+
+
+                        else:
+                            raw_job = map_api_job_to_raw_job_data(job, search_keyword=keyword)
 
                         raw_jobs.append(raw_job)
 
@@ -508,6 +599,8 @@ def crawl_list_url_to_raw_jobs(
 
                         if len(raw_jobs) >= max_jobs:
                             print(f"\n[INFO] Reached max_jobs limit of {max_jobs} for keyword '{keyword}'")
+                            stats_collector.record_detail_scraped("VietnamWorks", len(raw_jobs), [j.job_url for j in raw_jobs])
+                            stats_collector.calculate_missing_fields("VietnamWorks", raw_jobs)
                             return raw_jobs
 
                     except Exception as e:
@@ -535,8 +628,79 @@ def crawl_list_url_to_raw_jobs(
             driver.quit()
     
     print(f"\n[INFO] Crawl completed. Total jobs collected: {len(raw_jobs)}")
+    stats_collector.record_detail_scraped("VietnamWorks", len(raw_jobs), [j.job_url for j in raw_jobs])
+    stats_collector.calculate_missing_fields("VietnamWorks", raw_jobs)
+    
+    # Apply central recent-job filter bypassed per user request (relying on early filter at list crawl phase)
+    return raw_jobs
+
+
+if __name__ == "__main__":
+    import argparse
+    import json
+    from urllib.parse import quote_plus
+    from pathlib import Path
     try:
-        filtered = filter_recent_jobs(raw_jobs)
-        return filtered
-    except Exception:
-        return raw_jobs
+        from dotenv import load_dotenv
+        # Tìm thư mục Db và load .env
+        p = Path(__file__).resolve()
+        for parent in p.parents:
+            if parent.name.lower() == "db":
+                env_path = parent / ".env"
+                if env_path.exists():
+                    load_dotenv(env_path)
+                    print(f"[INFO] Loaded environment from {env_path}")
+                break
+    except Exception as e:
+        print(f"[WARN] Failed to load .env: {e}")
+
+    parser = argparse.ArgumentParser(description="Crawl VietnamWorks jobs")
+    parser.add_argument("--keyword", default=os.getenv("CRAWL_KEYWORD") or os.getenv("KEYWORD") or "software engineer", help="Job keyword to search")
+    parser.add_argument("--location", default=os.getenv("CRAWL_LOCATION") or os.getenv("LOCATION") or "Vietnam", help="Location")
+    parser.add_argument("--max_jobs", type=int, default=int(os.getenv("JOBS_PER_KEYWORD") or os.getenv("MAX_JOBS") or "20"), help="Max jobs to crawl")
+    parser.add_argument("--crawl-only", action="store_true", default=os.getenv("CRAWL_ONLY", "false").lower() in ("true", "1", "yes"), help="Only crawl list cards (mock details)")
+    parser.add_argument("--out_prefix", default=None, help="Output prefix path without extension")
+    args = parser.parse_args()
+
+    if args.crawl_only:
+        os.environ["CRAWL_ONLY"] = "true"
+
+    if not args.out_prefix:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        base_dir = os.path.dirname(__file__)
+        output_dir = os.path.join(base_dir, "../../output")
+        args.out_prefix = os.path.join(output_dir, f"{args.keyword}_{timestamp}")
+
+    # Build search URL
+    clean_query = " ".join(args.keyword.replace("/", " ").split())
+    list_url = f"https://www.vietnamworks.com/viec-lam?q={quote_plus(clean_query)}&sorting=lasted"
+
+    # 1 page has 50 jobs in VietnamWorks search API
+    end_page = max(1, (args.max_jobs + 49) // 50)
+
+    print(f"Scraping '{args.keyword}' on VietnamWorks (max_jobs={args.max_jobs}, pages=1..{end_page}, crawl_only={args.crawl_only})...")
+    raw_jobs = crawl_list_url_to_raw_jobs(
+        list_url_page1=list_url,
+        start_page=1,
+        end_page=end_page,
+        max_jobs=args.max_jobs,
+        search_keyword=args.keyword
+    )
+
+    # In báo cáo thống kê crawler & scraper chi tiết
+    try:
+        from central_filters import stats_collector
+        stats_collector.end_time = datetime.now()
+        print(stats_collector.get_summary_report())
+    except Exception as e:
+        print(f"[WARN] Failed to print summary report: {e}")
+
+    if raw_jobs:
+        output_file = f"{args.out_prefix}.json"
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump([job.to_dict() for job in raw_jobs], f, ensure_ascii=False, indent=2)
+        print(f"✓ Completed! Output generated at: {os.path.abspath(output_file)}")
+    else:
+        print("[WARN] No jobs found!")
+

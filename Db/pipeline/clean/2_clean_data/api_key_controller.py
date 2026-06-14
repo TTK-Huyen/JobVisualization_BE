@@ -64,8 +64,13 @@ class APIKeyController:
             except Exception:
                 self._state = {"keys": [], "cursor": 0}
 
+        # Migrate env_name to key_id for backward compatibility
+        for k in self._state.get('keys', []):
+            if 'key_id' not in k and 'env_name' in k:
+                k['key_id'] = k['env_name']
+
         # Ensure all discovered env keys exist in state (add missing)
-        existing = {k['key_id']: k for k in self._state.get('keys', [])}
+        existing = {k['key_id']: k for k in self._state.get('keys', []) if k.get('key_id')}
         for idx, kid in enumerate(self._env_key_ids):
             if kid not in existing:
                 entry = {
@@ -94,6 +99,27 @@ class APIKeyController:
                     "total_5xx": 0,
                 }
                 self._state.setdefault('keys', []).append(entry)
+            else:
+                # Ensure existing keys have all required default fields
+                k = existing[kid]
+                k.setdefault("provider", self.provider)
+                k.setdefault("is_active", True)
+                k.setdefault("last_activated_date", today)
+                k.setdefault("request_count_today", 0)
+                k.setdefault("max_requests_per_day", self.max_requests_per_day)
+                k.setdefault("last_error", None)
+                k.setdefault("last_error_at", None)
+                k.setdefault("exhausted_today", False)
+                k.setdefault("window_started_at", None)
+                k.setdefault("used_in_window", 0)
+                k.setdefault("rpm_limit", int(self.rpm_per_key))
+                k.setdefault("next_available_at", None)
+                k.setdefault("disabled_until", None)
+                k.setdefault("consecutive_errors", 0)
+                k.setdefault("total_success", 0)
+                k.setdefault("total_failed", 0)
+                k.setdefault("total_429", 0)
+                k.setdefault("total_5xx", 0)
 
         # Remove keys that no longer exist in env
         self._state['keys'] = [k for k in self._state.get('keys', []) if k.get('key_id') in self._env_key_ids]
@@ -258,6 +284,15 @@ class APIKeyController:
                 self._state['cursor'] = (idx + 1) % max(1, len(self._state.get('keys', [])))
             except Exception:
                 pass
+            # === FIX: Optimistic increment used_in_window IMMEDIATELY ===
+            # This prevents multiple concurrent workers from all acquiring the
+            # same key (race condition: all see used_in_window=0 simultaneously).
+            # mark_success() will also increment it later, which is acceptable
+            # since _ensure_window() resets the window every 60s anyway.
+            try:
+                chosen['used_in_window'] = int(chosen.get('used_in_window', 0)) + 1
+            except Exception:
+                pass
             self._save_state()
             api_val = os.getenv(chosen.get('key_id'))
             return (int(chosen.get('index', 0)), chosen.get('key_id'), api_val)
@@ -314,8 +349,24 @@ class APIKeyController:
     def mark_success(self, key_index_or_id: int | str) -> None:
         """Record a successful request for the key and reset consecutive errors."""
         now = datetime.utcnow().isoformat()
+        
+        target_idx = None
+        if isinstance(key_index_or_id, int):
+            target_idx = key_index_or_id
+        elif isinstance(key_index_or_id, str):
+            try:
+                target_idx = int(key_index_or_id)
+            except ValueError:
+                pass
+
         for k in self._state.get('keys', []):
-            if int(k.get('index', -1)) == int(key_index_or_id) or k.get('key_id') == key_index_or_id:
+            is_match = False
+            if target_idx is not None and int(k.get('index', -1)) == target_idx:
+                is_match = True
+            elif k.get('key_id') == key_index_or_id:
+                is_match = True
+
+            if is_match:
                 k['consecutive_errors'] = 0
                 k['total_success'] = int(k.get('total_success', 0)) + 1
                 k['last_error'] = None

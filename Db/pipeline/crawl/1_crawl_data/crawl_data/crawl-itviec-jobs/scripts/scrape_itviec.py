@@ -14,11 +14,24 @@ from datetime import datetime, timedelta
 import unicodedata
 import re
 
+# Configure UTF-8 encoding for console output (Windows compatibility)
+if sys.stdout.encoding != 'utf-8':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except:
+        pass
+if sys.stderr.encoding != 'utf-8':
+    try:
+        sys.stderr.reconfigure(encoding='utf-8')
+    except:
+        pass
+
+
 # Import schema
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../..'))
 from schema import RawJobData
 from date_filter import describe_date_filter, is_posted_date_allowed, parse_iso_date, parse_relative_time_to_date
-from central_filters import filter_recent_jobs
+from central_filters import filter_recent_jobs, filter_existing_jobs_by_url, stats_collector
 
 # Sử dụng User-Agent macOS sạch, có tỉ lệ vượt Cloudflare cao
 _ITVIEC_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
@@ -72,9 +85,15 @@ def extract_itviec_posted_date(job_soup: BeautifulSoup):
             return parsed, raw_date_text
     return None, None
 
+# Global map to temporarily store posted dates from list page for crawl_only mode
+_LIST_PAGE_POSTED_DATES = {}
+
 # Tách biệt URL Toàn quốc (Vietnam) để tránh lỗi định tuyến đường dẫn của ITViec
 def get_max_page(keyword, location):
-    q = urllib.parse.quote(keyword)
+    # Chuẩn hóa keyword thành định dạng URL của ITviec (chữ thường, dấu gạch ngang, không có dấu cộng)
+    keyword_clean = keyword.replace(" ", "-").replace("+", "-").lower().strip()
+    keyword_clean = re.sub(r'-+', '-', keyword_clean)
+    q = urllib.parse.quote(keyword_clean)
     
     if not location or location.lower().strip() in ["vietnam", "viet-nam", "all", "nationwide"]:
         url = f"https://itviec.com/it-jobs/{q}"
@@ -83,8 +102,10 @@ def get_max_page(keyword, location):
         url = f"https://itviec.com/it-jobs/{q}/{loc}"
         
     try:
+        stats_collector.record_search_list_url("ITviec", url)
         resp = requests.get(url, headers=get_headers(), timeout=15)
         decode_html_response(resp)
+        stats_collector.record_http_status("ITviec", resp.status_code)
         print(f"[DEBUG] get_max_page - Status: {resp.status_code}, Url: {url}")
         if resp.status_code != 200:
             return 1
@@ -111,7 +132,8 @@ def get_max_page(keyword, location):
 
 # Thêm tham số test_mode để điều khiển số lượng job lấy trên mỗi page
 def get_job_list(keyword, location, test_mode=False, max_jobs=None):
-    keyword = keyword.replace(" ", "-").lower().strip()
+    keyword = keyword.replace(" ", "-").replace("+", "-").lower().strip()
+    keyword = re.sub(r'-+', '-', keyword)
     
     loc_clean = location.lower().strip() if location else ""
     if loc_clean in ["vietnam", "viet-nam", "all", "nationwide", ""]:
@@ -146,8 +168,10 @@ def get_job_list(keyword, location, test_mode=False, max_jobs=None):
             list_url = f"https://itviec.com/it-jobs/{keyword}?page={page}"
             
         try:
+            stats_collector.record_search_list_url("ITviec", list_url)
             response = requests.get(list_url, headers=get_headers(), timeout=15)
             decode_html_response(response)
+            stats_collector.record_http_status("ITviec", response.status_code)
             print(f"Page {page} - Status: {response.status_code}")
             
             if response.status_code != 200:
@@ -156,6 +180,9 @@ def get_job_list(keyword, location, test_mode=False, max_jobs=None):
                 
             soup = BeautifulSoup(response.text, "html.parser")
             job_items = soup.find_all("div", {"data-controller": "search--job-selection"})
+            
+            # Record total items found
+            stats_collector.record_list_count("ITviec", len(job_items))
             
             # Nếu ở chế độ test, giới hạn danh sách job_items của trang đó xuống còn 1 phần tử duy nhất
             if test_mode and len(job_items) > 0:
@@ -179,7 +206,23 @@ def get_job_list(keyword, location, test_mode=False, max_jobs=None):
                         job_url_path = job_url_path[:-8]
                         
                     full_url = f"https://itviec.com{job_url_path}" if not job_url_path.startswith("http") else job_url_path
+                    
+                    # Date filter logic
+                    date_span = job_item.find("span", class_=re.compile(r"small-text.*text-dark-grey"))
+                    raw_date_text = date_span.get_text(" ", strip=True) if date_span else None
+                    if raw_date_text:
+                        raw_date_text = re.sub(r"\s+", " ", raw_date_text).strip()
+                    
+                    posted_date = parse_relative_time_to_date(raw_date_text)
+                    if not is_posted_date_allowed(posted_date):
+                        print(f"[FILTER] Dropped ITviec job: {full_url} (raw date: {raw_date_text})")
+                        stats_collector.record_date_dropped("ITviec", 1, [full_url])
+                        continue
+                        
                     job_links.append(full_url)
+                    if posted_date:
+                        _LIST_PAGE_POSTED_DATES[full_url] = posted_date.isoformat()
+
                 except Exception as e:
                     print(f"Error scraping job link on page {page}: {e}")
                     continue
@@ -218,6 +261,7 @@ def scrape_job_detail(job_url: str) -> RawJobData | None:
     try:
         job_detail = requests.get(job_url, headers=get_headers(), timeout=15)
         decode_html_response(job_detail)
+        stats_collector.record_http_status("ITviec", job_detail.status_code)
         if job_detail.status_code != 200:
             print(f"[WARN] Failed to fetch job details for {job_url} - Status: {job_detail.status_code}")
             return RawJobData(
@@ -265,6 +309,7 @@ def scrape_job_detail(job_url: str) -> RawJobData | None:
             if employer_info_section:
                 desc_parts.append(clean_section_html(employer_info_section))
             description_html = "\n".join(str(p) for p in desc_parts) if desc_parts else ""
+
 
         # Extract metadata fields
         locations = []
@@ -384,18 +429,49 @@ def export_to_excel(data, out_prefix=None):
     df.to_excel(out, index=False)
 
 def scrape_data(keyword, location, max_jobs=None, search_keyword=None, test_mode=False):
+    stats_collector.set_active_keyword(search_keyword or keyword)
+    stats_collector.record_max_jobs("ITviec", max_jobs or 0)
     if max_jobs is not None and max_jobs <= 0:
         print("[INFO] max_jobs is 0 or negative. Skipping crawl and returning empty list.")
         return []
     print(f"[INFO] Dang crawl danh sach job cho '{keyword}' tai '{location}'...")
     print(f"[INFO] Date filter mode: {describe_date_filter()}")
     job_links = get_job_list(keyword, location, test_mode=test_mode, max_jobs=max_jobs)
-    print(f"[INFO] Tim thay {len(job_links)} job. Dang scrape chi tiet...")
+    
+    # DB Deduplication: Filter out jobs that already exist in the database
+    original_count = len(job_links)
+    job_links = filter_existing_jobs_by_url(job_links, source="ITviec")
+    filtered_count = len(job_links)
+    if original_count != filtered_count:
+        print(f"[DB_FILTER] Bỏ qua {original_count - filtered_count} jobs đã tồn tại trong database. Còn lại {filtered_count} jobs.")
+
+    print(f"[INFO] Tim thay {len(job_links)} job. Dang scrape chi tiết...")
 
     if max_jobs and max_jobs > 0:
         job_links = job_links[:max_jobs]
     
     jobs_data = []
+    if os.environ.get("CRAWL_ONLY") == "true":
+        print(f"[CRAWL_ONLY] ITviec: Bypassing detail scraping for {len(job_links)} filtered jobs.")
+        for job_url in job_links:
+            posted_date_str = _LIST_PAGE_POSTED_DATES.get(job_url)
+            mock_job = RawJobData(
+                source_name="itviec",
+                job_url=job_url,
+                job_source_id=job_url.rstrip("/").split("/")[-1],
+                title="Crawl Only Mock",
+                description_html="Crawl Only Mock",
+                posted_date=posted_date_str,
+                scraped_at=datetime.now().isoformat()
+            )
+            mock_job.search_keyword = search_keyword or keyword
+            jobs_data.append(mock_job)
+        
+        stats_collector.record_detail_scraped("ITviec", len(jobs_data), [j.job_url for j in jobs_data])
+        stats_collector.calculate_missing_fields("ITviec", jobs_data)
+        return jobs_data
+
+
     for i, job_url in enumerate(job_links, 1):
         print(f"[{i}/{len(job_links)}] Scraping {job_url}")
         detail = scrape_job_detail(job_url)
@@ -404,20 +480,39 @@ def scrape_data(keyword, location, max_jobs=None, search_keyword=None, test_mode
         detail.search_keyword = search_keyword or keyword
         jobs_data.append(detail)
 
-    # Apply central recent-job filter (window from env DAYS_BACK/REALTIME_DAYS or default 72h)
-    try:
-        filtered = filter_recent_jobs(jobs_data)
-        return filtered
-    except Exception:
-        return jobs_data
+    stats_collector.record_detail_scraped("ITviec", len(jobs_data), [j.job_url for j in jobs_data])
+    stats_collector.calculate_missing_fields("ITviec", jobs_data)
+
+    # Apply central recent-job filter bypassed per user request (relying on early filter at list crawl phase)
+    return jobs_data
 
 if __name__ == "__main__":
+    from pathlib import Path
+    try:
+        from dotenv import load_dotenv
+        # Tìm thư mục Db và load .env
+        p = Path(__file__).resolve()
+        for parent in p.parents:
+            if parent.name.lower() == "db":
+                env_path = parent / ".env"
+                if env_path.exists():
+                    load_dotenv(env_path)
+                    print(f"[INFO] Loaded environment from {env_path}")
+                break
+    except Exception as e:
+        print(f"[WARN] Failed to load .env: {e}")
+
     parser = argparse.ArgumentParser(description="Scrape ITviec jobs")
-    parser.add_argument("--keyword", default="software engineer", help="Job keyword to search")
-    parser.add_argument("--location", default="Vietnam", help="Location")
+    parser.add_argument("--keyword", default=os.getenv("CRAWL_KEYWORD") or os.getenv("KEYWORD") or "software engineer", help="Job keyword to search")
+    parser.add_argument("--location", default=os.getenv("CRAWL_LOCATION") or os.getenv("LOCATION") or "Vietnam", help="Location")
+    parser.add_argument("--max_jobs", type=int, default=int(os.getenv("JOBS_PER_KEYWORD") or os.getenv("MAX_JOBS") or "20"), help="Max jobs to crawl")
+    parser.add_argument("--crawl-only", action="store_true", default=os.getenv("CRAWL_ONLY", "false").lower() in ("true", "1", "yes"), help="Only crawl list cards (mock details)")
     parser.add_argument("--out_prefix", default=None, help="Output prefix path without extension")
-    parser.add_argument("--test_mode", action="store_true", help="Kich hoat mode test: 1 trang lay 1 job")
+    parser.add_argument("--test_mode", action="store_true", default=os.getenv("TEST_MODE", "false").lower() in ("true", "1", "yes"), help="Kich hoat mode test: 1 trang lay 1 job")
     args = parser.parse_args()
+
+    if args.crawl_only:
+        os.environ["CRAWL_ONLY"] = "true"
 
     if not args.out_prefix:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -425,13 +520,21 @@ if __name__ == "__main__":
         output_dir = os.path.join(base_dir, "../../output")
         args.out_prefix = os.path.join(output_dir, f"{args.keyword}_{args.location.lower().replace(' ', '_')}_{timestamp}")
 
-    print(f"Scraping '{args.keyword}' in '{args.location}'...")
-    jobs_data = scrape_data(args.keyword, args.location, test_mode=args.test_mode)
+    print(f"Scraping '{args.keyword}' in '{args.location}' (max_jobs={args.max_jobs}, crawl_only={args.crawl_only})...")
+    jobs_data = scrape_data(args.keyword, args.location, max_jobs=args.max_jobs, test_mode=args.test_mode)
     
+    # In báo cáo thống kê crawler & scraper chi tiết
+    try:
+        from central_filters import stats_collector
+        stats_collector.end_time = datetime.now()
+        print(stats_collector.get_summary_report())
+    except Exception as e:
+        print(f"[WARN] Failed to print summary report: {e}")
+        
     if jobs_data:
         export_to_json(jobs_data, args.out_prefix)
         export_to_csv(jobs_data, args.out_prefix)
         export_to_excel(jobs_data, args.out_prefix)
         print(f"✓ Completed! Output generated at: {args.out_prefix}")
     else:
-        print("[WARN] No jobs found!")
+        print("[WARN] No jobs found!")

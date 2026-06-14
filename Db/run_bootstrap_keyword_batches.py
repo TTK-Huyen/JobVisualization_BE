@@ -113,7 +113,7 @@ def make_crawl_env(keyword: str, sources: str, max_jobs: int, max_pages: int) ->
             "VNWORKS_FORCE_FULL_CRAWL": "1",
             "JOB_DATE_MODE": "off",
             "DAYS_BACK": "",
-            "REALTIME_DAYS": "",
+
             "DAILY_NUM_KEYWORDS": "1",
             "SELECTED_KEYWORDS": keyword,
             "CRAWL_KEYWORDS": keyword,

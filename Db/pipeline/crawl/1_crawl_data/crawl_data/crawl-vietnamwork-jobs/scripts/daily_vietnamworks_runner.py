@@ -50,7 +50,7 @@ TIER1_KEYWORDS_TO_SELECT = int(os.getenv("TIER1_NUM_KEYWORDS", "1"))
 TIER2_KEYWORDS_TO_SELECT = int(os.getenv("TIER2_NUM_KEYWORDS", "0"))
 TIER3_KEYWORDS_TO_SELECT = int(os.getenv("TIER3_NUM_KEYWORDS", "0"))
 
-BASE = "https://www.vietnamworks.com/viec-lam?q={keyword}"
+BASE = "https://www.vietnamworks.com/viec-lam?q={keyword}&sorting=lasted"
 BOOTSTRAP_STATE_FILE = Path(__file__).resolve().parent / "vietnamworks_bootstrap_state.json"
 
 

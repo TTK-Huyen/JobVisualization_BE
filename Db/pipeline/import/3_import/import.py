@@ -169,7 +169,7 @@ def upsert_company(cur, comp: Dict[str, Any]) -> Optional[int]:
     return new_id
 
 
-def upsert_job(cur, rec: Dict[str, Any], company_id: Optional[int], fingerprint: str, valid_keywords: set) -> int:
+def upsert_job(cur, rec: Dict[str, Any], company_id: Optional[int], fingerprint: str, valid_keywords: set, vi_to_en: dict) -> int:
     import logging
     title = unwrap_and_truncate(unwrap_value(rec.get("title")) or unwrap_value(rec.get("job", {}).get("title")), 500)
     skills_desc = unwrap_value(rec.get("job", {}).get("skills_desc")) or unwrap_value(rec.get("skills_desc"))
@@ -199,6 +199,11 @@ def upsert_job(cur, rec: Dict[str, Any], company_id: Optional[int], fingerprint:
     search_group = None
     if raw_search_group:
         normalized_keyword = str(raw_search_group).lower().strip().replace("_", " ")
+        
+        # Translate to English if it is a Vietnamese keyword
+        if normalized_keyword in vi_to_en:
+            normalized_keyword = vi_to_en[normalized_keyword]
+
         if normalized_keyword in valid_keywords:
             search_group = normalized_keyword
         else:
@@ -468,15 +473,39 @@ def import_records(conn, records: List[Dict[str, Any]], fallback_path: Path) -> 
         print(f"[WARNING] Could not load valid keywords from public.search_group_keywords: {e}")
         valid_keywords = set()
 
+    # Load vi_to_en mapping from keywords_daily.json
+    vi_to_en = {}
+    try:
+        config_path = BASE_DIR / "input" / "keywords_daily.json"
+        if not config_path.exists():
+            config_path = BASE_DIR / "keywords_daily.json"
+        if config_path.exists():
+            with open(config_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            for group_cfg in cfg.get("groups", {}).values():
+                en_list = group_cfg.get("en", [])
+                vi_list = group_cfg.get("vi", [])
+                for en_kw, vi_kw in zip(en_list, vi_list):
+                    en_clean = str(en_kw).lower().strip().replace("_", " ")
+                    vi_clean = str(vi_kw).lower().strip().replace("_", " ")
+                    if vi_clean and en_clean:
+                        vi_to_en[vi_clean] = en_clean
+    except Exception as e:
+        print(f"[WARNING] Could not load vi_to_en mapping from keywords_daily.json: {e}")
+
+    batch_size = 50
+    pending_records_in_transaction = 0
+
     for rec in records:
         try:
+            cur.execute("SAVEPOINT record_savepoint")
             fp = make_fingerprint(rec)
 
             comp = rec.get('company') or {}
             company_id = upsert_company(cur, comp) if comp else None
             cur.execute("SELECT job_id FROM jobs WHERE fingerprint = %s", (fp,))
             existing_job = cur.fetchone()
-            job_id = upsert_job(cur, rec, company_id, fp, valid_keywords)
+            job_id = upsert_job(cur, rec, company_id, fp, valid_keywords, vi_to_en)
 
             upsert_salary(cur, job_id, rec.get('salary') or {})
 
@@ -495,14 +524,24 @@ def import_records(conn, records: List[Dict[str, Any]], fallback_path: Path) -> 
                 except Exception:
                     pass
 
-            conn.commit()
+            cur.execute("RELEASE SAVEPOINT record_savepoint")
             if existing_job:
                 stats["updated"] += 1
             else:
                 stats["inserted"] += 1
+
+            pending_records_in_transaction += 1
+
+            # Commit in batches of 50 to optimize database IO
+            if pending_records_in_transaction >= batch_size:
+                conn.commit()
+                pending_records_in_transaction = 0
         except Exception as e:
+            try:
+                cur.execute("ROLLBACK TO SAVEPOINT record_savepoint")
+            except Exception:
+                pass
             stats['errors'] += 1
-            conn.rollback()
             # append fallback
             entry = {"record": rec, "error": str(e)}
             if fallback_path:
@@ -517,6 +556,15 @@ def import_records(conn, records: List[Dict[str, Any]], fallback_path: Path) -> 
                 fallback_path.parent.mkdir(parents=True, exist_ok=True)
                 fallback_path.write_text(json.dumps(arr, ensure_ascii=False, indent=2), encoding='utf-8')
             # continue with next record
+
+    # Commit any remaining pending records at the end of the loop
+    if pending_records_in_transaction > 0:
+        try:
+            conn.commit()
+        except Exception as e:
+            print(f"[ERROR] Final commit failed: {e}")
+            conn.rollback()
+            stats['errors'] += pending_records_in_transaction
     cur.close()
     return stats
 
@@ -542,6 +590,7 @@ def main():
     parser.add_argument("--fallback", type=Path, default=BASE_DIR / "3_import" / "import_fallback.json")
     parser.add_argument("--skip-weight-update", action="store_true", help="Skip updating skill weights after import")
     parser.add_argument("--weight-method", type=str, choices=["tf-idf", "llm"], default="tf-idf", help="Weighting method to update: 'tf-idf' or 'llm'")
+    parser.add_argument("--stats-output", type=Path, help="Path to write import stats JSON")
     args = parser.parse_args()
 
     # Clear previous fallback file if it exists
@@ -557,6 +606,16 @@ def main():
 
     stats = import_records(conn, records, args.fallback)
     print(json.dumps(stats, ensure_ascii=False))
+
+    if args.stats_output:
+        try:
+            args.stats_output.parent.mkdir(parents=True, exist_ok=True)
+            with open(args.stats_output, "w", encoding="utf-8") as sf:
+                json.dump(stats, sf, ensure_ascii=False, indent=2)
+            print(f"[INFO] Stats saved to {args.stats_output}")
+        except Exception as e:
+            print(f"[WARNING] Could not write stats output: {e}")
+
     conn.close()
 
     # Check if database was updated/inserted and if we should update weights

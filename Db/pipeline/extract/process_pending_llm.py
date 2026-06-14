@@ -42,6 +42,8 @@ from Db.llm.llm_config import (
 from Db.llm.debug_llm_adapter import call_llm as call_gemini_llm
 
 from Db.llm.job_extraction_rules import load_job_extraction_prompt
+from Db.scripts.split_description import extract_clean_job_description
+
 
 
 DEFAULT_INPUT_PATH = BASE_DIR / "data" / "queue" / "batch_1.json"
@@ -414,20 +416,32 @@ def _load_2cd_module(name: str):
 
     Prefer normal import so relative imports inside the module work.
     """
-    pkg_name = f"Db.2_clean_data.{name}"
-    try:
-        return importlib.import_module(pkg_name)
-    except Exception:
-        # fallback: load by path
+    import importlib
+    for pkg_name in (
+        f"Db.pipeline.clean.2_clean_data.{name}",
+        f"pipeline.clean.2_clean_data.{name}",
+        f"Db.2_clean_data.{name}"
+    ):
+        try:
+            return importlib.import_module(pkg_name)
+        except Exception:
+            continue
+
+    # fallback: load by path
+    module_path = ROOT_DIR / "clean" / "2_clean_data" / f"{name}.py"
+    if not module_path.exists():
+        # also try old location relative to BASE_DIR
         module_path = BASE_DIR / "2_clean_data" / f"{name}.py"
-        if not module_path.exists():
-            raise FileNotFoundError(f"Module file not found: {module_path}")
-        spec = importlib.util.spec_from_file_location(name, str(module_path))
-        mod = importlib.util.module_from_spec(spec)
-        loader = spec.loader
-        assert loader is not None
-        loader.exec_module(mod)
-        return mod
+    if not module_path.exists():
+        raise FileNotFoundError(f"Module file not found: {name}")
+
+    spec = importlib.util.spec_from_file_location(name, str(module_path))
+    mod = importlib.util.module_from_spec(spec)
+    loader = spec.loader
+    assert loader is not None
+    loader.exec_module(mod)
+    return mod
+
 
 
 def _extract_json_from_text(text: str) -> Dict[str, Any]:
@@ -855,6 +869,13 @@ def process_job(job: Dict[str, Any], api_key: str, config_path: Path, api_key_na
             if key in job and job.get(key) is not None:
                 extracted[key] = job.get(key)
 
+        # Clean description_html using split_description logic
+        source_name = extracted.get("source_name")
+        desc_html = extracted.get("description_html")
+        if source_name and desc_html:
+            extracted["description_html"] = extract_clean_job_description(source_name, desc_html)
+
+
         # 2) Special company_name rule: if input has non-empty company_name, preserve it.
         #    If input company_name is missing/empty and LLM produced company.name with very-high
         #    confidence, allow filling top-level company_name from company.name.
@@ -918,6 +939,171 @@ def process_job(job: Dict[str, Any], api_key: str, config_path: Path, api_key_na
 
         # Do not compute fingerprint for failed records at extract stage.
         return base_record
+
+
+def load_today_processed_jobs(current_folder_name: str) -> List[Dict[str, Any]]:
+    processed = []
+    try:
+        today_prefix = "crawl_" + datetime.utcnow().strftime("%Y%m%d")
+        data_dir = BASE_DIR / "data"
+        if data_dir.exists():
+            for folder in data_dir.iterdir():
+                if folder.is_dir() and folder.name.startswith(today_prefix) and folder.name != current_folder_name:
+                    for filename in ("clean/extracted.json", "fallback/extract_fallback.json"):
+                        file_path = folder / filename
+                        if file_path.exists():
+                            try:
+                                txt = file_path.read_text(encoding='utf-8-sig').strip()
+                                if txt:
+                                    parsed = json.loads(txt)
+                                    if isinstance(parsed, list):
+                                        for e in parsed:
+                                            if isinstance(e, dict) and e.get("status") in ("success", "duplicate"):
+                                                processed.append(e)
+                            except Exception:
+                                pass
+    except Exception:
+        pass
+    return processed
+
+
+def deduplicate_jobs_by_embeddings(
+    jobs: List[Dict[str, Any]], 
+    logger: logging.Logger, 
+    prev_jobs: List[Dict[str, Any]] = None
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    if not jobs:
+        return [], []
+
+    if prev_jobs is None:
+        prev_jobs = []
+
+    logger.info("Starting embedding-based deduplication on %d loaded jobs (comparing with %d historical jobs today)...", len(jobs), len(prev_jobs))
+
+    def normalize_company(name):
+        if not name:
+            return ""
+        import unicodedata
+        import re
+        n = unicodedata.normalize("NFKD", str(name)).encode("ascii", "ignore").decode("utf-8").lower()
+        suffixes = [
+            r'\bcompany\b', r'\bco\b', r'\bltd\b', r'\bjsc\b', r'\bcorp\b', r'\bcorporation\b',
+            r'\bjoint\s+stock\b', r'\bthanh\s+vien\b', r'\bco\s+phan\b', r'\bcong\s+ty\b',
+            r'\btrach\s+nhiem\s+huu\s+han\b', r'\btnhh\b', r'\bgờ\s+rúp\b', r'\bgroup\b'
+        ]
+        for suffix in suffixes:
+            n = re.sub(suffix, '', n)
+        n = re.sub(r'[^a-zA-Z0-9]', '', n).strip()
+        return n
+
+    # Group all jobs (both new and old) by normalized company
+    groups = {}
+    new_job_ids = {id(j) for j in jobs}
+    combined_jobs = jobs + prev_jobs
+
+    for job in combined_jobs:
+        c_name = job.get("company_name") or (job.get("company") or {}).get("name") or ""
+        norm_c = normalize_company(c_name)
+        if norm_c:
+            groups.setdefault(norm_c, []).append(job)
+
+    try:
+        from sentence_transformers import SentenceTransformer
+        model = SentenceTransformer('all-MiniLM-L6-v2')
+        logger.info("Loaded sentence transformer 'all-MiniLM-L6-v2' successfully.")
+    except Exception as e:
+        logger.warning("Could not load sentence_transformers for deduplication: %s. Skipping embedding deduplication.", e)
+        return jobs, []
+
+    import numpy as np
+
+    duplicate_jobs = []
+    duplicate_set = set()
+    cross_source_dup_count = 0
+    same_source_dup_count = 0
+
+    for norm_c, group_jobs in groups.items():
+        # Only perform comparison if we have at least 2 jobs and at least one is NEW
+        if len(group_jobs) < 2 or not any(id(j) in new_job_ids for j in group_jobs):
+            continue
+
+        texts = []
+        valid_indices = []
+        for i, job in enumerate(group_jobs):
+            text = build_llm_input_text(job)
+            text = text.strip()
+            if len(text) > 50:
+                texts.append(text)
+                valid_indices.append(i)
+
+        if len(texts) < 2:
+            continue
+
+        try:
+            embeddings = model.encode(texts, convert_to_numpy=True)
+            norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+            norms[norms == 0] = 1.0
+            embeddings_norm = embeddings / norms
+            sim_matrix = np.dot(embeddings_norm, embeddings_norm.T)
+        except Exception as e:
+            logger.error("Error computing embeddings/similarity: %s", e)
+            continue
+
+        duplicate_group_indices = set()
+        for i in range(len(texts)):
+            if i in duplicate_group_indices:
+                continue
+            for j in range(i + 1, len(texts)):
+                if j in duplicate_group_indices:
+                    continue
+                similarity = sim_matrix[i, j]
+                if similarity > 0.9:
+                    job_i = group_jobs[valid_indices[i]]
+                    job_j = group_jobs[valid_indices[j]]
+                    
+                    # Ensure job_j is always the NEW job that gets marked as duplicate.
+                    if id(job_j) not in new_job_ids:
+                        if id(job_i) in new_job_ids:
+                            job_i, job_j = job_j, job_i
+                        else:
+                            continue
+
+                    src_i = job_i.get("source_name") or ""
+                    src_j = job_j.get("source_name") or ""
+                    c_name_i = job_i.get("company_name") or (job_i.get("company") or {}).get("name") or ""
+
+                    # Mark job_j as duplicate
+                    job_j["status"] = "duplicate"
+                    job_j["duplicate_of"] = job_i.get("job_url")
+                    
+                    if src_i.lower() != src_j.lower():
+                        cross_source_dup_count += 1
+                        job_j["failure_reason"] = "duplicate_cross_source"
+                        job_j["error"] = f"Filtered as cross-source duplicate (similarity: {similarity:.3f}) with job from {src_i} (URL: {job_i.get('job_url')})"
+                        logger.info("Found cross-source duplicate job at similarity %.3f for company '%s':", similarity, c_name_i)
+                        logger.info("  - Keep Job: Title='%s', Source='%s', URL='%s'", job_i.get("title"), src_i, job_i.get("job_url"))
+                        logger.info("  - Skip Job: Title='%s', Source='%s', URL='%s'", job_j.get("title"), src_j, job_j.get("job_url"))
+                    else:
+                        same_source_dup_count += 1
+                        job_j["failure_reason"] = "duplicate_same_source"
+                        job_j["error"] = f"Filtered as same-source duplicate (similarity: {similarity:.3f}) with job URL: {job_i.get('job_url')}"
+                        logger.info("Found same-source duplicate job at similarity %.3f for company '%s':", similarity, c_name_i)
+                        logger.info("  - Keep Job: Title='%s', Source='%s', URL='%s'", job_i.get("title"), src_i, job_i.get("job_url"))
+                        logger.info("  - Skip Job: Title='%s', Source='%s', URL='%s'", job_j.get("title"), src_j, job_j.get("job_url"))
+
+                    duplicate_group_indices.add(j)
+                    duplicate_set.add(id(job_j))
+
+    jobs_to_keep = []
+    for job in jobs:
+        if id(job) in duplicate_set:
+            duplicate_jobs.append(job)
+        else:
+            jobs_to_keep.append(job)
+
+    logger.info("Deduplication completed. Total input jobs: %d. Kept: %d. Filtered cross-source duplicates (trung lien nguon): %d. Filtered same-source duplicates: %d.", 
+                len(jobs), len(jobs_to_keep), cross_source_dup_count, same_source_dup_count)
+    return jobs_to_keep, duplicate_jobs
 
 
 def save_jobs(output_path: Path, jobs: List[Dict[str, Any]]) -> None:
@@ -1076,6 +1262,24 @@ def main() -> int:
     total_jobs = len(jobs)
     logger.info("Loaded %s pending job(s) from %s", total_jobs, input_path)
 
+    passed_jobs: List[Dict[str, Any]] = []
+    failed_jobs: List[Dict[str, Any]] = []
+
+    # Load previously processed jobs today for cross-batch deduplication
+    try:
+        current_folder_name = output_path.parent.parent.name
+        prev_processed_jobs = load_today_processed_jobs(current_folder_name)
+    except Exception as e:
+        logger.warning("Error resolving current folder name or loading historical jobs: %s", e)
+        prev_processed_jobs = []
+
+    # Embedding-based cross-source deduplication before calling LLM
+    jobs, duplicate_jobs = deduplicate_jobs_by_embeddings(jobs, logger, prev_processed_jobs)
+    total_jobs = len(jobs)
+
+    # Add duplicate jobs to failed_jobs so they are written to fallback file and not processed by LLM
+    failed_jobs.extend(duplicate_jobs)
+
     api_keys = _load_api_keys()
     # Initialize API key controller which persists per-day states (no secrets stored)
     try:
@@ -1092,8 +1296,6 @@ def main() -> int:
     else:
         controller = None
 
-    passed_jobs: List[Dict[str, Any]] = []
-    failed_jobs: List[Dict[str, Any]] = []
     success_count = 0
     api_fail_count = 0
     parse_fail_count = 0
@@ -1315,107 +1517,224 @@ def main() -> int:
         'keys_5xx': 0,
     }
 
-    pointer = 0
-    # sequential loop over active_jobs
-    for idx, job in enumerate(active_jobs):
-        job_key = _job_key(job)
-        started_at = datetime.utcnow()
-        logger.info("Processing job %s (%d/%d)", job_key, idx + 1, len(active_jobs))
-
-        pick = _pick_next_valid(key_state, pointer)
-        if pick is None:
-            # no valid keys -> write remaining jobs to retry and exit
-            remaining = active_jobs[idx:]
-            for rem in remaining:
-                entry = dict(rem)
-                entry.update({
+    # Determine extraction mode (parallel vs sequential) from env
+    extraction_mode = os.getenv("LLM_EXTRACTION_MODE", "parallel").lower().strip()
+    
+    if extraction_mode == "sequential":
+        logger.info("Starting sequential extraction (single-threaded)")
+        sleep_seconds = int(os.getenv('LLM_SLEEP_BETWEEN_REQUESTS', '15'))
+        
+        for idx, job in enumerate(active_jobs):
+            job_key = _job_key(job)
+            logger.info("Processing job %s (%d/%d)", job_key, idx + 1, len(active_jobs))
+            
+            # Acquire key dynamically from the controller
+            key_info = controller.acquire_key(wait=True, max_wait=30) if controller else None
+            
+            if not key_info:
+                logger.warning("No valid API keys available for job %s. Deferring to retry.", job_key)
+                processed = dict(job)
+                processed.update({
                     'status': 'retryable',
                     'last_error': 'no_valid_api_key',
                     'last_attempt_at': datetime.utcnow().isoformat(),
                 })
-                delayed_retry_jobs.append(entry)
-            logger.info("No valid API key remaining; stopping run and persisting remaining jobs to retry queue")
-            break
-
-        key_info = key_state['keys'][pick]
-        env_name = key_info.get('env_name')
-        api_key_val = os.environ.get(env_name)
-        logger.info("Using API key: %s", env_name)
-
-        try:
-            # call process_job which internally calls call_llm adapter
-            processed = process_job(job, api_key_val, args.config_path, api_key_name=env_name)
-        except Exception as exc:
-            processed = dict(job)
-            processed['status'] = 'llm_api_fail'
-            processed['error'] = str(exc)
-
-        processed['api_key_used'] = env_name
-        status = processed.get('status')
-        err_text = (processed.get('error') or '')
-        low = err_text.lower() if isinstance(err_text, str) else ''
-
-        # classify and handle
-        if status == 'success':
-            passed_jobs.append(processed)
-            save_jobs(output_path, passed_jobs)
-            key_info['total_success_today'] = int(key_info.get('total_success_today', 0)) + 1
-            metrics['success_count'] += 1
-
-        elif status == 'invalid_json_response' or _is_parse_error(Exception(err_text)):
-            failed_jobs.append(processed)
-            save_jobs(fallback_path, failed_jobs)
-            metrics['fallback_count'] += 1
-
-        else:
-            # API or other failure -> decide retry vs fallback
-            processed.setdefault('attempt_count', 0)
-            processed['attempt_count'] = processed.get('attempt_count', 0) + 1
-            processed['last_error'] = err_text
-            processed['last_attempt_at'] = datetime.utcnow().isoformat()
-
-            # 429/quota/resource exhausted -> mark exhausted_today and push to retry
-            if '429' in low or 'quota' in low or 'resourceexhausted' in low or 'daily limit' in low:
-                key_info['exhausted_today'] = True
-                key_info['last_error'] = err_text
-                key_info['last_attempt_at'] = datetime.utcnow().isoformat()
-                key_info['total_fail_today'] = int(key_info.get('total_fail_today', 0)) + 1
-                metrics['keys_429'] = metrics.get('keys_429', 0) + 1
-                entry = dict(job)
-                entry.update({'status': 'retryable', 'last_error': err_text, 'last_attempt_at': datetime.utcnow().isoformat()})
-                delayed_retry_jobs.append(entry)
-
-            # 5xx/timeout/connection -> temporary backoff, do not mark exhausted_today
-            elif any(x in low for x in ('503', '504', 'timeout', 'connection')):
-                base = int(LLM_BACKOFF_BASE_SECONDS or 30)
-                maxb = int(LLM_BACKOFF_MAX_SECONDS or 300)
-                backoff = min(maxb, base)
-                try:
-                    key_info['disabled_until'] = (datetime.utcnow() + timedelta(seconds=backoff)).isoformat()
-                except Exception:
-                    key_info['disabled_until'] = None
-                key_info['total_fail_today'] = int(key_info.get('total_fail_today', 0)) + 1
-                metrics['keys_5xx'] = metrics.get('keys_5xx', 0) + 1
-                entry = dict(job)
-                entry.update({'status': 'retryable', 'last_error': err_text, 'last_attempt_at': datetime.utcnow().isoformat()})
-                delayed_retry_jobs.append(entry)
-
-            else:
-                # treat as fallback/permanent
+                delayed_retry_jobs.append(processed)
+                metrics['no_key_deferred_count'] += 1
+                continue
+                
+            key_idx, env_name, api_key_val = key_info
+            logger.info("Using API key: %s", env_name)
+            
+            try:
+                processed = process_job(job, api_key_val, args.config_path, api_key_name=env_name)
+            except Exception as exc:
+                processed = dict(job)
+                processed['status'] = 'llm_api_fail'
+                processed['error'] = str(exc)
+                
+            processed['api_key_used'] = env_name
+            status = processed.get('status')
+            err_text = (processed.get('error') or '')
+            low = err_text.lower() if isinstance(err_text, str) else ''
+            
+            # Update controller state
+            if controller:
+                if status == 'success':
+                    controller.mark_success(env_name)
+                elif '429' in low or 'quota' in low or 'resourceexhausted' in low or 'daily limit' in low:
+                    controller.mark_429(env_name)
+                else:
+                    controller.mark_5xx_or_timeout(env_name)
+                    
+            # Classify and handle result
+            if status == 'success':
+                passed_jobs.append(processed)
+                save_jobs(output_path, passed_jobs)
+                metrics['success_count'] += 1
+            elif status == 'invalid_json_response' or _is_parse_error(Exception(err_text)):
                 failed_jobs.append(processed)
                 save_jobs(fallback_path, failed_jobs)
                 metrics['fallback_count'] += 1
+            else:
+                # API or other temporary failure -> decide retry vs fallback
+                processed.setdefault('attempt_count', 0)
+                processed['attempt_count'] = processed.get('attempt_count', 0) + 1
+                processed['last_error'] = err_text
+                processed['last_attempt_at'] = datetime.utcnow().isoformat()
+                
+                if '429' in low or 'quota' in low or 'resourceexhausted' in low or 'daily limit' in low:
+                    metrics['keys_429'] += 1
+                elif any(x in low for x in ('503', '504', 'timeout', 'connection')):
+                    metrics['keys_5xx'] += 1
+                    
+                entry = dict(job)
+                entry.update({
+                    'status': 'retryable',
+                    'last_error': err_text,
+                    'last_attempt_at': datetime.utcnow().isoformat()
+                })
+                delayed_retry_jobs.append(entry)
+                
+            # Sleep between requests unless last job
+            if idx < len(active_jobs) - 1:
+                logger.info("Sleeping %d seconds before next request", sleep_seconds)
+                time.sleep(sleep_seconds)
+                
+    else:
+        # Set number of workers from environment variable or default to 8
+        num_workers = int(os.getenv("LLM_NUM_WORKERS", "8"))
+        logger.info("Starting parallel extraction with %d workers", num_workers)
 
-        # persist key state after each job
-        _write_key_state(key_state_path, key_state)
+        import queue
+        import threading
 
-        # advance pointer
-        pointer = (pick + 1) % max(1, len(key_state.get('keys', [])))
+        job_queue = queue.Queue()
+        for idx, job in enumerate(active_jobs):
+            job_queue.put((job, idx + 1))
 
-        # sleep between requests unless last job
-        if idx < len(active_jobs) - 1:
-            logger.info("Sleeping %s seconds before next request", sleep_seconds)
-            time.sleep(sleep_seconds)
+        # Locks for thread-safe list operations and controller access
+        results_lock = threading.Lock()
+        controller_lock = threading.Lock()
+
+        def worker_thread(worker_id):
+            thread_name = threading.current_thread().name
+            logger.info("[%s] Worker %d started", thread_name, worker_id)
+
+            while True:
+                try:
+                    job, job_index = job_queue.get_nowait()
+                except queue.Empty:
+                    break
+
+                job_key = _job_key(job)
+                logger.info("[%s] Worker %d processing job %s (%d/%d)", thread_name, worker_id, job_key, job_index, len(active_jobs))
+
+                # Acquire key dynamically from the controller
+                with controller_lock:
+                    key_info = controller.acquire_key(wait=True, max_wait=30) if controller else None
+
+                if not key_info:
+                    # No keys available -> write remaining job to retry queue
+                    logger.warning("[%s] No valid API keys available for job %s. Deferring to retry.", thread_name, job_key)
+                    processed = dict(job)
+                    processed.update({
+                        'status': 'retryable',
+                        'last_error': 'no_valid_api_key',
+                        'last_attempt_at': datetime.utcnow().isoformat(),
+                    })
+                    with results_lock:
+                        delayed_retry_jobs.append(processed)
+                        metrics['no_key_deferred_count'] += 1
+                    job_queue.task_done()
+                    continue
+
+                key_idx, env_name, api_key_val = key_info
+                logger.info("[%s] Worker %d using API key: %s", thread_name, worker_id, env_name)
+
+                try:
+                    processed = process_job(job, api_key_val, args.config_path, api_key_name=env_name)
+                except Exception as exc:
+                    processed = dict(job)
+                    processed['status'] = 'llm_api_fail'
+                    processed['error'] = str(exc)
+
+                processed['api_key_used'] = env_name
+                status = processed.get('status')
+                err_text = (processed.get('error') or '')
+                low = err_text.lower() if isinstance(err_text, str) else ''
+
+                # Update controller state
+                with controller_lock:
+                    if controller:
+                        if status == 'success':
+                            controller.mark_success(env_name)
+                        elif '429' in low or 'quota' in low or 'resourceexhausted' in low or 'daily limit' in low:
+                            controller.mark_429(env_name)
+                        else:
+                            controller.mark_5xx_or_timeout(env_name)
+
+                # Classify and handle result in a thread-safe manner
+                with results_lock:
+                    if status == 'success':
+                        passed_jobs.append(processed)
+                        save_jobs(output_path, passed_jobs)
+                        metrics['success_count'] += 1
+                    elif status == 'invalid_json_response' or _is_parse_error(Exception(err_text)):
+                        failed_jobs.append(processed)
+                        save_jobs(fallback_path, failed_jobs)
+                        metrics['fallback_count'] += 1
+                    else:
+                        # API or other temporary failure -> decide retry vs fallback
+                        processed.setdefault('attempt_count', 0)
+                        processed['attempt_count'] = processed.get('attempt_count', 0) + 1
+                        processed['last_error'] = err_text
+                        processed['last_attempt_at'] = datetime.utcnow().isoformat()
+
+                        if '429' in low or 'quota' in low or 'resourceexhausted' in low or 'daily limit' in low:
+                            metrics['keys_429'] += 1
+                        elif any(x in low for x in ('503', '504', 'timeout', 'connection')):
+                            metrics['keys_5xx'] += 1
+
+                        entry = dict(job)
+                        entry.update({
+                            'status': 'retryable',
+                            'last_error': err_text,
+                            'last_attempt_at': datetime.utcnow().isoformat()
+                        })
+                        delayed_retry_jobs.append(entry)
+
+                job_queue.task_done()
+
+                # Wait 15s before next job if queue has remaining items
+                if not job_queue.empty():
+                    sleep_seconds = int(os.getenv('LLM_SLEEP_BETWEEN_REQUESTS', '15'))
+                    logger.info("[%s] Worker %d sleeping %d seconds before next job", thread_name, worker_id, sleep_seconds)
+                    time.sleep(sleep_seconds)
+
+        # Spawn worker threads
+        threads = []
+        for w_id in range(num_workers):
+            t = threading.Thread(
+                target=worker_thread,
+                args=(w_id,),
+                name=f"LlmWorkerThread_{w_id}"
+            )
+            t.daemon = True
+            threads.append(t)
+            t.start()
+
+        # Wait for all threads to finish
+        for t in threads:
+            t.join()
+
+        logger.info("All parallel workers completed processing.")
+
+    # Synchronize final counters for summary logging
+    success_count = metrics['success_count']
+    api_fail_count = metrics['keys_429'] + metrics['keys_5xx']
+    parse_fail_count = metrics['fallback_count']
+
 
     # Persist delayed retry jobs and no-key-wait stashed jobs back to retry queue
     try:
@@ -1567,10 +1886,11 @@ def main() -> int:
     except Exception:
         pass
 
-    logger.info("Total jobs: %s", total_jobs)
+    logger.info("Total jobs to process: %s", total_jobs)
     logger.info("Extract-pass (to normalize): %s", success_count)
     logger.info("LLM/API parse failures: %s", parse_fail_count)
     logger.info("LLM/API other failures: %s", api_fail_count)
+    logger.info("Filtered duplicate jobs: %s", len(duplicate_jobs))
     logger.info("Wrote extracted (pass) jobs to: %s", output_path)
     if failed_jobs:
         logger.info("Wrote extract fallback jobs to: %s", fallback_path)

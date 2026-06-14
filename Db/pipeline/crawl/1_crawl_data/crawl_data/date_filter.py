@@ -35,12 +35,13 @@ def get_import_min_date() -> date:
 
 
 def get_realtime_days() -> int:
-    raw = os.environ.get("DAYS_BACK") or os.environ.get("REALTIME_DAYS")
+    raw = os.environ.get("DAYS_BACK")
     try:
         days = int(raw) if raw else DEFAULT_REALTIME_DAYS
         return max(days, 1)
     except Exception:
         return DEFAULT_REALTIME_DAYS
+
 
 
 def get_realtime_cutoff_date() -> date:
@@ -83,11 +84,23 @@ def parse_relative_time_to_date(value: Optional[str]) -> Optional[date]:
     if not value:
         return None
     normalized = value.strip().lower()
+    
+    # Handle direct shortcuts
+    if normalized in ("just now", "now", "today", "yesterday", "posted today", "posted yesterday"):
+        if "yesterday" in normalized:
+            return (datetime.now() - timedelta(days=1)).date()
+        return datetime.now().date()
+        
     match = re.search(
         r"(?:posted\s+)?(\d+)\s+(minute|minutes|hour|hours|day|days|week|weeks|month|months|year|years)\s+ago",
         normalized,
     )
     if not match:
+        # Handle "a day ago", "an hour ago"
+        if re.search(r"\b(?:posted\s+)?(?:a|an)\s+day\s+ago\b", normalized):
+            return (datetime.now() - timedelta(days=1)).date()
+        if re.search(r"\b(?:posted\s+)?(?:a|an)\s+hour\s+ago\b", normalized):
+            return datetime.now().date()
         return None
 
     amount = int(match.group(1))
@@ -104,6 +117,44 @@ def parse_relative_time_to_date(value: Optional[str]) -> Optional[date]:
         return (now - timedelta(days=amount * 30)).date()
     if "year" in unit:
         return (now - timedelta(days=amount * 365)).date()
+    return None
+
+
+def parse_careerviet_date(value: Optional[str]) -> Optional[date]:
+    if not value:
+        return None
+    # Match DD-MM-YYYY or DD/MM/YYYY
+    match = re.search(r"(\d{1,2})[-/](\d{1,2})[-/](\d{4})", value)
+    if not match:
+        return None
+    day, month, year = int(match.group(1)), int(match.group(2)), int(match.group(3))
+    try:
+        return date(year, month, day)
+    except ValueError:
+        return None
+
+
+def parse_vietnamworks_date(value: Optional[str]) -> Optional[date]:
+    if not value:
+        return None
+    normalized = value.strip().lower()
+    
+    # "hôm nay", "giờ trước", "phút trước", "giây trước" are all today
+    if "hôm nay" in normalized or "giờ" in normalized or "phút" in normalized or "giây" in normalized:
+        return datetime.now().date()
+        
+    match = re.search(r"(\d+)", normalized)
+    if not match:
+        return None
+        
+    amount = int(match.group(1))
+    now = datetime.now()
+    if "ngày" in normalized:
+        return (now - timedelta(days=amount)).date()
+    if "tuần" in normalized:
+        return (now - timedelta(weeks=amount)).date()
+    if "tháng" in normalized:
+        return (now - timedelta(days=amount * 30)).date()
     return None
 
 
