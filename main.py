@@ -34,10 +34,12 @@ def run_cli_command(command: list[str]) -> dict:
             capture_output=True,
             text=True,
             encoding='utf-8',
-            env=env
+            env=env,
+            cwd="/app"
         )
         if result.returncode != 0:
             print("\n" + "="*50 + " SCRIPT CRASH LOG " + "="*50)
+            print(f"Mã thoát (Exit Code): {result.returncode}")
             print(f"STDERR FROM PYTHON:\n{result.stderr}")
             print("="*118 + "\n")
             
