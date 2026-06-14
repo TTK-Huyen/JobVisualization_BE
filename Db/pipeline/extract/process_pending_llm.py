@@ -28,7 +28,7 @@ try:
 except Exception:
     pass
 
-from Db.llm.retry_queue import load_retry_queue, save_retry_queue
+from Db.llm.retry_queue import load_retry_queue, remove_retry_queue_entries, save_retry_queue
 
 from dotenv import load_dotenv
 import importlib.util
@@ -124,6 +124,11 @@ def parse_args() -> argparse.Namespace:
         "--ignore-retry-queue",
         action="store_true",
         help="Ignore existing retry queue and process only the current pending file.",
+    )
+    parser.add_argument(
+        "--no-inline-retry",
+        action="store_true",
+        help="Do not retry temporary LLM failures inside the same extract run.",
     )
     return parser.parse_args()
 
@@ -1334,15 +1339,11 @@ def main() -> int:
             return len(skills)
         return 0
 
-    # Build queues: active_queue for immediate processing, delayed_retry_queue for future retries
-    # TEMP: Comment out retry_queue for testing - process only current pending jobs
-    # retry_jobs = load_retry_queue() or []
-    retry_jobs = []  # TEMP: Force empty retry queue
-    # Optionally ignore previously-scheduled retry queue entries for testing.
-    # ignore_flag = args.ignore_retry_queue or os.getenv('IGNORE_RETRY_QUEUE', '').lower() in ('1', 'true', 'yes')
-    # if ignore_flag:
-    #     logger.info("IGNORE_RETRY_QUEUE enabled: skipping merge of existing retry queue and processing only current pending file")
-    #     retry_jobs = []
+    # Build queues: active_queue for immediate processing, delayed_retry_queue for future retries.
+    ignore_flag = args.ignore_retry_queue or os.getenv('IGNORE_RETRY_QUEUE', '').lower() in ('1', 'true', 'yes')
+    retry_jobs = [] if ignore_flag else (load_retry_queue() or [])
+    if ignore_flag:
+        logger.info("IGNORE_RETRY_QUEUE enabled: skipping merge of existing retry queue and processing only current pending file")
     delayed_retry_jobs: List[Dict[str, Any]] = []
     # in-memory queue for jobs deferred because no key was available within the short-wait window
     no_key_wait_queue: List[Dict[str, Any]] = []
@@ -1358,23 +1359,57 @@ def main() -> int:
             return j.get('job_url')
         return j.get('_fingerprint') or hashlib.md5((str(j.get('title','')) + '|' + str(j.get('company_name','')) + '|' + str(j.get('requirements_text',''))).encode('utf-8')).hexdigest()
 
-    # TEMP: Comment out retry jobs partition logic - process only current pending jobs
-    # partition retry jobs by next_retry_at
-    # for r in retry_jobs:
-    #     nr = r.get('next_retry_at')
-    #     if nr:
-    #         try:
-    #             dt = datetime.fromisoformat(nr)
-    #             if dt <= now:
-    #                 active_jobs.append(r)
-    #             else:
-    #                 delayed_retry_jobs.append(r)
-    #             continue
-    #         except Exception:
-    #             # malformed date -> treat as immediate
-    #             active_jobs.append(r)
-    #     else:
-    #         active_jobs.append(r)
+    retry_queue_remove_keys = set()
+
+    def _remember_retry_done(job: Dict[str, Any]) -> None:
+        for key in (_job_key(job), job.get('_fingerprint'), job.get('job_url')):
+            if key:
+                retry_queue_remove_keys.add(key)
+
+    def _current_retry_count(job: Dict[str, Any], processed: Optional[Dict[str, Any]] = None) -> int:
+        max_count = 0
+        for rec in (processed, job):
+            if not isinstance(rec, dict):
+                continue
+            for field in ('retry_count', 'attempt_count'):
+                try:
+                    max_count = max(max_count, int(rec.get(field, 0) or 0))
+                except Exception:
+                    continue
+        return max_count
+
+    def _build_retry_entry(job: Dict[str, Any], processed: Dict[str, Any], err_text: str) -> Dict[str, Any]:
+        previous_count = _current_retry_count(job)
+        processed_count = _current_retry_count(processed)
+        retry_count = processed_count if processed_count > previous_count else previous_count + 1
+        entry = dict(job)
+        entry.update({
+            'status': 'retryable',
+            'last_error': err_text,
+            'last_attempt_at': datetime.utcnow().isoformat(),
+            'attempt_count': retry_count,
+            'retry_count': retry_count,
+        })
+        if processed.get('api_key_used'):
+            entry['api_key_used'] = processed.get('api_key_used')
+        return entry
+
+    # Partition retry jobs by next_retry_at. Due entries are processed before new pending jobs.
+    for r in retry_jobs:
+        nr = r.get('next_retry_at')
+        if nr:
+            try:
+                dt = datetime.fromisoformat(nr)
+                if dt <= now:
+                    active_jobs.append(r)
+                else:
+                    delayed_retry_jobs.append(r)
+                continue
+            except Exception:
+                # malformed date -> treat as immediate
+                active_jobs.append(r)
+        else:
+            active_jobs.append(r)
 
     # load new pending jobs into active_jobs (dedupe against active+delayed and existing extracted)
     seen = { _job_key(j) for j in active_jobs + delayed_retry_jobs }
@@ -1571,15 +1606,17 @@ def main() -> int:
             if status == 'success':
                 passed_jobs.append(processed)
                 save_jobs(output_path, passed_jobs)
+                _remember_retry_done(job)
                 metrics['success_count'] += 1
             elif status == 'invalid_json_response' or _is_parse_error(Exception(err_text)):
                 failed_jobs.append(processed)
                 save_jobs(fallback_path, failed_jobs)
+                _remember_retry_done(job)
                 metrics['fallback_count'] += 1
             else:
                 # API or other temporary failure -> decide retry vs fallback
-                processed.setdefault('attempt_count', 0)
-                processed['attempt_count'] = processed.get('attempt_count', 0) + 1
+                processed['attempt_count'] = _current_retry_count(job, processed) + 1
+                processed['retry_count'] = processed['attempt_count']
                 processed['last_error'] = err_text
                 processed['last_attempt_at'] = datetime.utcnow().isoformat()
                 
@@ -1588,13 +1625,7 @@ def main() -> int:
                 elif any(x in low for x in ('503', '504', 'timeout', 'connection')):
                     metrics['keys_5xx'] += 1
                     
-                entry = dict(job)
-                entry.update({
-                    'status': 'retryable',
-                    'last_error': err_text,
-                    'last_attempt_at': datetime.utcnow().isoformat()
-                })
-                delayed_retry_jobs.append(entry)
+                delayed_retry_jobs.append(_build_retry_entry(job, processed, err_text))
                 
             # Sleep between requests unless last job
             if idx < len(active_jobs) - 1:
@@ -1679,15 +1710,17 @@ def main() -> int:
                     if status == 'success':
                         passed_jobs.append(processed)
                         save_jobs(output_path, passed_jobs)
+                        _remember_retry_done(job)
                         metrics['success_count'] += 1
                     elif status == 'invalid_json_response' or _is_parse_error(Exception(err_text)):
                         failed_jobs.append(processed)
                         save_jobs(fallback_path, failed_jobs)
+                        _remember_retry_done(job)
                         metrics['fallback_count'] += 1
                     else:
                         # API or other temporary failure -> decide retry vs fallback
-                        processed.setdefault('attempt_count', 0)
-                        processed['attempt_count'] = processed.get('attempt_count', 0) + 1
+                        processed['attempt_count'] = _current_retry_count(job, processed) + 1
+                        processed['retry_count'] = processed['attempt_count']
                         processed['last_error'] = err_text
                         processed['last_attempt_at'] = datetime.utcnow().isoformat()
 
@@ -1696,13 +1729,7 @@ def main() -> int:
                         elif any(x in low for x in ('503', '504', 'timeout', 'connection')):
                             metrics['keys_5xx'] += 1
 
-                        entry = dict(job)
-                        entry.update({
-                            'status': 'retryable',
-                            'last_error': err_text,
-                            'last_attempt_at': datetime.utcnow().isoformat()
-                        })
-                        delayed_retry_jobs.append(entry)
+                        delayed_retry_jobs.append(_build_retry_entry(job, processed, err_text))
 
                 job_queue.task_done()
 
@@ -1730,11 +1757,132 @@ def main() -> int:
 
         logger.info("All parallel workers completed processing.")
 
+    inline_retry_enabled = (
+        not args.no_inline_retry
+        and os.getenv("LLM_INLINE_RETRY_ENABLED", "true").lower() in ("1", "true", "yes")
+    )
+    inline_retry_max_rounds = max(1, int(os.getenv("LLM_INLINE_RETRY_MAX_ROUNDS", str(MAX_ATTEMPTS_PER_DAY))))
+    inline_retry_wait_seconds = int(os.getenv("LLM_INLINE_RETRY_WAIT_SECONDS", str(LLM_MAX_WAIT_FOR_KEY_SECONDS)))
+
+    def _retry_due_now(job: Dict[str, Any]) -> bool:
+        nr = job.get('next_retry_at')
+        if not nr:
+            return True
+        try:
+            return datetime.fromisoformat(str(nr)) <= datetime.utcnow()
+        except Exception:
+            return True
+
+    if inline_retry_enabled and delayed_retry_jobs:
+        logger.info(
+            "Inline retry enabled: attempting to drain %d retryable job(s) while API keys remain available.",
+            len(delayed_retry_jobs),
+        )
+        remaining_retry_jobs = list(delayed_retry_jobs)
+        delayed_retry_jobs = []
+
+        for retry_round in range(1, inline_retry_max_rounds + 1):
+            eligible = [
+                job for job in remaining_retry_jobs
+                if _retry_due_now(job) and _current_retry_count(job) < MAX_ATTEMPTS_PER_DAY
+            ]
+            not_eligible = [
+                job for job in remaining_retry_jobs
+                if not (_retry_due_now(job) and _current_retry_count(job) < MAX_ATTEMPTS_PER_DAY)
+            ]
+
+            if not eligible:
+                delayed_retry_jobs.extend(not_eligible)
+                break
+
+            logger.info(
+                "Inline retry round %d/%d: %d eligible job(s), %d held for later.",
+                retry_round,
+                inline_retry_max_rounds,
+                len(eligible),
+                len(not_eligible),
+            )
+
+            next_remaining: List[Dict[str, Any]] = list(not_eligible)
+            stopped_for_keys = False
+
+            for retry_index, job in enumerate(eligible):
+                job_key = _job_key(job)
+                key_info = controller.acquire_key(wait=True, max_wait=inline_retry_wait_seconds) if controller else None
+                if not key_info:
+                    logger.info(
+                        "Inline retry stopped: no API key became available within %ss. Remaining jobs stay in retry queue.",
+                        inline_retry_wait_seconds,
+                    )
+                    next_remaining.extend(eligible[retry_index:])
+                    stopped_for_keys = True
+                    break
+
+                key_idx, env_name, api_key_val = key_info
+                logger.info(
+                    "Inline retry processing job %s with %s (attempt %d/%d)",
+                    job_key,
+                    env_name,
+                    _current_retry_count(job) + 1,
+                    MAX_ATTEMPTS_PER_DAY,
+                )
+
+                try:
+                    processed = process_job(job, api_key_val, args.config_path, api_key_name=env_name)
+                except Exception as exc:
+                    processed = dict(job)
+                    processed['status'] = 'llm_api_fail'
+                    processed['error'] = str(exc)
+
+                processed['api_key_used'] = env_name
+                status = processed.get('status')
+                err_text = (processed.get('error') or '')
+                low = err_text.lower() if isinstance(err_text, str) else ''
+
+                if controller:
+                    if status == 'success':
+                        controller.mark_success(env_name)
+                    elif '429' in low or 'quota' in low or 'resourceexhausted' in low or 'daily limit' in low:
+                        controller.mark_429(env_name)
+                    else:
+                        controller.mark_5xx_or_timeout(env_name)
+
+                if status == 'success':
+                    passed_jobs.append(processed)
+                    save_jobs(output_path, passed_jobs)
+                    _remember_retry_done(job)
+                    metrics['success_count'] += 1
+                elif status == 'invalid_json_response' or _is_parse_error(Exception(err_text)):
+                    failed_jobs.append(processed)
+                    save_jobs(fallback_path, failed_jobs)
+                    _remember_retry_done(job)
+                    metrics['fallback_count'] += 1
+                else:
+                    retry_entry = _build_retry_entry(job, processed, err_text)
+                    if '429' in low or 'quota' in low or 'resourceexhausted' in low or 'daily limit' in low:
+                        metrics['keys_429'] += 1
+                    elif any(x in low for x in ('503', '504', 'timeout', 'connection')):
+                        metrics['keys_5xx'] += 1
+                    next_remaining.append(retry_entry)
+
+            remaining_retry_jobs = next_remaining
+            if stopped_for_keys:
+                break
+
+        delayed_retry_jobs.extend(remaining_retry_jobs)
+        logger.info("Inline retry finished. Remaining retryable job(s): %d", len(delayed_retry_jobs))
+
     # Synchronize final counters for summary logging
     success_count = metrics['success_count']
     api_fail_count = metrics['keys_429'] + metrics['keys_5xx']
     parse_fail_count = metrics['fallback_count']
 
+    try:
+        if retry_queue_remove_keys:
+            remove_ok = remove_retry_queue_entries(retry_queue_remove_keys)
+            logger.info("retry_queue: removed_completed_count=%s remove_ok=%s", len(retry_queue_remove_keys), remove_ok)
+    except Exception:
+        pass
 
     # Persist delayed retry jobs and no-key-wait stashed jobs back to retry queue
     try:

@@ -157,6 +157,45 @@ def save_retry_queue(jobs):
         return False
 
 
+def remove_retry_queue_entries(fingerprints):
+    """Remove successfully processed entries from the retry queue."""
+    try:
+        remove_set = {str(fp) for fp in (fingerprints or []) if fp}
+        if not remove_set:
+            return True
+
+        path = Path(LLM_RETRY_QUEUE_PATH)
+        if not path.exists():
+            return True
+
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f) or []
+        except Exception:
+            data = []
+
+        if not isinstance(data, list):
+            data = [data]
+
+        kept = []
+        for entry in data:
+            if not isinstance(entry, dict):
+                kept.append(entry)
+                continue
+            fp = entry.get('_fingerprint') or _job_fingerprint(entry)
+            url = entry.get('job_url')
+            source_key = None
+            if entry.get('source_name') and entry.get('job_source_id'):
+                source_key = f"{entry.get('source_name')}|{entry.get('job_source_id')}"
+            if fp in remove_set or url in remove_set or source_key in remove_set:
+                continue
+            kept.append(entry)
+
+        return _atomic_write(path, kept)
+    except Exception:
+        return False
+
+
 def append_retry_history(entry: dict):
     try:
         path = Path(LLM_RETRY_QUEUE_PATH)
