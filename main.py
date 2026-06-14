@@ -11,20 +11,18 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Thư mục lưu tạm CV khi Web upload lên
 UPLOAD_DIR = Path(".tmp_cv_uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 if Path("/.dockerenv").exists() or os.getenv("IS_DOCKER"):
     PYTHON_EXEC = "python"
-elif os.name == 'nt':  # Windows Local
+elif os.name == 'nt':
     PYTHON_EXEC = str(Path(".venv/Scripts/python.exe").resolve())
-else:  # Linux / MacOS Local
+else:
     PYTHON_EXEC = str(Path(".venv/bin/python").resolve())
 
 
-def run_cli_command(command: list[str]) -> dict:
-    """Helper chạy lệnh CLI hệ thống và bắt kết quả trả về"""
+def run_cli_command(command: list[str], working_dir: str = "/app") -> dict:
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
     
@@ -35,12 +33,13 @@ def run_cli_command(command: list[str]) -> dict:
             text=True,
             encoding='utf-8',
             env=env,
-            cwd="/app"
+            cwd=working_dir
         )
         if result.returncode != 0:
             print("\n" + "="*50 + " SCRIPT CRASH LOG " + "="*50)
             print(f"Mã thoát (Exit Code): {result.returncode}")
-            print(f"STDERR FROM PYTHON:\n{result.stderr}")
+            print(f"Thư mục thực thi (CWD): {working_dir}")
+            print(f"STDERR FROM PYTHON:\n{result.stderr if result.stderr.strip() else '[Trống rỗng]'}")
             print("="*118 + "\n")
             
             return {"status": "error", "exit_code": result.returncode, "stderr": result.stderr}
@@ -50,31 +49,25 @@ def run_cli_command(command: list[str]) -> dict:
         return {"status": "error", "message": str(e)}
 
 
-# =====================================================================
-# MATCHING CV (REALTIME ENDPOINTS)
-# =====================================================================
-
 @app.post("/api/v1/matching/search-group")
 async def match_by_search_group(
     search_group: str = Form(...),
     source_id: str = Form("0"),
     file: UploadFile = File(...)
 ):
-    """Kiểu 1: Match CV dựa trên nhóm ngành tổng quan (Dữ liệu từ DB)"""
     temp_file_path = UPLOAD_DIR / file.filename
     with open(temp_file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
         
     try:
-        # python -m matching_cv.match_cv --cv <path> --search-group <group> --source-id <id>
         cmd = [
             PYTHON_EXEC, "-m", "matching_cv.match_cv",
-            "--cv", str(temp_file_path),
+            "--cv", str(temp_file_path.resolve()),
             "--search-group", search_group,
             "--source-id", source_id
         ]
         
-        res = run_cli_command(cmd)
+        res = run_cli_command(cmd, working_dir="/app")
         if res["status"] == "error":
             raise HTTPException(status_code=500, detail=res)
         return {"message": "Match thành công", "output": res["stdout"]}
@@ -90,20 +83,18 @@ async def match_by_job_url(
     source_id: str = Form("0"),
     file: UploadFile = File(...)
 ):
-    """Kiểu 2: Match CV trực tiếp với link URL tuyển dụng cụ thể"""
     temp_file_path = UPLOAD_DIR / file.filename
     with open(temp_file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
         
     try:
-        # python -m matching_cv.match_cv_with_url --cv <path> --url <url> --source-id <source_id>
         cmd = [
             PYTHON_EXEC, "-m", "matching_cv.match_cv_with_url",
-            "--cv", str(temp_file_path),
+            "--cv", str(temp_file_path.resolve()),
             "--url", url,
             "--source-id", source_id
         ]
-        res = run_cli_command(cmd)
+        res = run_cli_command(cmd, working_dir="/app")
         if res["status"] == "error":
             raise HTTPException(status_code=500, detail=res)
         return {"message": "Match URL thành công", "output": res["stdout"]}
@@ -112,32 +103,17 @@ async def match_by_job_url(
             temp_file_path.unlink()
 
 
-# =====================================================================
-# ETL PIPELINE (BACKGROUND TASKS)
-# =====================================================================
-
 def background_etl_worker(step: str):
-    """Worker chạy ngầm cho tác vụ ETL vì luồng này tốn rất nhiều thời gian"""
-    # Di chuyển vào folder Db để chạy
-    current_dir = os.getcwd()
-    try:
-        os.chdir("Db")
-        if step == "all":
-            cmd = [PYTHON_EXEC, "run_etl_pipeline.py"]
-        else:
-            cmd = [PYTHON_EXEC, "run_etl_pipeline.py", "--step", step]
-        
-        # Ghi log ra file hệ thống
-        run_cli_command(cmd)
-    finally:
-        os.chdir(current_dir)
+    if step == "all":
+        cmd = [PYTHON_EXEC, "run_etl_pipeline.py"]
+    else:
+        cmd = [PYTHON_EXEC, "run_etl_pipeline.py", "--step", step]
+    
+    run_cli_command(cmd, working_dir="/app/Db")
 
 
 @app.post("/api/v1/pipeline/trigger")
 def trigger_pipeline(background_tasks: BackgroundTasks, step: str = "all"):
-    """
-    Trigger chạy ETL Pipeline (Crawl / Clean / Import).
-    """
     valid_steps = ["all", "crawl", "clean", "import"]
     if step not in valid_steps:
         raise HTTPException(status_code=400, detail=f"Step không hợp lệ. Phải thuộc {valid_steps}")
@@ -146,15 +122,10 @@ def trigger_pipeline(background_tasks: BackgroundTasks, step: str = "all"):
     return {"status": "accepted", "message": f"Pipeline step '{step}' đang chạy ngầm hệ thống."}
 
 
-# =====================================================================
-# WEIGHT UPDATE
-# =====================================================================
-
 @app.post("/api/v1/weights/update-tfidf")
 def update_tfidf():
-    """Cập nhật nhanh trọng số TF-IDF trực tiếp từ database"""
     cmd = [PYTHON_EXEC, "SkillWeighting/tf_idf.py"]
-    res = run_cli_command(cmd)
+    res = run_cli_command(cmd, working_dir="/app")
     if res["status"] == "error":
         raise HTTPException(status_code=500, detail=res)
     return {"status": "success", "output": res["stdout"]}
