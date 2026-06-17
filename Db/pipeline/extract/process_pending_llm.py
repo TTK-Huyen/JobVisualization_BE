@@ -1447,7 +1447,7 @@ def main() -> int:
         active_jobs.append(j)
 
     # Sequential processing (single-threaded): iterate active_jobs one-by-one
-    sleep_seconds = int(os.getenv('LLM_SLEEP_BETWEEN_REQUESTS', '15'))
+    sleep_seconds = int(os.getenv('LLM_SLEEP_BETWEEN_REQUESTS', '30'))
     request_timeout = int(os.getenv('LLM_REQUEST_TIMEOUT_SECONDS', '60'))
 
     # API key state file and utilities (do not store secret values)
@@ -1557,7 +1557,7 @@ def main() -> int:
     
     if extraction_mode == "sequential":
         logger.info("Starting sequential extraction (single-threaded)")
-        sleep_seconds = int(os.getenv('LLM_SLEEP_BETWEEN_REQUESTS', '15'))
+        sleep_seconds = int(os.getenv('LLM_SLEEP_BETWEEN_REQUESTS', '30'))
         
         for idx, job in enumerate(active_jobs):
             job_key = _job_key(job)
@@ -1633,8 +1633,8 @@ def main() -> int:
                 time.sleep(sleep_seconds)
                 
     else:
-        # Set number of workers from environment variable or default to 8
-        num_workers = int(os.getenv("LLM_NUM_WORKERS", "8"))
+        # Set number of workers from environment variable or default to 2
+        num_workers = int(os.getenv("LLM_NUM_WORKERS", "2"))
         logger.info("Starting parallel extraction with %d workers", num_workers)
 
         import queue
@@ -1733,9 +1733,9 @@ def main() -> int:
 
                 job_queue.task_done()
 
-                # Wait 15s before next job if queue has remaining items
+                # Wait 30s before next job if queue has remaining items
                 if not job_queue.empty():
-                    sleep_seconds = int(os.getenv('LLM_SLEEP_BETWEEN_REQUESTS', '15'))
+                    sleep_seconds = int(os.getenv('LLM_SLEEP_BETWEEN_REQUESTS', '30'))
                     logger.info("[%s] Worker %d sleeping %d seconds before next job", thread_name, worker_id, sleep_seconds)
                     time.sleep(sleep_seconds)
 
