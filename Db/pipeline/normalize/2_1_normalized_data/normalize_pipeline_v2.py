@@ -78,51 +78,44 @@ CURATED_ALIASES_EXTENDED = {
     'System design': 'Systems Design',
     'OOP': 'Object-Oriented Programming (OOP)',
     'Indexing': 'Database Indexes',
-    'JavaScript': 'JavaScript',
+    'JavaScript': 'JavaScript (Programming Language)',
     'TypeScript': 'TypeScript',
     'Python 3': 'Python (Programming Language)',
     'Python3': 'Python (Programming Language)',
     'Py': 'Python (Programming Language)',
-    'C#': 'C# (C Sharp)',
-    'C Sharp': 'C# (C Sharp)',
-    'C++': 'C++',
-    'CPP': 'C++',
-    'VB.NET': 'Visual Basic (VB .NET)',
+    'C#': 'C# (Programming Language)',
+    'C Sharp': 'C# (Programming Language)',
+    'C++': 'C++ (Programming Language)',
+    'CPP': 'C++ (Programming Language)',
+    'VB.NET': 'Visual Basic .NET (Programming Language)',
     'MySQL DB': 'MySQL',
     'Postgres': 'PostgreSQL',
     'Postgre SQL': 'PostgreSQL',
     'Mongo': 'MongoDB',
     'Redis Cache': 'Redis',
     'Elasticsearch Engine': 'Elasticsearch',
-    'AWS': 'Amazon Web Services (AWS)',
+    'AWS': 'Amazon Web Services',
     'Azure': 'Microsoft Azure',
-    'GCP': 'Google Cloud Platform',
+    'GCP': 'Google Cloud Platform (GCP)',
     'Cloud Services': 'Cloud Computing',
     'REST': 'RESTful API',
     'GraphQL API': 'GraphQL',
-    'SOAP': 'SOAP (Web Service)',
+    'SOAP': 'Simple Object Access Protocol (SOAP)',
     'Web Services': 'Web Services',
     'Spring': 'Spring Boot',
-    'Express.js': 'Express (Web Framework)',
-    'Express': 'Express (Web Framework)',
+    'Express.js': 'Express.js (Javascript Library)',
+    'Express': 'Express.js (Javascript Library)',
     
     # Extended 16 aliases for problematic terms
-    'Oracle Database': 'Oracle (Database)',
-    'Oracle DB': 'Oracle (Database)',
+    'Oracle Database': 'Oracle Databases',
+    'Oracle DB': 'Oracle Databases',
     'Cloud Computing': 'Cloud Infrastructure',
     'Cloud Services': 'Cloud Infrastructure',
-    'Banking Systems': 'Financial Services',
-    'Financial Systems': 'Financial Services',
-    'Source Code': 'Version Control System',
-    'SCM': 'Version Control System',
+    'Source Code': 'Version Control',
+    'SCM': 'Version Control',
     'Web Server': 'Web Services',
-    'Web Services': 'Web Services',
     'Memory Management': 'Memory Management',
     'Memory Layout': 'Memory Management',
-    'Data Warehouse': 'Data Warehousing',
-    'Data Analytics': 'Data Analysis',
-    'Analytics Platform': 'Data Analysis',
-    'Business Analysis': 'Business Analyst',
     
     # Acronym & Domain Guardrail Mappings (No certifications)
     'WAF': 'Firewall',
@@ -130,9 +123,8 @@ CURATED_ALIASES_EXTENDED = {
     'MS Teams': 'Virtual Teams',
     'PowerBI': 'Microsoft Power Platform',
     'Power BI': 'Microsoft Power Platform',
-    'Computer Vision': 'Computer Vision',
     'Snowflake Schema': 'Database Design',
-    'Source Code Management': 'Version Control System',
+    'Source Code Management': 'Version Control',
     'CI/CD Pipelines': 'CI/CD',
     'Independent Work': 'Independent Thinking',
     'CSS': 'Cascading Style Sheets (CSS)',
@@ -141,13 +133,8 @@ CURATED_ALIASES_EXTENDED = {
     'SIEM': 'Security Information And Event Management (SIEM)',
     'System Integration': 'Systems Design',
     'System Integration Services': 'Systems Design',
-    'Stakeholder Management': 'Project Management',
-    'Banking': 'Financial Services',
-    'Banking Industry Knowledge': 'Financial Services',
-    'Banking Operations': 'Financial Services Operations',
     'Big Data': 'AWS Big Data',
     'System Thinking': 'Systems Design',
-    'Project Management Tools': 'Project Management',
 }
 
 # ==========================================
@@ -242,6 +229,54 @@ def load_dictionary_from_db(db_url: str, table: str) -> List[Tuple[int, str]]:
         except Exception:
             continue
     return []
+
+
+def load_skills_metadata_from_db(db_url: str, table: str) -> List[Tuple[int, str, str, str]]:
+    if not db_url:
+        return []
+    if '?' in db_url:
+        db_url = db_url.split('?')[0]
+        
+    engine = create_engine(db_url)
+    try:
+        with engine.connect() as conn:
+            # Check what columns exist in the table
+            q_cols = text(f"SELECT column_name FROM information_schema.columns WHERE table_name = '{table}'")
+            cols = [r[0] for r in conn.execute(q_cols).fetchall()]
+            
+            id_col = "skill_id" if "skill_id" in cols else ("id" if "id" in cols else None)
+            name_col = "skill_name" if "skill_name" in cols else ("name" if "name" in cols else None)
+            cat_col = "category" if "category" in cols else None
+            type_col = "type" if "type" in cols else None
+            
+            if not id_col or not name_col:
+                return []
+                
+            cols_str = f"{id_col} as id, {name_col} as name"
+            if cat_col:
+                cols_str += f", {cat_col} as category"
+            else:
+                cols_str += ", NULL as category"
+            if type_col:
+                cols_str += f", {type_col} as type"
+            else:
+                cols_str += ", NULL as type"
+                
+            q = text(f"SELECT {cols_str} FROM {table}")
+            res = conn.execute(q)
+            rows = res.fetchall()
+            out = []
+            for row in rows:
+                sid = int(row[0])
+                name = str(row[1])
+                cat = str(row[2]) if row[2] else "General"
+                stype = str(row[3]) if row[3] else "Hard Skill"
+                out.append((sid, name, cat, stype))
+            return out
+    except Exception as e:
+        print(f"Warning: Failed to load skills with metadata from DB: {e}")
+        return []
+
 
 
 def compute_embeddings(model: SentenceTransformer, texts: List[str], batch_size: int = 64) -> np.ndarray:
@@ -393,47 +428,48 @@ def init_global_resources(
         if GLOBAL_BASE_FAISS_INDEX is not None and GLOBAL_MAIN_FAISS_INDEX is not None:
             return
 
-        # 1. Load Lightcast CSV to recover subcategory & type metadata
         script_dir = Path(__file__).resolve().parent
-        possible_paths = [
-            script_dir / "Lightcast" / "lightcast.csv",
-            script_dir / "lightcast" / "lightcast.csv",
-            Path("Lightcast/lightcast.csv"),
-            Path("lightcast/lightcast.csv"),
-            Path("./Lightcast/lightcast.csv"),
-            Path("./lightcast/lightcast.csv"),
-        ]
-        lightcast_csv = None
-        for p in possible_paths:
-            if p.exists():
-                lightcast_csv = p.resolve()
-                break
+        # 1. Load Lightcast CSV to recover subcategory & type metadata (if not already populated from DB)
+        if not GLOBAL_LIGHTCAST_METADATA:
+            possible_paths = [
+                script_dir / "Lightcast" / "lightcast.csv",
+                script_dir / "lightcast" / "lightcast.csv",
+                Path("Lightcast/lightcast.csv"),
+                Path("lightcast/lightcast.csv"),
+                Path("./Lightcast/lightcast.csv"),
+                Path("./lightcast/lightcast.csv"),
+            ]
+            lightcast_csv = None
+            for p in possible_paths:
+                if p.exists():
+                    lightcast_csv = p.resolve()
+                    break
 
-        lightcast_metadata = {}
-        if lightcast_csv:
-            try:
-                with open(lightcast_csv, mode="r", encoding="utf-8") as f:
-                    reader = csv.reader(f)
-                    for row in reader:
-                        if not row or len(row) < 5:
-                            continue
-                        name = row[1].strip()
-                        subcat = row[2].strip()
-                        skill_type = row[4].strip()
-                        lightcast_metadata[name] = {
-                            "subcategory": subcat,
-                            "type": skill_type
-                        }
-            except Exception as e:
-                print(f"Warning: Failed to load Lightcast CSV metadata: {e}")
+            lightcast_metadata = {}
+            if lightcast_csv:
+                try:
+                    with open(lightcast_csv, mode="r", encoding="utf-8") as f:
+                        reader = csv.reader(f)
+                        for row in reader:
+                            if not row or len(row) < 5:
+                                continue
+                            name = row[1].strip()
+                            subcat = row[2].strip()
+                            skill_type = row[4].strip()
+                            lightcast_metadata[name] = {
+                                "subcategory": subcat,
+                                "type": skill_type
+                            }
+                except Exception as e:
+                    print(f"Warning: Failed to load Lightcast CSV metadata: {e}")
 
-        for sid, name in skill_map:
-            if name not in lightcast_metadata:
-                lightcast_metadata[name] = {
-                    "subcategory": "General",
-                    "type": "Hard Skill"
-                }
-        GLOBAL_LIGHTCAST_METADATA = lightcast_metadata
+            for sid, name in skill_map:
+                if name not in lightcast_metadata:
+                    lightcast_metadata[name] = {
+                        "subcategory": "General",
+                        "type": "Hard Skill"
+                    }
+            GLOBAL_LIGHTCAST_METADATA = lightcast_metadata
 
         # 2. Build Exact match dictionary
         exact_match_dict = {}
@@ -1118,41 +1154,22 @@ def main() -> int:
     print(f"Total skills/keywords loaded from DB: {len(skills)}")
     print(f"Total benefits loaded from DB: {len(benefits)}")
 
-    # Locate local Lightcast CSV
-    script_dir = Path(__file__).resolve().parent
-    possible_paths = [
-        script_dir / "Lightcast" / "lightcast.csv",
-        script_dir / "lightcast" / "lightcast.csv",
-        Path("Lightcast/lightcast.csv"),
-        Path("lightcast/lightcast.csv"),
-        Path("./Lightcast/lightcast.csv"),
-        Path("./lightcast/lightcast.csv"),
-    ]
-    lightcast_csv = None
-    for p in possible_paths:
-        if p.exists():
-            lightcast_csv = p.resolve()
-            break
-
-    if not lightcast_csv:
-        print("Error: Lightcast taxonomy CSV not found locally.", file=sys.stderr)
-        return 3
-
-    # Load and filter Lightcast CSV
-    print(f"Loading and filtering local Lightcast CSV from: {lightcast_csv}")
-    lightcast_skills = []
-    allowed_types = {'Hard Skill', 'Specialized Skill', 'Common skill', 'Common Skill'}
+    # 1. Load skills with metadata from DB instead of depending on lightcast.csv
+    skills_with_meta = load_skills_metadata_from_db(args.db_url, args.skill_table)
+    print(f"Total skills with metadata loaded from DB: {len(skills_with_meta)}")
     
-    with open(lightcast_csv, mode="r", encoding="utf-8") as f:
-        reader = csv.reader(f)
-        for row in reader:
-            if not row or len(row) < 5:
-                continue
-            name = row[1].strip()
-            skill_type = row[4].strip()
-            if skill_type in allowed_types and name:
-                lightcast_skills.append(name)
-
+    allowed_types = {'Hard Skill', 'Specialized Skill', 'Common skill', 'Common Skill'}
+    lightcast_skills = []
+    lightcast_metadata = {}
+    
+    for sid, name, cat, stype in skills_with_meta:
+        lightcast_metadata[name] = {
+            "subcategory": cat,
+            "type": stype
+        }
+        if stype in allowed_types and name:
+            lightcast_skills.append(name)
+            
     # Deduplicate while preserving order
     seen = set()
     lightcast_skills_dedup = []
@@ -1161,7 +1178,11 @@ def main() -> int:
             seen.add(s)
             lightcast_skills_dedup.append(s)
     lightcast_skills = lightcast_skills_dedup
-    print(f"Total allowed skills loaded from Lightcast CSV: {len(lightcast_skills)}")
+    print(f"Total allowed skills loaded: {len(lightcast_skills)}")
+
+    # Set the global metadata variable
+    global GLOBAL_LIGHTCAST_METADATA
+    GLOBAL_LIGHTCAST_METADATA = lightcast_metadata
 
     # Map allowed Lightcast skills to database IDs
     lightcast_skill_map = []
@@ -1175,6 +1196,7 @@ def main() -> int:
     print(f"Model: {args.model_name}")
     model = SentenceTransformer(args.model_name)
 
+    script_dir = Path(__file__).resolve().parent
     # Configure Pickle cache paths
     cache_dir = script_dir / "cache"
     cache_dir.mkdir(parents=True, exist_ok=True)
