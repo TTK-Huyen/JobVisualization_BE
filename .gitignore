@@ -210,6 +210,9 @@ data-files/test_single_job.json
 
 # JSON files (data, outputs, etc.)
 *.json
+!/Db/input/*.json
+!/matching_cv/prompts/*.json
+!/matching_cv/ONET_DB/*.json
 
 # Db module - Crawl results & debug
 /Db/data/crawl_*/

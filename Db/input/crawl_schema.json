@@ -1,0 +1,28 @@
+{
+  "required": [
+    "source_name",
+    "job_url",
+    "job_source_id",
+    "title",
+    "description_html",
+    "search_keyword"
+  ],
+  "optional": [
+    "location_raw",
+    "salary_raw",
+    "employment_type",
+    "experience_raw",
+    "posted_date",
+    "expiry_date",
+    "scraped_at",
+    "tags",
+    "benefits",
+    "company_name",
+    "company_source_id",
+    "company_website",
+    "company_address",
+    "company_size_raw",
+    "company_industry",
+    "requirements_text"
+  ]
+}

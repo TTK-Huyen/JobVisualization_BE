@@ -1,0 +1,452 @@
+[
+    {
+        "category": "Web Application Development",
+        "job_title_vi": "Lập Trình Viên Backend",
+        "job_title_en": "Backend Developer"
+    },
+    {
+        "category": "Web Application Development",
+        "job_title_vi": "Lập Trình Viên Frontend",
+        "job_title_en": "Frontend Developer"
+    },
+    {
+        "category": "Web Application Development",
+        "job_title_vi": "Lập Trình Viên Fullstack",
+        "job_title_en": "Fullstack Developer"
+    },
+    {
+        "category": "Mobile Application Development",
+        "job_title_vi": "Lập Trình Viên Ứng Dụng Di Động",
+        "job_title_en": "Mobile Application Developer"
+    },
+    {
+        "category": "Core / Enterprise Systems Development",
+        "job_title_vi": "Lập Trình Viên Hệ Thống Ngân Hàng & Tài Chính",
+        "job_title_en": "Banking & Financial Systems Developer"
+    },
+    {
+        "category": "Core / Enterprise Systems Development",
+        "job_title_vi": "Lập Trình Viên Ứng Dụng Desktop",
+        "job_title_en": "Desktop Application Developer"
+    },
+    {
+        "category": "Core / Enterprise Systems Development",
+        "job_title_vi": "Lập Trình Viên ERP",
+        "job_title_en": "ERP Developer"
+    },
+    {
+        "category": "Core / Enterprise Systems Development",
+        "job_title_vi": "Lập Trình Viên Ứng Dụng Doanh Nghiệp (CRM)",
+        "job_title_en": "Enterprise Application Developer (CRM)"
+    },
+    {
+        "category": "Core / Enterprise Systems Development",
+        "job_title_vi": "Lập Trình Viên Hệ Thống Integration & Legacy",
+        "job_title_en": "Integration & Legacy Systems Developer"
+    },
+    {
+        "category": "Core / Enterprise Systems Development",
+        "job_title_vi": "Kỹ Sư RPA (Tự Động Hóa Quy Trình Robot)",
+        "job_title_en": "RPA Engineer"
+    },
+    {
+        "category": "Low-Code / No-Code Development",
+        "job_title_vi": "Lập Trình Viên Low-Code/No-Code",
+        "job_title_en": "Low-Code/No-Code Developer"
+    },
+    {
+        "category": "Technical Architecture",
+        "job_title_vi": "Kiến Trúc Sư Doanh Nghiệp",
+        "job_title_en": "Enterprise Architect"
+    },
+    {
+        "category": "Technical Architecture",
+        "job_title_vi": "Kiến Trúc Sư Phần Mềm/Kỹ Thuật",
+        "job_title_en": "Software/Technical Architect"
+    },
+    {
+        "category": "Technical Architecture",
+        "job_title_vi": "Kiến Trúc Sư Giải Pháp",
+        "job_title_en": "Solution Architect"
+    },
+    {
+        "category": "Blockchain Development",
+        "job_title_vi": "Kiến Trúc Sư Blockchain",
+        "job_title_en": "Blockchain Architect"
+    },
+    {
+        "category": "Blockchain Development",
+        "job_title_vi": "Lập Trình Viên Blockchain",
+        "job_title_en": "Blockchain Developer"
+    },
+    {
+        "category": "Blockchain Development",
+        "job_title_vi": "Lập Trình Viên Smart Contract",
+        "job_title_en": "Smart Contract Developer"
+    },
+    {
+        "category": "Game Development",
+        "job_title_vi": "Thiết Kế Game",
+        "job_title_en": "Game Designer"
+    },
+    {
+        "category": "Game Development",
+        "job_title_vi": "Lập Trình Viên Game",
+        "job_title_en": "Game Developer"
+    },
+    {
+        "category": "Game Development",
+        "job_title_vi": "Sản Xuất / Giám Đốc Game",
+        "job_title_en": "Game Producer / Director"
+    },
+    {
+        "category": "Game Development",
+        "job_title_vi": "Kiểm Thử Game",
+        "job_title_en": "Game Tester"
+    },
+    {
+        "category": "Game Development",
+        "job_title_vi": "Lập Trình Viên Game VR/AR",
+        "job_title_en": "VR/AR Game Developer"
+    },
+    {
+        "category": "Software Testing & Quality Assurance",
+        "job_title_vi": "Kiểm Thử Tự Động",
+        "job_title_en": "Automation Tester"
+    },
+    {
+        "category": "Software Testing & Quality Assurance",
+        "job_title_vi": "Kiểm Thử Thủ Công",
+        "job_title_en": "Manual Tester"
+    },
+    {
+        "category": "Software Testing & Quality Assurance",
+        "job_title_vi": "Kiểm Thử Hiệu Suất / Hiệu Năng",
+        "job_title_en": "Performance / Load Tester"
+    },
+    {
+        "category": "Software Testing & Quality Assurance",
+        "job_title_vi": "Chuyên Viên PQA",
+        "job_title_en": "Process Quality Assurance (PQA)"
+    },
+    {
+        "category": "Software Testing & Quality Assurance",
+        "job_title_vi": "Kỹ Sư Phần Mềm Kiểm Thử (SDET)",
+        "job_title_en": "Software Engineer In Test (SDET)"
+    },
+    {
+        "category": "Software Testing & Quality Assurance",
+        "job_title_vi": "Điều Phối Viên Kiểm Thử",
+        "job_title_en": "Test Coordinator / QAQC Coordinator"
+    },
+    {
+        "category": "Data Analytics & Business Intelligence",
+        "job_title_vi": "Kỹ Sư Analytics",
+        "job_title_en": "Analytics Engineer"
+    },
+    {
+        "category": "Data Analytics & Business Intelligence",
+        "job_title_vi": "Phân Tích BI / Lập Trình Viên BI",
+        "job_title_en": "BI Analyst / BI Developer"
+    },
+    {
+        "category": "Data Analytics & Business Intelligence",
+        "job_title_vi": "Phân Tích Dữ Liệu",
+        "job_title_en": "Data Analyst"
+    },
+    {
+        "category": "Data Analytics & Business Intelligence",
+        "job_title_vi": "Chuyên Viên Trực Quan Hóa Dữ Liệu",
+        "job_title_en": "Data Visualization Specialist"
+    },
+    {
+        "category": "Data Engineering",
+        "job_title_vi": "Kỹ Sư Dữ Liệu Lớn",
+        "job_title_en": "Big Data Engineer"
+    },
+    {
+        "category": "Data Engineering",
+        "job_title_vi": "Kỹ Sư Dữ Liệu",
+        "job_title_en": "Data Engineer"
+    },
+    {
+        "category": "Data Engineering",
+        "job_title_vi": "Kỹ Sư DataOps / MLOps",
+        "job_title_en": "DataOps / MLOps Engineer"
+    },
+    {
+        "category": "Data Engineering",
+        "job_title_vi": "Kỹ Sư Cơ Sở Dữ Liệu",
+        "job_title_en": "Database Engineer"
+    },
+    {
+        "category": "Data Science & AI / Machine Learning",
+        "job_title_vi": "Kỹ Sư AI / Machine Learning",
+        "job_title_en": "AI / Machine Learning Engineer"
+    },
+    {
+        "category": "Data Science & AI / Machine Learning",
+        "job_title_vi": "Nghiên Cứu Viên AI",
+        "job_title_en": "AI Researcher"
+    },
+    {
+        "category": "Data Science & AI / Machine Learning",
+        "job_title_vi": "Kỹ Sư Thị Giác Máy Tính",
+        "job_title_en": "Computer Vision Engineer"
+    },
+    {
+        "category": "Data Science & AI / Machine Learning",
+        "job_title_vi": "Data Scientist",
+        "job_title_en": "Data Scientist"
+    },
+    {
+        "category": "Data Management & Governance",
+        "job_title_vi": "Kiến Trúc Sư AI",
+        "job_title_en": "AI Architect"
+    },
+    {
+        "category": "Data Management & Governance",
+        "job_title_vi": "Kiến Trúc Sư Dữ Liệu",
+        "job_title_en": "Data Architect"
+    },
+    {
+        "category": "Data Management & Governance",
+        "job_title_vi": "Chuyên Gia Quản Trị Dữ Liệu",
+        "job_title_en": "Data Governance Specialist"
+    },
+    {
+        "category": "Data Management & Governance",
+        "job_title_vi": "Người Quản Lý Dữ Liệu / Nhà Phân Tích Chất Lượng Dữ Liệu",
+        "job_title_en": "Data Steward / Data Quality Analyst"
+    },
+    {
+        "category": "Data Management & Governance",
+        "job_title_vi": "Quản Trị Viên Cơ Sở Dữ Liệu",
+        "job_title_en": "Database Administrator"
+    },
+    {
+        "category": "Cloud Computing",
+        "job_title_vi": "Kỹ Sư Đám Mây",
+        "job_title_en": "Cloud Engineer"
+    },
+    {
+        "category": "Systems & Network Engineering / Administration",
+        "job_title_vi": "Kỹ Sư Mạng",
+        "job_title_en": "Network Engineer"
+    },
+    {
+        "category": "Systems & Network Engineering / Administration",
+        "job_title_vi": "Kỹ Sư SysOps",
+        "job_title_en": "SysOps Engineer"
+    },
+    {
+        "category": "Systems & Network Engineering / Administration",
+        "job_title_vi": "Kỹ Sư Hệ Thống / Quản Trị Viên",
+        "job_title_en": "Systems Engineer / Administrator"
+    },
+    {
+        "category": "IT Support & Helpdesk",
+        "job_title_vi": "Hỗ Trợ Field",
+        "job_title_en": "Field Support"
+    },
+    {
+        "category": "IT Support & Helpdesk",
+        "job_title_vi": "Quản Trị Viên CNTT",
+        "job_title_en": "IT Administrator"
+    },
+    {
+        "category": "IT Support & Helpdesk",
+        "job_title_vi": "Tổng Đài Hỗ Trợ CNTT",
+        "job_title_en": "IT Helpdesk"
+    },
+    {
+        "category": "IT Support & Helpdesk",
+        "job_title_vi": "Hỗ Trợ CNTT",
+        "job_title_en": "IT Support"
+    },
+    {
+        "category": "IT Support & Helpdesk",
+        "job_title_vi": "Hỗ Trợ Khách Hàng Kỹ Thuật",
+        "job_title_en": "Technical Customer Support"
+    },
+    {
+        "category": "Cybersecurity",
+        "job_title_vi": "Kỹ Sư An Ninh Ứng Dụng",
+        "job_title_en": "Application Security Engineer"
+    },
+    {
+        "category": "Cybersecurity",
+        "job_title_vi": "Kỹ Sư DevSecOps",
+        "job_title_en": "DevSecOps Engineer"
+    },
+    {
+        "category": "Cybersecurity",
+        "job_title_vi": "Tư Vấn Viên An Ninh",
+        "job_title_en": "Security Consultant"
+    },
+    {
+        "category": "Cybersecurity",
+        "job_title_vi": "Kỹ Sư An Ninh",
+        "job_title_en": "Security Engineer"
+    },
+    {
+        "category": "Cybersecurity",
+        "job_title_vi": "Kiểm Thử An Ninh / Kiểm Thử Xâm Nhập",
+        "job_title_en": "Security Tester / Penetration Tester"
+    },
+    {
+        "category": "IT Compliance & Risk Management",
+        "job_title_vi": "Compliance Officer / Analyst",
+        "job_title_en": "Compliance Officer / Analyst"
+    },
+    {
+        "category": "IT Compliance & Risk Management",
+        "job_title_vi": "Chuyên Gia GRC",
+        "job_title_en": "GRC Specialist"
+    },
+    {
+        "category": "IT Compliance & Risk Management",
+        "job_title_vi": "Kiểm Toán Viên CNTT / Quản Lý Rủi Ro CNTT",
+        "job_title_en": "IT Auditor / IT Risk Manager"
+    },
+    {
+        "category": "Embedded Systems",
+        "job_title_vi": "Kỹ Sư Embedded",
+        "job_title_en": "Embedded Engineer"
+    },
+    {
+        "category": "Embedded Systems",
+        "job_title_vi": "Kỹ Sư Firmware",
+        "job_title_en": "Firmware Engineer"
+    },
+    {
+        "category": "Embedded Systems",
+        "job_title_vi": "Kỹ Sư Tích Hợp Phần Cứng-Phần Mềm",
+        "job_title_en": "Hardware-Software Integration Engineer"
+    },
+    {
+        "category": "Embedded Systems",
+        "job_title_vi": "Kỹ Sư Real-Time Systems",
+        "job_title_en": "Real-Time Systems Engineer"
+    },
+    {
+        "category": "IoT & Robotics",
+        "job_title_vi": "Kỹ Sư Edge Computing",
+        "job_title_en": "Edge Computing Engineer"
+    },
+    {
+        "category": "IoT & Robotics",
+        "job_title_vi": "Lập Trình Viên Ứng Dụng IoT",
+        "job_title_en": "IoT Application Developer"
+    },
+    {
+        "category": "IoT & Robotics",
+        "job_title_vi": "Kỹ Sư Phần Mềm Robot",
+        "job_title_en": "Robotics Software Engineer"
+    },
+    {
+        "category": "Product Management",
+        "job_title_vi": "Chuyên Viên Phân Tích Sản Phẩm",
+        "job_title_en": "Product Analyst"
+    },
+    {
+        "category": "Product Management",
+        "job_title_vi": "Quản Lý Sản Phẩm",
+        "job_title_en": "Product Manager"
+    },
+    {
+        "category": "Product Management",
+        "job_title_vi": "Chủ Sở Hữu Sản Phẩm",
+        "job_title_en": "Product Owner"
+    },
+    {
+        "category": "Project Management / Technical Communication",
+        "job_title_vi": "Kỹ Sư Cầu Nối (BrSE)",
+        "job_title_en": "Bridge System Engineer (BrSE)"
+    },
+    {
+        "category": "Project Management / Technical Communication",
+        "job_title_vi": "Chuyên Viên Phân Tích Nghiệp Vụ",
+        "job_title_en": "Business Analyst"
+    },
+    {
+        "category": "Project Management / Technical Communication",
+        "job_title_vi": "Chuyên Viên Giao Tiếp Kỹ Thuật",
+        "job_title_en": "IT Communicator"
+    },
+    {
+        "category": "Project Management / Technical Communication",
+        "job_title_vi": "Quản Lý Chương Trình / PMO",
+        "job_title_en": "Program Manager / PMO"
+    },
+    {
+        "category": "Project Management / Technical Communication",
+        "job_title_vi": "Quản Lý Dự Án",
+        "job_title_en": "Project Manager"
+    },
+    {
+        "category": "Project Management / Technical Communication",
+        "job_title_vi": "Scrum Master / Agile Coach",
+        "job_title_en": "Scrum Master / Agile Coach"
+    },
+    {
+        "category": "Project Management / Technical Communication",
+        "job_title_vi": "Technical Writer",
+        "job_title_en": "Technical Writer"
+    },
+    {
+        "category": "Design & User Experience",
+        "job_title_vi": "Thiết Kế Motion",
+        "job_title_en": "Motion Designer"
+    },
+    {
+        "category": "Design & User Experience",
+        "job_title_vi": "Thiết Kế Sản Phẩm",
+        "job_title_en": "Product Designer"
+    },
+    {
+        "category": "Design & User Experience",
+        "job_title_vi": "Nghiên Cứu Viên UX",
+        "job_title_en": "UX Researcher"
+    },
+    {
+        "category": "Design & User Experience",
+        "job_title_vi": "Thiết Kế Giao Diện / Trải Nghiệm Người Dùng",
+        "job_title_en": "UX/UI Designer"
+    },
+    {
+        "category": "Design & User Experience",
+        "job_title_vi": "Thiết Kế Hình Ảnh / Đồ Họa",
+        "job_title_en": "Visual / Graphic Designer"
+    },
+    {
+        "category": "IT Consulting & Sales",
+        "job_title_vi": "Tư Vấn Viên ERP",
+        "job_title_en": "ERP Consultant"
+    },
+    {
+        "category": "IT Consulting & Sales",
+        "job_title_vi": "Tư Vấn Viên Ứng Dụng Doanh Nghiệp (CRM / HCM / SCM Và Các Giải Pháp Khác)",
+        "job_title_en": "Enterprise Application Consultant (CRM / HCM / SCM And Other Enterprise Solutions)"
+    },
+    {
+        "category": "IT Consulting & Sales",
+        "job_title_vi": "Tư Vấn Viên CNTT",
+        "job_title_en": "IT Consultant"
+    },
+    {
+        "category": "IT Consulting & Sales",
+        "job_title_vi": "Kỹ Sư Bán Hàng Kỹ Thuật",
+        "job_title_en": "Pre-Sales Engineer"
+    },
+    {
+        "category": "IT Consulting & Sales",
+        "job_title_vi": "Quản Lý Khách Hàng Kỹ Thuật",
+        "job_title_en": "Technical Account Manager"
+    },
+    {
+        "category": "IT Consulting & Sales",
+        "job_title_vi": "Tư Vấn Viên Kỹ Thuật",
+        "job_title_en": "Technical Consultant"
+    }
+]
