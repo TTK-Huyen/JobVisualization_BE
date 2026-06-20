@@ -1295,7 +1295,8 @@ def main() -> int:
 
     if APIKeyController:
         key_state_path = BASE_DIR / "2_clean_data" / "cache" / "api_key_state.json"
-        controller = APIKeyController(provider='gemini', state_file=key_state_path, max_requests_per_day=20)
+        rpd = int(os.getenv("GEMINI_RPD", "1000"))
+        controller = APIKeyController(provider='gemini', state_file=key_state_path, max_requests_per_day=rpd)
         if not controller.has_active_keys():
             raise RuntimeError("No GEMINI_API_KEY_X keys found in environment or all keys exhausted for today.")
     else:
