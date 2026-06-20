@@ -85,8 +85,12 @@ import json
 TOTAL_KEYWORDS = get_total_keywords()
 BATCH_SIZE = 4
 TOTAL_RUNS = (TOTAL_KEYWORDS + BATCH_SIZE - 1) // BATCH_SIZE
-PAUSE_MINUTES = int(os.getenv("PAUSE_MINUTES", "5"))  # Rest time in minutes between batches
-PAUSE_SECONDS = PAUSE_MINUTES * 60
+PAUSE_SECONDS = int(os.getenv("PAUSE_SECONDS", "0"))
+if PAUSE_SECONDS <= 0:
+    PAUSE_MINUTES = int(os.getenv("PAUSE_MINUTES", "5"))  # Rest time in minutes between batches
+    PAUSE_SECONDS = PAUSE_MINUTES * 60
+else:
+    PAUSE_MINUTES = PAUSE_SECONDS / 60.0
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -112,7 +116,7 @@ def main():
         runs_to_execute = min(TOTAL_RUNS, args.max_runs)
 
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting daily crawl batches...")
-    print(f"Total runs to execute: {runs_to_execute} (out of {TOTAL_RUNS} total runs), batch size: {BATCH_SIZE} keywords, pause: {PAUSE_MINUTES} minutes")
+    print(f"Total runs to execute: {runs_to_execute} (out of {TOTAL_RUNS} total runs), batch size: {BATCH_SIZE} keywords, pause: {PAUSE_SECONDS} seconds")
     print(f"Reset keywords on start: {args.reset_keywords}")
     print(f"Working Directory: {BASE_DIR}")
     print(f"Python Venv Executable: {python_exe}")
@@ -138,7 +142,7 @@ def main():
             print(f"[ERROR] Run {run} failed with exception: {e}")
             
         if run < runs_to_execute:
-            print(f"Waiting for {PAUSE_MINUTES} minutes to avoid rate limit/blocking before next batch...")
+            print(f"Waiting for {PAUSE_SECONDS} seconds to avoid rate limit/blocking before next batch...")
             time.sleep(PAUSE_SECONDS)
 
     print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] All {runs_to_execute} batches completed successfully!")
