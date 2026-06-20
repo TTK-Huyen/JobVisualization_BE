@@ -18,7 +18,15 @@ if sys.stderr.encoding != 'utf-8':
 # Paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
-python_exe = os.path.join(BASE_DIR, ".venv", "Scripts", "python.exe")
+# Resolve the Python interpreter cross-platform. On Windows the venv lives in
+# .venv/Scripts/python.exe, on POSIX in .venv/bin/python. In Docker there is no
+# .venv (it is excluded via .dockerignore), so fall back to the running
+# interpreter (sys.executable), which is the container's python3.
+if os.name == "nt":
+    _venv_python = os.path.join(BASE_DIR, ".venv", "Scripts", "python.exe")
+else:
+    _venv_python = os.path.join(BASE_DIR, ".venv", "bin", "python")
+python_exe = _venv_python if os.path.exists(_venv_python) else sys.executable
 pipeline_script = os.path.join(BASE_DIR, "run_etl_pipeline.py")
 
 # Configurations

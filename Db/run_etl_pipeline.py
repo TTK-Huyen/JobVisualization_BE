@@ -101,7 +101,13 @@ def resolve_pipeline_path(*parts: str) -> Path:
 
 # Use .venv Python executable if available; resolve to absolute path so
 # subprocess calls use an absolute interpreter path regardless of cwd.
-VENV_PYTHON = (BASE_DIR / ".venv" / "Scripts" / "python.exe").resolve()
+# Pick the platform-specific layout: .venv/Scripts/python.exe on Windows,
+# .venv/bin/python on POSIX. In Docker there is no .venv (excluded via
+# .dockerignore), so fall back to sys.executable (the container's python3).
+if os.name == "nt":
+    VENV_PYTHON = (BASE_DIR / ".venv" / "Scripts" / "python.exe").resolve()
+else:
+    VENV_PYTHON = (BASE_DIR / ".venv" / "bin" / "python").resolve()
 if VENV_PYTHON.exists():
     PYTHON_EXE = str(VENV_PYTHON)
     print(f"✓ Using .venv Python: {PYTHON_EXE}")
