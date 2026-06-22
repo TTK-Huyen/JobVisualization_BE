@@ -381,7 +381,7 @@ def upsert_user_cv(conn, user_id: int, file_name: str, file_url: str, extracted_
         # Avoid foreign key violation: check if user_id exists in users table
         cur.execute("SELECT 1 FROM public.users WHERE user_id = %s", (user_id,))
         if not cur.fetchone():
-            logger.warning("User ID %d does not exist in public.users table. Skipping user_cvs database update.", user_id)
+            logger.warning("User ID %s does not exist in public.users table. Skipping user_cvs database update.", user_id)
             return None
         
         # Check if CV already exists for this user and file_name
