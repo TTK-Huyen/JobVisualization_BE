@@ -91,7 +91,10 @@ def filter_recent_jobs(jobs: List[Any], window_hours: int = None) -> List[Any]:
 
 
 def filter_existing_jobs_by_url(urls: List[str], source: str = None) -> List[str]:
-    """Kiểm tra danh sách URLs và chỉ giữ lại các URL chưa tồn tại trong database public.jobs."""
+    """Kiểm tra danh sách URLs và chỉ giữ lại các URL chưa tồn tại trong database public.jobs.
+    
+    Hỗ trợ so khớp thông minh bằng cách bóc tách source_id đối với các nguồn có URL định dạng động như LinkedIn.
+    """
     if not urls:
         return []
 
@@ -119,16 +122,36 @@ def filter_existing_jobs_by_url(urls: List[str], source: str = None) -> List[str
         pg_pass = os.getenv("PG_PASSWORD", "123456")
         db_url = f"postgresql://{pg_user}:{pg_pass}@{pg_host}:{pg_port}/{pg_db}"
 
+    # Bóc tách source_id đối với LinkedIn hoặc các nguồn khác
+    linkedin_ids = []
+    # Trả về mapping để lọc ngược lại sau khi query DB
+    url_to_linkedin_id = {}
+    for u in urls:
+        # Nếu là LinkedIn, bóc tách ID số để query theo source_id
+        if "linkedin.com/jobs" in u.lower():
+            # Tách lấy ID số từ URL
+            # Ví dụ: https://www.linkedin.com/jobs/view/4432804878 hoặc https://www.linkedin.com/jobs/view/abc-4432804878?trk=...
+            path = u.split("?")[0]
+            parts = [p for p in path.split("/") if p]
+            if parts:
+                last = parts[-1]
+                if "-" in last:
+                    last = last.split("-")[-1]
+                if last.isdigit():
+                    linkedin_ids.append(last)
+                    url_to_linkedin_id[u] = last
+
     conn = None
     cur = None
     existing_urls = set()
+    existing_linkedin_ids = set()
 
     try:
         import psycopg2
         conn = psycopg2.connect(db_url)
         cur = conn.cursor()
         
-        # Sử dụng ANY(%s) để truyền danh sách list vào query duy nhất
+        # 1. Truy vấn khớp chính xác theo URL
         cur.execute(
             "SELECT job_posting_url FROM public.jobs WHERE job_posting_url = ANY(%s);",
             (urls,)
@@ -136,7 +159,18 @@ def filter_existing_jobs_by_url(urls: List[str], source: str = None) -> List[str
         rows = cur.fetchall()
         for row in rows:
             if row[0]:
-                existing_urls.add(row[0].strip())
+                existing_urls.add(row[0].strip().lower())
+                
+        # 2. Truy vấn khớp theo source_id của LinkedIn (nếu có)
+        if linkedin_ids:
+            cur.execute(
+                "SELECT source_id FROM public.jobs WHERE source_name = 'linkedin' AND source_id = ANY(%s);",
+                (linkedin_ids,)
+            )
+            rows = cur.fetchall()
+            for row in rows:
+                if row[0]:
+                    existing_linkedin_ids.add(str(row[0]).strip())
     except Exception as e:
         print(f"[WARN] [DB_FILTER] Kiểm tra lặp URL thất bại: {e}. Bỏ qua bộ lọc trùng database.")
         # Fallback an toàn: Trả về danh sách gốc
@@ -147,14 +181,25 @@ def filter_existing_jobs_by_url(urls: List[str], source: str = None) -> List[str
         if conn:
             conn.close()
 
-    # Chỉ giữ lại các URL chưa có trong database
-    filtered_urls = [u for u in urls if u.strip() not in existing_urls]
+    # Chỉ giữ lại các URL chưa có trong database (cả theo URL và theo LinkedIn source_id)
+    filtered_urls = []
+    for u in urls:
+        u_clean = u.strip().lower()
+        # Kiểm tra theo URL
+        if u_clean in existing_urls:
+            continue
+        # Kiểm tra theo LinkedIn source_id (nếu có)
+        lk_id = url_to_linkedin_id.get(u)
+        if lk_id and lk_id in existing_linkedin_ids:
+            continue
+        filtered_urls.append(u)
+
     skipped_count = len(urls) - len(filtered_urls)
     
     if skipped_count > 0:
-        print(f"[DB_FILTER] Đã bỏ qua {skipped_count} job(s) do URL đã tồn tại trong database public.jobs.")
+        print(f"[DB_FILTER] Đã bỏ qua {skipped_count} job(s) do URL/SourceID đã tồn tại trong database public.jobs.")
         if source:
-            dropped_urls = [u for u in urls if u.strip() in existing_urls]
+            dropped_urls = [u for u in urls if u.strip().lower() in existing_urls or (url_to_linkedin_id.get(u) in existing_linkedin_ids)]
             stats_collector.record_db_dropped(source, skipped_count, dropped_urls)
     
     return filtered_urls
