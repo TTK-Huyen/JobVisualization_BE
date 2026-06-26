@@ -374,7 +374,7 @@ def run_step(name, script_path, args=None, timeout=600, cwd=None, env=None, is_b
         # Use absolute script path to avoid cwd-relative duplication when
         # spawning the Python interpreter in a different working directory.
         script_abspath = str(Path(script_path).resolve())
-        cmd = [PYTHON_EXE, script_abspath]
+        cmd = [PYTHON_EXE, "-W", "ignore", script_abspath]
     
     if args:
         cmd.extend(args)
@@ -404,8 +404,21 @@ def run_step(name, script_path, args=None, timeout=600, cwd=None, env=None, is_b
             if not line and process.poll() is not None:
                 break
             if line:
-                sys.stdout.write(line)
-                sys.stdout.flush()
+                # Check if it's a verbose/debug line
+                is_verbose_line = line.strip().startswith("[FILTER]") or line.strip().startswith("[DEBUG]")
+                verbose_active = os.environ.get("PIPELINE_VERBOSE") == "true"
+                
+                if not is_verbose_line or verbose_active:
+                    sys.stdout.write(line)
+                    sys.stdout.flush()
+                else:
+                    # Write only to the log file (bypassing console stdout)
+                    if _LOG_FILE_HANDLE is not None:
+                        try:
+                            _LOG_FILE_HANDLE.write(line)
+                            _LOG_FILE_HANDLE.flush()
+                        except Exception:
+                            pass
         
         returncode = process.wait(timeout=timeout)
         
@@ -861,6 +874,67 @@ def format_daily_crawl_summary(
         if isinstance(value, int):
             total_jobs += value
     lines.append(f" 🔥 TỔNG CỘNG RECORD CÀO ĐƯỢC: {total_jobs} jobs")
+    lines.append("-" * 81)
+
+    # Load fallback counts early for BATCH DATA FLOW BREAKDOWN
+    clean_fail_count = 0
+    dedup_count = 0
+    llm_fail_count = 0
+    normalize_fail_count = 0
+    
+    fallback_dir = clean_output_path.parent.parent / "fallback"
+    
+    try:
+        clean_fallback_file = fallback_dir / "clean_fallback.json"
+        if clean_fallback_file.exists():
+            with open(clean_fallback_file, "r", encoding="utf-8") as ff:
+                data = json.load(ff)
+                if isinstance(data, list):
+                    clean_fail_count = len(data)
+    except Exception:
+        pass
+        
+    try:
+        extract_fallback_file = fallback_dir / "extract_fallback.json"
+        if extract_fallback_file.exists():
+            with open(extract_fallback_file, "r", encoding="utf-8") as ff:
+                data = json.load(ff)
+                if isinstance(data, list):
+                    for item in data:
+                        reason = item.get("failure_reason") or item.get("status")
+                        if reason in ("duplicate_same_source", "duplicate_cross_source", "duplicate") or item.get("status") == "duplicate":
+                            dedup_count += 1
+                        else:
+                            llm_fail_count += 1
+    except Exception:
+        pass
+
+    try:
+        normalize_fallback_file = fallback_dir / "normalize_fallback.json"
+        if normalize_fallback_file.exists():
+            with open(normalize_fallback_file, "r", encoding="utf-8") as ff:
+                data = json.load(ff)
+                if isinstance(data, list):
+                    normalize_fail_count = len(data)
+    except Exception:
+        pass
+
+    imported_count = 0
+    inserted = 0
+    updated = 0
+    if import_stats:
+        inserted = import_stats.get('inserted', 0)
+        updated = import_stats.get('updated', 0)
+        imported_count = inserted + updated
+
+    lines.append(" 🔄 DÒNG CHẢY DỮ LIỆU BATCH NÀY (BATCH DATA FLOW BREAKDOWN):")
+    lines.append(f"  1. Cào về thành công (Scraped)           : {total_jobs} jobs")
+    lines.append(f"  2. Loại ở bước dọn dẹp HTML (Cleaned)    : -{clean_fail_count} jobs (xem clean_fallback.json)")
+    lines.append(f"  3. Lọc trùng lặp nội dung (Deduplicated) : -{dedup_count} jobs (tránh gọi LLM trùng, xem extract_fallback.json)")
+    lines.append(f"  4. Lỗi bóc tách LLM (LLM Extract Fail)   : -{llm_fail_count} jobs (xem extract_fallback.json)")
+    lines.append(f"  5. Lỗi chuẩn hóa kỹ năng (Normalize Fail): -{normalize_fail_count} jobs (xem normalize_fallback.json)")
+    lines.append("  " + "=" * 45)
+    lines.append(f"  👉 Số job thực tế nạp DB (Imported)      : {imported_count} jobs ({inserted} Thêm mới, {updated} Cập nhật)")
 
     # Per-keyword breakdown
     if keyword_stats:
@@ -897,6 +971,128 @@ def format_daily_crawl_summary(
         lines.append(f"  • Bỏ qua (Skipped)        : {import_stats.get('skipped', 0)} jobs")
         lines.append(f"  • Lỗi (Errors)            : {import_stats.get('errors', 0)} jobs")
         lines.append("-" * 81)
+
+    # Thống kê fallback ở các bước (CLEAN, LLM EXTRACT, NORMALIZE)
+    fallback_dir = clean_output_path.parent.parent / "fallback"
+    
+    # 1. CLEAN STEP FALLBACK
+    try:
+        clean_fallback_file = fallback_dir / "clean_fallback.json"
+        if clean_fallback_file.exists():
+            with open(clean_fallback_file, "r", encoding="utf-8") as ff:
+                clean_fallback_data = json.load(ff)
+            if clean_fallback_data:
+                reason_counts = {}
+                for item in clean_fallback_data:
+                    reasons = item.get("_fallback_reasons", [])
+                    for r in reasons:
+                        reason_counts[r] = reason_counts.get(r, 0) + 1
+                
+                lines.append(" [Thống kê loại bỏ tin tuyển dụng ở bước CLEAN (CLEAN FALLBACK)]:")
+                lines.append(f"  • Tổng số job bị loại (Moved to Fallback) : {len(clean_fallback_data)} jobs")
+                for reason, count in sorted(reason_counts.items(), key=lambda x: x[1], reverse=True):
+                    reason_label = reason
+                    if reason == "empty_after_clean":
+                        reason_label = "Văn bản trống sau khi clean (empty_after_clean)"
+                    elif reason == "too_short":
+                        reason_label = "JD quá ngắn (too_short)"
+                    elif reason == "html_leftover":
+                        reason_label = "Còn sót thẻ HTML (html_leftover)"
+                    elif reason == "low_alnum_ratio":
+                        reason_label = "Chứa nhiều ký tự rác (low_alnum_ratio)"
+                    elif reason == "only_special_chars":
+                        reason_label = "Chỉ chứa ký tự đặc biệt (only_special_chars)"
+                    elif reason == "no_recruitment_signal":
+                        reason_label = "Không có dấu hiệu tuyển dụng (no_recruitment_signal)"
+                    elif reason == "missing_title_or_url":
+                        reason_label = "Thiếu Tiêu đề hoặc URL (missing_title_or_url)"
+                    lines.append(f"    - {reason_label:<55}: {count} jobs")
+                
+                # Detailed list of fallback cases (max 15 displayed for console neatness)
+                lines.append("  • Chi tiết các trường hợp bị loại:")
+                max_display = 15
+                for idx, item in enumerate(clean_fallback_data[:max_display], 1):
+                    title = item.get("title") or "Unknown Title"
+                    url = item.get("job_url") or "Unknown URL"
+                    src = (item.get("_original_job") or {}).get("source_name") or "unknown"
+                    reasons = item.get("_fallback_reasons", [])
+                    reasons_str = ", ".join(reasons)
+                    
+                    title_display = title[:45] + "..." if len(title) > 48 else title
+                    lines.append(f"    {idx}. [{src.upper()}] {title_display}")
+                    lines.append(f"       - Lý do: {reasons_str}")
+                    lines.append(f"       - URL: {url}")
+                
+                if len(clean_fallback_data) > max_display:
+                    lines.append(f"    ... và {len(clean_fallback_data) - max_display} job khác bị loại (xem clean_fallback.json)")
+                
+                lines.append("-" * 81)
+    except Exception:
+        pass
+
+    # 2. LLM EXTRACT STEP FALLBACK
+    try:
+        extract_fallback_file = fallback_dir / "extract_fallback.json"
+        if extract_fallback_file.exists():
+            with open(extract_fallback_file, "r", encoding="utf-8") as ff:
+                extract_fallback_data = json.load(ff)
+            if extract_fallback_data:
+                extract_reasons = {
+                    "duplicate_same_source": 0,
+                    "duplicate_cross_source": 0,
+                    "invalid_json_response": 0,
+                    "llm_api_fail": 0,
+                    "other": 0
+                }
+                for item in extract_fallback_data:
+                    reason = item.get("failure_reason") or item.get("status")
+                    if reason == "duplicate_same_source":
+                        extract_reasons["duplicate_same_source"] += 1
+                    elif reason == "duplicate_cross_source":
+                        extract_reasons["duplicate_cross_source"] += 1
+                    elif reason == "invalid_json_response":
+                        extract_reasons["invalid_json_response"] += 1
+                    elif reason in ("llm_api_fail", "api_error"):
+                        extract_reasons["llm_api_fail"] += 1
+                    else:
+                        status = item.get("status")
+                        if status == "duplicate":
+                            extract_reasons["duplicate_same_source"] += 1
+                        elif status == "invalid_json_response":
+                            extract_reasons["invalid_json_response"] += 1
+                        elif status in ("llm_api_fail", "api_error"):
+                            extract_reasons["llm_api_fail"] += 1
+                        else:
+                            extract_reasons["other"] += 1
+                
+                lines.append(" [Thống kê loại bỏ/lỗi trích xuất ở bước EXTRACT (LLM EXTRACT FALLBACK)]:")
+                lines.append(f"  • Tổng số job lỗi/bị loại ở bước Extract  : {len(extract_fallback_data)} jobs")
+                if extract_reasons["duplicate_same_source"] > 0:
+                    lines.append(f"    - Trùng lặp cùng nguồn (duplicate_same_source)  : {extract_reasons['duplicate_same_source']} jobs")
+                if extract_reasons["duplicate_cross_source"] > 0:
+                    lines.append(f"    - Trùng lặp chéo nguồn (duplicate_cross_source) : {extract_reasons['duplicate_cross_source']} jobs")
+                if extract_reasons["invalid_json_response"] > 0:
+                    lines.append(f"    - Lỗi phản hồi JSON từ LLM (invalid_json)       : {extract_reasons['invalid_json_response']} jobs")
+                if extract_reasons["llm_api_fail"] > 0:
+                    lines.append(f"    - Lỗi kết nối/gọi API LLM (llm_api_fail)        : {extract_reasons['llm_api_fail']} jobs")
+                if extract_reasons["other"] > 0:
+                    lines.append(f"    - Lỗi khác ở bước trích xuất (other)            : {extract_reasons['other']} jobs")
+                lines.append("-" * 81)
+    except Exception:
+        pass
+
+    # 3. NORMALIZE STEP FALLBACK
+    try:
+        normalize_fallback_file = fallback_dir / "normalize_fallback.json"
+        if normalize_fallback_file.exists():
+            with open(normalize_fallback_file, "r", encoding="utf-8") as ff:
+                normalize_fallback_data = json.load(ff)
+            if normalize_fallback_data:
+                lines.append(" [Thống kê lỗi chuẩn hóa ở bước NORMALIZE (NORMALIZE FALLBACK)]:")
+                lines.append(f"  • Tổng số job bị lỗi ở bước Normalize    : {len(normalize_fallback_data)} jobs")
+                lines.append("-" * 81)
+    except Exception:
+        pass
     def _safe_relative_path(p):
         if not p:
             return ""
@@ -1329,8 +1525,16 @@ Examples:
         action="store_true",
         help="Output results to the root Debug folder instead of the data folder",
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print verbose/detailed crawler filters to the console.",
+    )
     
     args = parser.parse_args()
+
+    if args.verbose:
+        os.environ["PIPELINE_VERBOSE"] = "true"
 
     # Load accumulated stats if running daily
     stats_file = BASE_DIR / "data" / "accumulated_stats.json"

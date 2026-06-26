@@ -387,7 +387,8 @@ class CrawlStatsCollector:
                 
             report = []
             report.append("\n" + "="*80)
-            report.append("📊 BÁO CÁO THỐNG KÊ CHI TIẾT CRAWLER & SCRAPER")
+            report.append("📊 BÁO CÁO THỐNG KÊ CHI TIẾT CRAWLER & SCRAPER (LŨY KẾ NGÀY)")
+            report.append("  * GHI CHÚ: Số liệu trong các bảng dưới đây là LŨY KẾ (CỘNG DỒN) từ tất cả các Batch đã chạy.")
             report.append("="*80)
             
             # 1. Thông tin cấu hình
@@ -408,7 +409,7 @@ class CrawlStatsCollector:
             ]
             
             # Bảng 1: Số lượng jobs
-            report.append("\n📈 BẢNG THỐNG KÊ SỐ LƯỢNG JOBS THEO NGUỒN:")
+            report.append("\n📈 BẢNG THỐNG KÊ SỐ LƯỢNG JOBS THEO NGUỒN (LŨY KẾ):")
             header = f"| {'Chỉ số / Metric':<30} | " + " | ".join(f"{src:<12}" for src in sources) + " |"
             separator = f"|{'-'*32}|" + "|".join(f"{'-'*14}" for _ in sources) + "|"
             report.append(separator)
@@ -428,7 +429,7 @@ class CrawlStatsCollector:
             
             # Bảng 1b: Số lượng job duyệt qua / cào chi tiết theo keyword của các nguồn
             if self.keyword_stats:
-                report.append("\n📈 BẢNG THỐNG KÊ SỐ JOB DUYỆT QUA / CÀO CHI TIẾT THEO KEYWORD (DUYỆT / CÀO):")
+                report.append("\n📈 BẢNG THỐNG KÊ SỐ JOB DUYỆT QUA / CÀO CHI TIẾT THEO KEYWORD (DUYỆT / CÀO) (LŨY KẾ):")
                 header_kw = f"| {'Từ khóa / Keyword':<30} | " + " | ".join(f"{src:<12}" for src in sources) + " | " + f"{'Tổng':<10} |"
                 separator_kw = f"|{'-'*32}|" + "|".join(f"{'-'*14}" for _ in sources) + f"|{'-'*12}|"
                 report.append(separator_kw)
@@ -449,7 +450,7 @@ class CrawlStatsCollector:
                     row_str = f"| {kw_display:<30} | " + " | ".join(row_parts) + f" | {f'{total_scraped} / {total_detail}':<10} |"
                     report.append(row_str)
                 report.append(separator_kw)
-
+ 
             # Thu thập tất cả các HTTP Status Code có trong các nguồn
             all_status_codes = set()
             for src in sources:
@@ -542,6 +543,29 @@ class CrawlStatsCollector:
                     table_parts.append(f"  {empty_msg}")
                     return "\n".join(table_parts)
                 
+                # If verbose mode is disabled and there are more than 5 items, print a concise summary
+                verbose_active = os.environ.get("PIPELINE_VERBOSE") == "true"
+                if not verbose_active and key_in_stats != "search_list_urls":
+                    if len(rows_data) > 5:
+                        table_parts.append(f"  - Tổng số lượng: {len(rows_data)} jobs")
+                        
+                        def get_id_from_url(url):
+                            parts = [p for p in url.strip().split('/') if p]
+                            if parts:
+                                last = parts[-1]
+                                if '?' in last:
+                                    last = last.split('?')[0]
+                                if '-' in last:
+                                    last = last.split('-')[-1]
+                                return last
+                            return "URL"
+                        
+                        subset = rows_data[:5]
+                        samples = [f"{src}: {get_id_from_url(u)}" for src, u in subset]
+                        table_parts.append(f"  - 5 mẫu đầu tiên: {', '.join(samples)}")
+                        table_parts.append(f"  - [Đã ẩn bớt {len(rows_data) - 5} dòng. Xem tệp log pipeline hoặc chạy với --verbose để xem toàn bộ.]")
+                        return "\n".join(table_parts)
+                
                 max_url_len = min(max_url_len, 100) # Giới hạn tối đa 100 ký tự cột URL để giao diện cân đối
                 
                 header = f"| {'Nguồn / Source':<15} | {'URL':<{max_url_len}} |"
@@ -556,28 +580,28 @@ class CrawlStatsCollector:
                     
                 table_parts.append(sep)
                 return "\n".join(table_parts)
-
+ 
             # 4. Xuất các bảng URL chi tiết
             report.append(build_flat_url_table(
-                "BẢNG CÁC TRANG DANH SÁCH ĐÃ CÀO (SEARCH LIST URLS)",
+                "BẢNG CÁC TRANG DANH SÁCH ĐÃ CÀO (SEARCH LIST URLS) (LŨY KẾ)",
                 "search_list_urls",
                 "(Không cào trang danh sách nào)"
             ))
             
             report.append(build_flat_url_table(
-                "BẢNG CÁC JOB ĐƯỢC CÀO CHI TIẾT (SCRAPED JOB URLS)",
+                "BẢNG CÁC JOB ĐƯỢC CÀO CHI TIẾT (SCRAPED JOB URLS) (LŨY KẾ)",
                 "detail_scraped_urls",
                 "(Không có job nào được cào chi tiết)"
             ))
             
             report.append(build_flat_url_table(
-                "BẢNG CÁC JOB BỊ LOẠI DO LỌC NGÀY (DATE FILTERED JOB URLS)",
+                "BẢNG CÁC JOB BỊ LOẠI DO LỌC NGÀY (DATE FILTERED JOB URLS) (LŨY KẾ)",
                 "date_filter_dropped_sample_urls",
                 "(Không có job nào bị loại do lọc ngày)"
             ))
             
             report.append(build_flat_url_table(
-                "BẢNG CÁC JOB BỊ LOẠI DO TRÙNG DB (DB DUPLICATE JOB URLS)",
+                "BẢNG CÁC JOB BỊ LOẠI DO TRÙNG DB (DB DUPLICATE JOB URLS) (LŨY KẾ)",
                 "db_filter_dropped_sample_urls",
                 "(Không có job nào bị loại do trùng DB)"
             ))
