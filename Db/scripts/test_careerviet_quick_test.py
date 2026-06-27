@@ -6,7 +6,7 @@ sys.path.insert(0, str(script_dir))
 try:
     from scrape_careerviet import build_session, parse_search_page
     s = build_session()
-    url = 'https://careerviet.vn/viec-lam/ai-k-vi.html'
+    url = 'https://careerviet.vn/viec-lam/ai-kc1-vi.html'
     jobs = parse_search_page(s, url)
     print('Found jobs:', len(jobs))
     if jobs:

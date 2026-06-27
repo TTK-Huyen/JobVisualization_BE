@@ -165,7 +165,7 @@ def get_soup(session: requests.Session, url: str) -> BeautifulSoup:
 # ---------- Paging helpers ----------
 def build_paged_url(list_url_page1: str, page: int) -> str:
     """
-    CareerViet page 2 mẫu: https://careerviet.vn/viec-lam/ai-k-trang-2-vi.html
+    CareerViet page 2 mẫu: https://careerviet.vn/viec-lam/ai-kc1-trang-2-vi.html
     Quy tắc: chèn '-trang-{page}-' trước 'vi.html'. Trang 1 giữ nguyên URL gốc.
     """
     if page <= 1:
@@ -1438,7 +1438,7 @@ if __name__ == "__main__":
     # Build CareerViet URL from keyword
     q_slug = args.keyword.strip().lower().replace(" ", "-")
     q_slug = "".join(ch for ch in q_slug if ch.isalnum() or ch == "-")
-    list_url = f"https://careerviet.vn/viec-lam/{q_slug}-k-vi.html"
+    list_url = f"https://careerviet.vn/viec-lam/{q_slug}-kc1-vi.html"
 
     # 1 page has 50 jobs in CareerViet
     end_page = max(1, (args.max_jobs + 49) // 50)

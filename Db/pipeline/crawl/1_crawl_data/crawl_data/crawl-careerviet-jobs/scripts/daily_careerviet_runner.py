@@ -51,7 +51,7 @@ TIER1_KEYWORDS_TO_SELECT = int(os.getenv("TIER1_NUM_KEYWORDS", "1"))
 TIER2_KEYWORDS_TO_SELECT = int(os.getenv("TIER2_NUM_KEYWORDS", "0"))
 TIER3_KEYWORDS_TO_SELECT = int(os.getenv("TIER3_NUM_KEYWORDS", "0"))
 
-BASE = "https://careerviet.vn/viec-lam/{slug}-k-vi.html"
+BASE = "https://careerviet.vn/viec-lam/{slug}-kc1-vi.html"
 
 
 def slugify(s: str) -> str:

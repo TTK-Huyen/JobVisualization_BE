@@ -597,7 +597,7 @@ def _make_daily_parallel_workers(
     search_query = " ".join(keyword.replace("/", " ").split())
 
     vietnamworks_url = f"https://www.vietnamworks.com/viec-lam?q={quote_plus(search_query)}&sorting=lasted"
-    careerviet_url = f"https://careerviet.vn/viec-lam/{slugify_keyword(search_query)}-k-vi.html"
+    careerviet_url = f"https://careerviet.vn/viec-lam/{slugify_keyword(search_query)}-kc1-vi.html"
 
     itviec_limit = domestic_max_jobs if itviec_max_jobs is None else itviec_max_jobs
 
