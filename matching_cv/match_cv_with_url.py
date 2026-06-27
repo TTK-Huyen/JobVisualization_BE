@@ -243,62 +243,10 @@ def crawl_job_url(url: str) -> Dict[str, Any]:
 
 def find_best_search_group(job_title: str, db_groups: List[str]) -> str:
     """
-    Match job_title against the 132 keywords using SentenceTransformer,
-    then map the best matching keyword to one of the 36 database search groups.
+    Match job_title directly against database search groups using SentenceTransformer.
     """
-    logger.info("Matching job title '%s' with keywords...", job_title)
+    logger.info("Matching job title '%s' directly with database search groups...", job_title)
     
-    # 1. Load keywords from keywords_daily.json
-    keywords_path = PROJECT_ROOT / "Db" / "input" / "keywords_daily.json"
-    if not keywords_path.exists():
-        keywords_path = PROJECT_ROOT / "input" / "keywords_daily.json"
-        
-    with open(keywords_path, "r", encoding="utf-8") as f:
-        config = json.load(f)
-        
-    # Flatten keywords
-    keywords = []
-    for tier_key in ('tier_1', 'tier_2', 'tier_3'):
-        tier_keywords = config.get(tier_key, [])
-        if isinstance(tier_keywords, list):
-            keywords.extend(tier_keywords)
-
-    groups = config.get('groups', {})
-    if isinstance(groups, dict):
-        for group_cfg in groups.values():
-            if not isinstance(group_cfg, dict):
-                continue
-            roles = group_cfg.get('roles', [])
-            if isinstance(roles, list):
-                keywords.extend(roles)
-            clusters = group_cfg.get('clusters', {})
-            if isinstance(clusters, dict):
-                for cluster_roles in clusters.values():
-                    if isinstance(cluster_roles, list):
-                        keywords.extend(cluster_roles)
-
-    # Deduplicate while keeping order
-    seen = set()
-    result_keywords = []
-    for item in keywords:
-        kw = str(item).strip()
-        if kw and kw.lower() not in seen:
-            seen.add(kw.lower())
-            result_keywords.append(kw)
-            
-    # Prepend group names prettified
-    groups = config.get('groups', {})
-    group_keywords = []
-    if isinstance(groups, dict):
-        for g in groups.keys():
-            pretty = str(g).replace('_', ' ').strip().title()
-            if pretty and pretty.lower() not in seen:
-                seen.add(pretty.lower())
-                group_keywords.append(pretty)
-                
-    all_132_keywords = group_keywords + result_keywords
-    
-    # 2. Use sentence-transformers to encode and calculate similarities
     try:
         from sentence_transformers import SentenceTransformer
     except ImportError:
@@ -306,27 +254,20 @@ def find_best_search_group(job_title: str, db_groups: List[str]) -> str:
         
     model = SentenceTransformer("all-MiniLM-L6-v2")
     
-    # Compute embeddings
     # Guard: ensure job_title is a plain string (LLM output may wrap values in dicts)
     if isinstance(job_title, dict):
         job_title = job_title.get("value") or job_title.get("name") or ""
     job_title_str = str(job_title).strip() if job_title else "unknown"
-    kw_embeddings = model.encode(all_132_keywords, normalize_embeddings=True)
+    
+    # Compute embeddings
+    db_embeddings = model.encode(db_groups, normalize_embeddings=True)
     title_emb = model.encode([job_title_str], normalize_embeddings=True)[0]
     
     # Cosine similarity (dot product of normalized vectors)
-    sims = np.dot(kw_embeddings, title_emb)
-    best_kw_idx = np.argmax(sims)
-    best_keyword = all_132_keywords[best_kw_idx]
-    logger.info("-> Best matching role keyword: '%s' (similarity: %.4f)", best_keyword, sims[best_kw_idx])
-    
-    # 3. Map best keyword to the 36 database search groups
-    db_embeddings = model.encode(db_groups, normalize_embeddings=True)
-    kw_emb = kw_embeddings[best_kw_idx]
-    db_sims = np.dot(db_embeddings, kw_emb)
-    best_db_idx = np.argmax(db_sims)
+    sims = np.dot(db_embeddings, title_emb)
+    best_db_idx = np.argmax(sims)
     best_db_group = db_groups[best_db_idx]
-    logger.info("-> Mapped to DB search group: '%s' (similarity: %.4f)", best_db_group, db_sims[best_db_idx])
+    logger.info("-> Mapped to DB search group: '%s' (similarity: %.4f)", best_db_group, sims[best_db_idx])
     
     return best_db_group
 
