@@ -53,6 +53,7 @@ def run_cli_command(command: list[str], working_dir: str = "/app") -> dict:
 async def match_by_search_group(
     search_group: str = Form(...),
     source_id: str = Form("0"),
+    cv_id: str = Form(...),
     file: UploadFile = File(...)
 ):
     temp_file_path = UPLOAD_DIR / file.filename
@@ -64,7 +65,8 @@ async def match_by_search_group(
             PYTHON_EXEC, "-m", "matching_cv.match_cv",
             "--cv", str(temp_file_path.resolve()),
             "--search-group", search_group,
-            "--source-id", source_id
+            "--source-id", source_id,
+            "--cv-id", cv_id
         ]
         
         res = run_cli_command(cmd, working_dir="/app")
@@ -81,6 +83,7 @@ async def match_by_search_group(
 async def match_by_job_url(
     url: str = Form(...),
     source_id: str = Form("0"),
+    cv_id: str = Form(...),
     file: UploadFile = File(...)
 ):
     temp_file_path = UPLOAD_DIR / file.filename
@@ -92,7 +95,8 @@ async def match_by_job_url(
             PYTHON_EXEC, "-m", "matching_cv.match_cv_with_url",
             "--cv", str(temp_file_path.resolve()),
             "--url", url,
-            "--source-id", source_id
+            "--source-id", source_id,
+            "--cv-id", cv_id
         ]
         res = run_cli_command(cmd, working_dir="/app")
         if res["status"] == "error":

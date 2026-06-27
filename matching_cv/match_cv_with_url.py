@@ -394,6 +394,7 @@ def main():
     parser.add_argument("--threshold-possessed", type=float, default=0.75, help="Similarity threshold for possessed skills")
     parser.add_argument("--threshold-partial", type=float, default=0.3, help="Similarity threshold for partial match skills")
     parser.add_argument("--confidence-threshold", type=float, default=0.85, help="LLM skill extraction confidence threshold")
+    parser.add_argument("--cv-id", type=str, required=True, help="UUID for the CV from the web application")
     parser.add_argument("--output", help="Path to save matching result JSON. Default: next to CV file with suffix '_matching_result.json'")
     
     args = parser.parse_args()
@@ -422,10 +423,10 @@ def main():
             """
             SELECT cv_id, extracted_text 
             FROM public.user_cvs 
-            WHERE user_id = %s AND file_name = %s
+            WHERE cv_id = %s
             LIMIT 1
             """,
-            (args.source_id, file_name)
+            (args.cv_id,)
         )
         existing_cv = cur.fetchone()
         
@@ -491,7 +492,7 @@ def main():
             logger.info("Successfully normalized and mapped %d student skills.", len(student_skills))
             
             # Save CV to database
-            cv_id = upsert_user_cv(conn, args.source_id, file_name, args.cv, cv_text)
+            cv_id = upsert_user_cv(conn, args.source_id, file_name, args.cv, cv_text, args.cv_id)
             if cv_id is not None:
                 save_user_cv_skills(conn, cv_id, student_skills)
             

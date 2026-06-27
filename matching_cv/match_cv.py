@@ -372,7 +372,7 @@ def insert_unmatched_skills(conn, source_id: int, source_type: str, unmatched_sk
         cur.close()
 
 
-def upsert_user_cv(conn, user_id: int, file_name: str, file_url: str, extracted_text: str) -> Optional[int]:
+def upsert_user_cv(conn, user_id: str, file_name: str, file_url: str, extracted_text: str, cv_id: str) -> Optional[str]:
     """
     Upsert user CV details into the user_cvs table.
     """
@@ -384,27 +384,24 @@ def upsert_user_cv(conn, user_id: int, file_name: str, file_url: str, extracted_
             logger.warning("User ID %s does not exist in public.users table. Skipping user_cvs database update.", user_id)
             return None
         
-        # Check if CV already exists for this user and file_name
+        # Check if CV already exists with this cv_id
         cur.execute(
-            "SELECT cv_id FROM public.user_cvs WHERE user_id = %s AND file_name = %s",
-            (user_id, file_name)
+            "SELECT cv_id FROM public.user_cvs WHERE cv_id = %s",
+            (cv_id,)
         )
         row = cur.fetchone()
         if row:
-            cv_id = row[0]
             logger.info("Found existing CV (cv_id: %s) for user_id: %s, updating...", cv_id, user_id)
             cur.execute(
                 """
                 UPDATE public.user_cvs 
-                SET extracted_text = %s, file_url = %s, updated_at = CURRENT_TIMESTAMP
+                SET user_id = %s, file_name = %s, file_url = %s, extracted_text = %s, updated_at = CURRENT_TIMESTAMP
                 WHERE cv_id = %s
                 """,
-                (extracted_text, file_url, cv_id)
+                (user_id, file_name, file_url, extracted_text, cv_id)
             )
         else:
-            import uuid
-            cv_id = str(uuid.uuid4())
-            logger.info("Inserting new CV into public.user_cvs (cv_id: %s) for user_id: %s...", cv_id, user_id)
+            logger.info("Inserting new CV into public.user_cvs with cv_id: %s...", cv_id)
             cur.execute(
                 """
                 INSERT INTO public.user_cvs (cv_id, user_id, file_name, file_url, extracted_text)
@@ -522,6 +519,7 @@ def main():
     parser.add_argument("--threshold-partial", type=float, default=0.3, help="Similarity threshold for partial match skills")
     parser.add_argument("--confidence-threshold", type=float, default=0.85, help="LLM skill extraction confidence threshold")
     parser.add_argument("--source-id", type=str, required=True, help="Source/Student UUID associated with this CV")
+    parser.add_argument("--cv-id", type=str, required=True, help="UUID for the CV from the web application")
     parser.add_argument("--output", help="Path to save matching result JSON. Default: next to CV file with suffix '_matching_result.json'")
     
     args = parser.parse_args()
@@ -555,10 +553,10 @@ def main():
             """
             SELECT cv_id, extracted_text 
             FROM public.user_cvs 
-            WHERE user_id = %s AND file_name = %s
+            WHERE cv_id = %s
             LIMIT 1
             """,
-            (args.source_id, file_name)
+            (args.cv_id,)
         )
         existing_cv = cur.fetchone()
         
@@ -631,7 +629,7 @@ def main():
 
             # --- DB UPDATE FOR USER CV ---
             # Insert or update user CV information
-            cv_id = upsert_user_cv(conn, args.source_id, file_name, args.cv, cv_text)
+            cv_id = upsert_user_cv(conn, args.source_id, file_name, args.cv, cv_text, args.cv_id)
             if cv_id is not None:
                 # Save the mapped CV skills
                 save_user_cv_skills(conn, cv_id, student_skills)
