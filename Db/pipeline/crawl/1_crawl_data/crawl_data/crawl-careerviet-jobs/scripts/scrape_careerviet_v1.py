@@ -76,7 +76,7 @@ def get_soup(session: requests.Session, url: str) -> BeautifulSoup:
 # ---------- Paging helpers ----------
 def build_paged_url(list_url_page1: str, page: int) -> str:
     """
-    CareerViet page 2 mẫu: https://careerviet.vn/viec-lam/ai-k-trang-2-vi.html
+    CareerViet page 2 mẫu: https://careerviet.vn/viec-lam/ai-kc1-trang-2-vi.html
     Quy tắc: chèn '-trang-{page}-' trước 'vi.html'. Trang 1 giữ nguyên URL gốc.
     """
     if page <= 1:
@@ -460,10 +460,10 @@ if __name__ == "__main__":
     import argparse, os
     parser = argparse.ArgumentParser(description="Crawl CareerViet jobs (giữ nguyên schema như TopCV) và lưu CSV/XLSX.")
     parser.add_argument("--list-urls", "-u", nargs="+", required=False, default=[
-        "https://careerviet.vn/viec-lam/ai-k-vi.html",
-        "https://careerviet.vn/viec-lam/backend-k-vi.html",
+        "https://careerviet.vn/viec-lam/ai-kc1-vi.html",
+        "https://careerviet.vn/viec-lam/backend-kc1-vi.html",
         "https://careerviet.vn/viec-lam/cntt-phan-mem-c1-vi.html",
-    ], help="URL danh mục trang 1. VD: -u https://careerviet.vn/viec-lam/ai-k-vi.html")
+    ], help="URL danh mục trang 1. VD: -u https://careerviet.vn/viec-lam/ai-kc1-vi.html")
     parser.add_argument("--start-page", type=int, default=1, help="CareerViet trang tối đa thường là 1")
     parser.add_argument("--end-page", type=int, default=1, help="Nếu >=2 sẽ dùng dạng -trang-{page}-vi.html")
     parser.add_argument("--out-prefix", default="../data-files/careerviet_it_jobs", help="Prefix file đầu ra (không kèm đuôi).")
