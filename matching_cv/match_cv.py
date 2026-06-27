@@ -392,13 +392,17 @@ def upsert_user_cv(conn, user_id: str, file_name: str, file_url: str, extracted_
         row = cur.fetchone()
         if row:
             logger.info("Found existing CV (cv_id: %s) for user_id: %s, updating...", cv_id, user_id)
+            # KHÔNG cập nhật file_url ở đây: bản ghi CV do backend (NestJS) tạo
+            # khi upload, file_url là URL Cloudinary thật. Service thuật toán chỉ
+            # nhận đường dẫn file tạm (.tmp_cv_uploads/...), nếu ghi đè sẽ làm
+            # hỏng URL khiến nút "Xem CV" 404. Chỉ cập nhật các trường phân tích.
             cur.execute(
                 """
-                UPDATE public.user_cvs 
-                SET user_id = %s, file_name = %s, file_url = %s, extracted_text = %s, updated_at = CURRENT_TIMESTAMP
+                UPDATE public.user_cvs
+                SET user_id = %s, file_name = %s, extracted_text = %s, updated_at = CURRENT_TIMESTAMP
                 WHERE cv_id = %s
                 """,
-                (user_id, file_name, file_url, extracted_text, cv_id)
+                (user_id, file_name, extracted_text, cv_id)
             )
         else:
             logger.info("Inserting new CV into public.user_cvs with cv_id: %s...", cv_id)
