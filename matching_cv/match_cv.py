@@ -515,6 +515,208 @@ def save_cv_job_match(
         cur.close()
 
 
+def compute_skill_match(
+    target_skills: List[Dict[str, Any]],
+    student_skills: List[Dict[str, Any]],
+    skill_emb: np.ndarray,
+    skill_id_to_idx: Dict[int, int],
+    threshold_possessed: float,
+    threshold_partial: float,
+) -> Dict[str, Any]:
+    """
+    Tính điểm khớp có trọng số giữa một tập kỹ năng MỤC TIÊU (của nhóm hoặc của
+    1 job) với kỹ năng trong CV. Dùng chung cho cả match theo nhóm lẫn chấm từng
+    job (cùng công thức cosine có trọng số) để kết quả nhất quán.
+    """
+    matched_skills: List[Dict[str, Any]] = []
+    partially_matched_skills: List[Dict[str, Any]] = []
+    missing_skills: List[Dict[str, Any]] = []
+
+    total_weight = sum(item["weight"] for item in target_skills)
+    weighted_sim_sum = 0.0
+
+    for target in target_skills:
+        target_sid = target["skill_id"]
+        target_name = target["skill_name"]
+        weight = target["weight"]
+
+        max_sim = 0.0
+        best_match_name = None
+        best_match_sid = None
+        for student in student_skills:
+            sim = get_skill_similarity(
+                target_sid, student["skill_id"], skill_emb, skill_id_to_idx
+            )
+            if sim > max_sim:
+                max_sim = sim
+                best_match_name = student["skill_name"]
+                best_match_sid = student["skill_id"]
+
+        contribution = weight * max_sim
+        gap = weight * (1.0 - max_sim)
+        weighted_sim_sum += contribution
+
+        skill_detail = {
+            "skill_id": target_sid,
+            "skill_name": target_name,
+            "weight": round(weight, 6),
+            "similarity": round(max_sim, 4),
+        }
+        if max_sim >= threshold_possessed:
+            skill_detail["contribution"] = round(contribution, 6)
+            if best_match_name and best_match_sid != target_sid:
+                skill_detail["matched_via"] = best_match_name
+            matched_skills.append(skill_detail)
+        elif max_sim >= threshold_partial:
+            skill_detail["contribution"] = round(contribution, 6)
+            skill_detail["gap"] = round(gap, 6)
+            if best_match_name and best_match_sid != target_sid:
+                skill_detail["matched_via"] = best_match_name
+            partially_matched_skills.append(skill_detail)
+        else:
+            skill_detail["gap"] = round(gap, 6)
+            missing_skills.append(skill_detail)
+
+    match_score = (weighted_sim_sum / total_weight) if total_weight > 0 else 0.0
+    return {
+        "match_score": match_score,
+        "match_percent": round(match_score * 100.0, 2),
+        "matched_skills": matched_skills,
+        "partially_matched_skills": partially_matched_skills,
+        "missing_skills": missing_skills,
+    }
+
+
+def score_jobs_in_group(
+    conn,
+    cv_id: str,
+    search_group: str,
+    student_skills: List[Dict[str, Any]],
+    group_weights: List[Dict[str, Any]],
+    skill_emb: np.ndarray,
+    skill_id_to_idx: Dict[int, int],
+    threshold_possessed: float,
+    threshold_partial: float,
+    days: int = 7,
+) -> int:
+    """
+    Chấm CV với TỪNG job đang mở trong `search_group` (listed_time trong `days`
+    ngày), mỗi job lưu 1 record cv_job_matches (match_type='existing_job', có
+    job_id). Tái dùng trọng số nhóm cho kỹ năng trùng (giống match theo URL).
+    Trả về số job đã chấm. Lỗi không làm hỏng luồng match nhóm chính.
+    """
+    if not student_skills:
+        logger.info("No student skills available -> skip per-job scoring.")
+        return 0
+
+    weight_map = {w["skill_id"]: w["weight"] for w in group_weights}
+
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """
+            SELECT j.job_id, js.skill_id, s.skill_name
+            FROM public.jobs j
+            JOIN public.job_skills js ON js.job_id = j.job_id
+            JOIN public.skills s ON s.skill_id = js.skill_id
+            WHERE (LOWER(j.search_group) = LOWER(%s) OR LOWER(j.job_category) = LOWER(%s))
+              AND (j.expiry_time IS NULL OR j.expiry_time > now())
+              AND j.listed_time >= (now() - make_interval(days => %s))
+            """,
+            (search_group, search_group, days),
+        )
+        rows = cur.fetchall()
+    finally:
+        cur.close()
+
+    if not rows:
+        logger.info(
+            "No open jobs (within %d days) with skills in group '%s' -> nothing to score.",
+            days, search_group,
+        )
+        return 0
+
+    # Gom kỹ năng theo từng job
+    job_skill_map: Dict[int, List[Dict[str, Any]]] = {}
+    for job_id, skill_id, skill_name in rows:
+        job_skill_map.setdefault(int(job_id), []).append(
+            {"skill_id": int(skill_id), "skill_name": skill_name}
+        )
+
+    records = []
+    for job_id, jskills in job_skill_map.items():
+        # Trọng số per-job = mượn trọng số nhóm cho kỹ năng trùng; nếu job không
+        # có kỹ năng nào nằm trong danh sách trọng số nhóm -> fallback cả nhóm.
+        target_skills = [
+            {
+                "skill_id": s["skill_id"],
+                "skill_name": s["skill_name"],
+                "weight": weight_map[s["skill_id"]],
+            }
+            for s in jskills
+            if s["skill_id"] in weight_map
+        ]
+        if not target_skills:
+            target_skills = group_weights
+
+        result = compute_skill_match(
+            target_skills, student_skills, skill_emb, skill_id_to_idx,
+            threshold_possessed, threshold_partial,
+        )
+        radar_data = {
+            "matched_skills": result["matched_skills"],
+            "partially_matched_skills": result["partially_matched_skills"],
+        }
+        gap_report = {
+            "missing_skills": result["missing_skills"],
+            "partially_matched_skills": result["partially_matched_skills"],
+        }
+        records.append((
+            cv_id, "existing_job", search_group, job_id,
+            result["match_percent"],
+            json.dumps(radar_data), json.dumps(gap_report),
+            "gemini-2.5-flash",
+        ))
+
+    cur = conn.cursor()
+    try:
+        from psycopg2.extras import execute_values
+        # Xoá per-job cũ của (cv, nhóm) rồi chèn lại. Cách này KHÔNG cần unique
+        # index (cv_id, job_id) -> không phải migrate DB (DB hiện không quản lý
+        # bằng Prisma migrate). Cả 2 lệnh nằm trong 1 transaction (commit cuối).
+        cur.execute(
+            """
+            DELETE FROM public.cv_job_matches
+            WHERE cv_id = %s
+              AND match_type = 'existing_job'
+              AND LOWER(search_group) = LOWER(%s)
+            """,
+            (cv_id, search_group),
+        )
+        execute_values(
+            cur,
+            """
+            INSERT INTO public.cv_job_matches
+                (cv_id, match_type, search_group, job_id, match_score,
+                 radar_data, gap_report, model_version)
+            VALUES %s
+            """,
+            records,
+        )
+        conn.commit()
+        logger.info(
+            "Per-job scoring: upserted %d job matches for cv_id %s in group '%s'.",
+            len(records), cv_id, search_group,
+        )
+        return len(records)
+    except Exception as e:
+        conn.rollback()
+        logger.error("Failed to bulk upsert per-job matches: %s", e)
+        return 0
+    finally:
+        cur.close()
+
+
 def main():
     parser = argparse.ArgumentParser(description="Match CV skills with Job Title requirements.")
     parser.add_argument("--cv", required=True, help="Path to student CV file (PDF/PNG/JPG/JPEG)")
@@ -525,7 +727,9 @@ def main():
     parser.add_argument("--source-id", type=str, required=True, help="Source/Student UUID associated with this CV")
     parser.add_argument("--cv-id", type=str, required=True, help="UUID for the CV from the web application")
     parser.add_argument("--output", help="Path to save matching result JSON. Default: next to CV file with suffix '_matching_result.json'")
-    
+    parser.add_argument("--score-jobs", action="store_true", help="Also score the CV against each open job in the group (per-job matches)")
+    parser.add_argument("--score-days", type=int, default=7, help="When --score-jobs: only score jobs listed within the last N days")
+
     args = parser.parse_args()
 
     if not get_db_connection:
@@ -652,60 +856,16 @@ def main():
         logger.info("Loading skill embeddings cache...")
         skill_emb, skill_id_to_idx, _ = load_skill_embedding_cache()
 
-        # Matching calculation
-        # Calculate similarity between target job skills and student skills
-        matched_skills = []
-        partially_matched_skills = []
-        missing_skills = []
-
-        total_weight = sum(item["weight"] for item in job_skills)
-        weighted_sim_sum = 0.0
-
-        for target in job_skills:
-            target_sid = target["skill_id"]
-            target_name = target["skill_name"]
-            weight = target["weight"]
-
-            # Compute maximum similarity with any student skill
-            max_sim = 0.0
-            best_match_name = None
-            best_match_sid = None
-
-            for student in student_skills:
-                sim = get_skill_similarity(target_sid, student["skill_id"], skill_emb, skill_id_to_idx)
-                if sim > max_sim:
-                    max_sim = sim
-                    best_match_name = student["skill_name"]
-                    best_match_sid = student["skill_id"]
-
-            contribution = weight * max_sim
-            gap = weight * (1.0 - max_sim)
-            weighted_sim_sum += contribution
-
-            skill_detail = {
-                "skill_id": target_sid,
-                "skill_name": target_name,
-                "weight": round(weight, 6),
-                "similarity": round(max_sim, 4),
-            }
-
-            if max_sim >= args.threshold_possessed:
-                skill_detail["contribution"] = round(contribution, 6)
-                if best_match_name and best_match_sid != target_sid:
-                    skill_detail["matched_via"] = best_match_name
-                matched_skills.append(skill_detail)
-            elif max_sim >= args.threshold_partial:
-                skill_detail["contribution"] = round(contribution, 6)
-                skill_detail["gap"] = round(gap, 6)
-                if best_match_name and best_match_sid != target_sid:
-                    skill_detail["matched_via"] = best_match_name
-                partially_matched_skills.append(skill_detail)
-            else:
-                skill_detail["gap"] = round(gap, 6)
-                missing_skills.append(skill_detail)
-
-        match_score = (weighted_sim_sum / total_weight) if total_weight > 0 else 0.0
-        match_percent = round(match_score * 100.0, 2)
+        # Matching calculation (theo NHÓM): dùng chung compute_skill_match
+        group_result = compute_skill_match(
+            job_skills, student_skills, skill_emb, skill_id_to_idx,
+            args.threshold_possessed, args.threshold_partial,
+        )
+        matched_skills = group_result["matched_skills"]
+        partially_matched_skills = group_result["partially_matched_skills"]
+        missing_skills = group_result["missing_skills"]
+        match_score = group_result["match_score"]
+        match_percent = group_result["match_percent"]
 
         # --- DB UPDATE FOR JOB MATCH RESULT ---
         if cv_id is not None:
@@ -718,6 +878,19 @@ def main():
                 partially_matched_skills,
                 missing_skills,
             )
+
+            # Chấm TỪNG job trong nhóm (chỉ khi được yêu cầu — luồng CV/nhóm
+            # mặc định). Lỗi ở đây không làm hỏng kết quả match nhóm ở trên.
+            if args.score_jobs:
+                try:
+                    score_jobs_in_group(
+                        conn, cv_id, args.search_group, student_skills,
+                        job_skills, skill_emb, skill_id_to_idx,
+                        args.threshold_possessed, args.threshold_partial,
+                        days=args.score_days,
+                    )
+                except Exception as e:
+                    logger.error("Per-job scoring step failed (non-fatal): %s", e)
 
         output_data = {
             "job_title": args.search_group,

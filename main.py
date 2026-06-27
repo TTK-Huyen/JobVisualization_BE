@@ -54,12 +54,13 @@ async def match_by_search_group(
     search_group: str = Form(...),
     source_id: str = Form("0"),
     cv_id: str = Form(...),
+    score_jobs: str = Form("false"),
     file: UploadFile = File(...)
 ):
     temp_file_path = UPLOAD_DIR / file.filename
     with open(temp_file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
-        
+
     try:
         cmd = [
             PYTHON_EXEC, "-m", "matching_cv.match_cv",
@@ -68,7 +69,10 @@ async def match_by_search_group(
             "--source-id", source_id,
             "--cv-id", cv_id
         ]
-        
+        # Chấm điểm từng job trong nhóm (chỉ bật cho CV/nhóm mặc định).
+        if str(score_jobs).lower() in ("true", "1", "yes"):
+            cmd.append("--score-jobs")
+
         res = run_cli_command(cmd, working_dir="/app")
         if res["status"] == "error":
             raise HTTPException(status_code=500, detail=res)
