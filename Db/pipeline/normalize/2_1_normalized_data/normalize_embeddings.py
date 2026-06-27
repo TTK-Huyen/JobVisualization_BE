@@ -158,6 +158,53 @@ def load_dictionary_from_db(db_url: str, table: str) -> List[Tuple[int, str]]:
     return []
 
 
+def load_skills_metadata_from_db(db_url: str, table: str) -> List[Tuple[int, str, str, str]]:
+    if not db_url:
+        return []
+    if '?' in db_url:
+        db_url = db_url.split('?')[0]
+        
+    engine = create_engine(db_url)
+    try:
+        with engine.connect() as conn:
+            # Check what columns exist in the table
+            q_cols = text(f"SELECT column_name FROM information_schema.columns WHERE table_name = '{table}'")
+            cols = [r[0] for r in conn.execute(q_cols).fetchall()]
+            
+            id_col = "skill_id" if "skill_id" in cols else ("id" if "id" in cols else None)
+            name_col = "skill_name" if "skill_name" in cols else ("name" if "name" in cols else None)
+            cat_col = "category" if "category" in cols else None
+            type_col = "type" if "type" in cols else None
+            
+            if not id_col or not name_col:
+                return []
+                
+            cols_str = f"{id_col} as id, {name_col} as name"
+            if cat_col:
+                cols_str += f", {cat_col} as category"
+            else:
+                cols_str += ", NULL as category"
+            if type_col:
+                cols_str += f", {type_col} as type"
+            else:
+                cols_str += ", NULL as type"
+                
+            q = text(f"SELECT {cols_str} FROM {table}")
+            res = conn.execute(q)
+            rows = res.fetchall()
+            out = []
+            for row in rows:
+                sid = int(row[0])
+                name = str(row[1])
+                cat = str(row[2]) if row[2] else "General"
+                stype = str(row[3]) if row[3] else "Hard Skill"
+                out.append((sid, name, cat, stype))
+            return out
+    except Exception as e:
+        print(f"Warning: Failed to load skills with metadata from DB: {e}")
+        return []
+
+
 def compute_embeddings(model: SentenceTransformer, texts: List[str], batch_size: int = 64) -> np.ndarray:
     if not texts:
         return np.zeros((0, model.get_sentence_embedding_dimension()), dtype=float)
@@ -665,40 +712,15 @@ def main() -> int:
     print(f"Total skills/keywords loaded from DB: {len(skills)}")
     print(f"Total benefits loaded from DB: {len(benefits)}")
 
-    # Locate local Lightcast CSV
-    script_dir = Path(__file__).resolve().parent
-    possible_paths = [
-        script_dir / "Lightcast" / "lightcast.csv",
-        script_dir / "lightcast" / "lightcast.csv",
-        Path("Lightcast/lightcast.csv"),
-        Path("lightcast/lightcast.csv"),
-        Path("./Lightcast/lightcast.csv"),
-        Path("./lightcast/lightcast.csv"),
-    ]
-    lightcast_csv = None
-    for p in possible_paths:
-        if p.exists():
-            lightcast_csv = p.resolve()
-            break
+    # 1. Load skills with metadata from DB instead of depending on lightcast.csv
+    skills_with_meta = load_skills_metadata_from_db(args.db_url, args.skill_table)
+    print(f"Total skills with metadata loaded from DB: {len(skills_with_meta)}")
 
-    if not lightcast_csv:
-        print("Error: Lightcast taxonomy CSV not found locally.", file=sys.stderr)
-        return 3
-
-    # Load and filter Lightcast CSV
-    print(f"Loading and filtering local Lightcast CSV from: {lightcast_csv}")
-    lightcast_skills = []
     allowed_types = {'Hard Skill', 'Specialized Skill', 'Common skill', 'Common Skill'}
-    
-    with open(lightcast_csv, mode="r", encoding="utf-8") as f:
-        reader = csv.reader(f)
-        for row in reader:
-            if not row or len(row) < 5:
-                continue
-            name = row[1].strip()
-            skill_type = row[4].strip()
-            if skill_type in allowed_types and name:
-                lightcast_skills.append(name)
+    lightcast_skills = []
+    for sid, name, cat, stype in skills_with_meta:
+        if stype in allowed_types and name:
+            lightcast_skills.append(name)
 
     # Deduplicate while preserving order
     seen = set()
@@ -708,7 +730,7 @@ def main() -> int:
             seen.add(s)
             lightcast_skills_dedup.append(s)
     lightcast_skills = lightcast_skills_dedup
-    print(f"Total allowed skills loaded from Lightcast CSV: {len(lightcast_skills)}")
+    print(f"Total allowed skills loaded: {len(lightcast_skills)}")
 
     # Map allowed Lightcast skills to database IDs
     lightcast_skill_map = []
@@ -718,6 +740,8 @@ def main() -> int:
             lightcast_skill_map.append((sid, name))
         else:
             lightcast_skill_map.append((-1, name))
+
+    script_dir = Path(__file__).resolve().parent
 
     print(f"Model: {args.model_name}")
     model = SentenceTransformer(args.model_name)

@@ -402,14 +402,16 @@ def upsert_user_cv(conn, user_id: int, file_name: str, file_url: str, extracted_
                 (extracted_text, file_url, cv_id)
             )
         else:
-            logger.info("Inserting new CV into public.user_cvs for user_id: %s...", user_id)
+            import uuid
+            cv_id = str(uuid.uuid4())
+            logger.info("Inserting new CV into public.user_cvs (cv_id: %s) for user_id: %s...", cv_id, user_id)
             cur.execute(
                 """
-                INSERT INTO public.user_cvs (user_id, file_name, file_url, extracted_text)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO public.user_cvs (cv_id, user_id, file_name, file_url, extracted_text)
+                VALUES (%s, %s, %s, %s, %s)
                 RETURNING cv_id
                 """,
-                (user_id, file_name, file_url, extracted_text)
+                (cv_id, user_id, file_name, file_url, extracted_text)
             )
             cv_id = cur.fetchone()[0]
         conn.commit()
