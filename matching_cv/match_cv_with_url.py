@@ -22,6 +22,35 @@ import numpy as np
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("match_cv_with_url")
 
+
+def clean_job_url(url: str) -> str:
+    """
+    Standardize/normalize job URLs:
+    1. Strip whitespace.
+    2. Remove all query parameters (after '?').
+    3. Strip trailing slashes.
+    4. Force lowercased domain.
+    """
+    if not url:
+        return url
+    url = url.strip()
+    # Remove query parameters
+    url = url.split("?")[0]
+    # Strip trailing slashes
+    url = url.rstrip("/")
+    # Lowercase the domain part
+    if "://" in url:
+        parts = url.split("://", 1)
+        scheme = parts[0]
+        rest = parts[1]
+        if "/" in rest:
+            domain, path = rest.split("/", 1)
+            url = f"{scheme.lower()}://{domain.lower()}/{path}"
+        else:
+            url = f"{scheme.lower()}://{rest.lower()}"
+    return url
+
+
 # Resolve project root dynamically
 THIS_FILE = Path(__file__).resolve()
 PROJECT_ROOT = None
@@ -47,7 +76,8 @@ try:
         fetch_job_group_weights,
         load_skill_embedding_cache,
         get_skill_similarity,
-        insert_unmatched_skills
+        insert_unmatched_skills,
+        compute_skill_match
     )
     from matching_cv.utils import extract_cv_text, load_db_env
     load_db_env()
@@ -163,11 +193,68 @@ def crawl_job_url(url: str) -> Dict[str, Any]:
             
     elif "vietnamworks.com" in url_lower:
         import requests
+        import html
         module = load_scraper_module("crawl-vietnamwork-jobs", "scrape_vietnamwork.py")
-        session = module.build_session()
-        detail_dict = module.scrape_job_detail_raw(session, url)
-        job_dict = {"job_url": url, "title": None, "company": None}
-        raw_job = module.convert_to_raw_job_data(job_dict, detail_dict)
+        
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        }
+        r = requests.get(url, headers=headers, timeout=15)
+        soup_matches = re.findall(r'self\.__next_f\.push\(\s*\[\s*\d+\s*,\s*"(.*)"\s*\]\s*\)', r.text)
+        
+        rsc_parts = []
+        for m in soup_matches:
+            try:
+                decoded = bytes(m, "utf-8").decode("unicode-escape")
+                rsc_parts.append(decoded)
+            except Exception:
+                rsc_parts.append(m)
+                
+        full_rsc_text = "".join(rsc_parts)
+        normalized = full_rsc_text.replace('\\"', '"').replace('\\/', '/')
+        
+        def extract_field(pattern, text):
+            m = re.search(pattern, text)
+            if m:
+                val = m.group(1)
+                val = html.unescape(val)
+                val = val.replace('\\n', '\n').replace('\\t', '\t')
+                try:
+                    val = val.encode('latin1').decode('utf-8', errors='ignore')
+                except Exception:
+                    pass
+                return val
+            return None
+            
+        job_id = extract_field(r'"jobId"\s*:\s*(\d+|"[^"]*")', normalized)
+        if job_id and job_id.startswith('"'):
+            job_id = job_id.strip('"')
+            
+        title = extract_field(r'"jobTitle"\s*:\s*"([^"]*)"', normalized)
+        company_name = extract_field(r'"companyName"\s*:\s*"([^"]*)"', normalized)
+        pretty_salary = extract_field(r'"prettySalary"\s*:\s*"([^"]*)"', normalized)
+        company_profile = extract_field(r'"companyProfile"\s*:\s*"((?:[^"\\]|\\.)*)"', normalized)
+        company_website = extract_field(r'"companyUrl"\s*:\s*"([^"]*)"', normalized)
+        address = extract_field(r'"address"\s*:\s*"([^"]*)"', normalized)
+        company_size = extract_field(r'"companySizeVI"\s*:\s*"([^"]*)"', normalized) or extract_field(r'"companySize"\s*:\s*"([^"]*)"', normalized)
+        alias = extract_field(r'"alias"\s*:\s*"([^"]*)"', normalized)
+        
+        # Build job dict
+        job = {
+            "jobId": int(job_id) if job_id and job_id.isdigit() else 2064371,
+            "jobUrl": url,
+            "jobTitle": title,
+            "companyName": company_name,
+            "prettySalary": pretty_salary,
+            "companyProfile": company_profile,
+            "companyUrl": company_website,
+            "address": address,
+            "companySizeVI": company_size,
+            "alias": alias,
+        }
+        
+        raw_job = module.map_api_job_to_raw_job_data(job)
         if raw_job:
             result = raw_job.to_dict()
             _validate_raw_job(result, url)
@@ -280,6 +367,7 @@ def save_cv_job_match_existing_job(
     matched_skills: List[Dict[str, Any]],
     partially_matched_skills: List[Dict[str, Any]],
     missing_skills: List[Dict[str, Any]],
+    student_skills: List[Dict[str, Any]] = None,
 ) -> None:
     """
     Save match results of CV with a specific job URL into cv_job_matches table.
@@ -290,6 +378,8 @@ def save_cv_job_match_existing_job(
             "matched_skills": matched_skills,
             "partially_matched_skills": partially_matched_skills,
         }
+        if student_skills is not None:
+            radar_data["student_skills"] = student_skills
         gap_report = {
             "missing_skills": missing_skills,
             "partially_matched_skills": partially_matched_skills,
@@ -339,6 +429,8 @@ def main():
     parser.add_argument("--output", help="Path to save matching result JSON. Default: next to CV file with suffix '_matching_result.json'")
     
     args = parser.parse_args()
+    args.url = clean_job_url(args.url)
+    logger.info("Normalized job URL to: %s", args.url)
     python_exe = sys.executable
     
     if not get_db_connection:
@@ -454,6 +546,16 @@ def main():
             (args.url, clean_url, clean_url + "/")
         )
         existing_job = cur.fetchone()
+        if not existing_job:
+            # Fallback lookup by numeric ID extracted from URL
+            job_id_match = re.search(r"\b(\d{7,12})\b", args.url)
+            if job_id_match:
+                num_id = job_id_match.group(1)
+                cur.execute(
+                    "SELECT job_id, title, search_group FROM public.jobs WHERE source_id = %s OR job_posting_url LIKE %s LIMIT 1",
+                    (num_id, f"%{num_id}%")
+                )
+                existing_job = cur.fetchone()
         
         job_id = None
         job_rec = None
@@ -511,6 +613,8 @@ def main():
                     raw_job = json.load(f)[0]
             else:
                 raw_job = crawl_job_url(args.url)
+                # Overwrite/Ensure the raw job URL is standardized
+                raw_job["job_url"] = args.url
                 logger.info("Crawled job title: '%s' from %s", raw_job.get("title"), raw_job.get("source_name"))
                 
                 # Clean existing temp files in .tmp directory to avoid idempotency/deduplication skips
@@ -578,6 +682,12 @@ def main():
             if not normalized_jobs:
                 raise RuntimeError("Normalization step returned empty output")
             job_rec = normalized_jobs[0]
+            # Standardize URL in normalized record to match clean URL
+            job_rec["job_url"] = args.url
+            if "job" not in job_rec:
+                job_rec["job"] = {}
+            job_rec["job"]["job_posting_url"] = args.url
+            
             job_title = job_rec.get("title") or raw_job.get("title")
             # The LLM pipeline stores some fields as {"value": "...", "confidence": N} dicts.
             # Unwrap to a plain string before passing to sentence-transformers.
@@ -622,6 +732,16 @@ def main():
             )
             row = cur.fetchone()
             if not row:
+                # Fallback: Extract numeric ID from URL and lookup by source_id or wildcard URL match
+                job_id_match = re.search(r"\b(\d{7,12})\b", args.url)
+                if job_id_match:
+                    num_id = job_id_match.group(1)
+                    cur.execute(
+                        "SELECT job_id FROM public.jobs WHERE source_id = %s OR job_posting_url LIKE %s LIMIT 1",
+                        (num_id, f"%{num_id}%")
+                    )
+                    row = cur.fetchone()
+            if not row:
                 raise RuntimeError(f"Failed to find imported job in database for URL: {args.url} (Cleaned: {clean_url})")
             job_id = row[0]
             logger.info("Imported/Updated job successfully. Job ID: %d", job_id)
@@ -659,57 +779,15 @@ def main():
         
         # 3. Match calculation
         skill_emb, skill_id_to_idx, _ = load_skill_embedding_cache()
-        matched_skills = []
-        partially_matched_skills = []
-        missing_skills = []
-        
-        total_weight = sum(item["weight"] for item in job_skills)
-        weighted_sim_sum = 0.0
-        
-        for target in job_skills:
-            target_sid = target["skill_id"]
-            target_name = target["skill_name"]
-            weight = target["weight"]
-
-            max_sim = 0.0
-            best_match_name = None
-            best_match_sid = None
-
-            for student in student_skills:
-                sim = get_skill_similarity(target_sid, student["skill_id"], skill_emb, skill_id_to_idx)
-                if sim > max_sim:
-                    max_sim = sim
-                    best_match_name = student["skill_name"]
-                    best_match_sid = student["skill_id"]
-
-            contribution = weight * max_sim
-            gap = weight * (1.0 - max_sim)
-            weighted_sim_sum += contribution
-
-            skill_detail = {
-                "skill_id": target_sid,
-                "skill_name": target_name,
-                "weight": round(weight, 6),
-                "similarity": round(max_sim, 4),
-            }
-
-            if max_sim >= args.threshold_possessed:
-                skill_detail["contribution"] = round(contribution, 6)
-                if best_match_name and best_match_sid != target_sid:
-                    skill_detail["matched_via"] = best_match_name
-                matched_skills.append(skill_detail)
-            elif max_sim >= args.threshold_partial:
-                skill_detail["contribution"] = round(contribution, 6)
-                skill_detail["gap"] = round(gap, 6)
-                if best_match_name and best_match_sid != target_sid:
-                    skill_detail["matched_via"] = best_match_name
-                partially_matched_skills.append(skill_detail)
-            else:
-                skill_detail["gap"] = round(gap, 6)
-                missing_skills.append(skill_detail)
-
-        match_score = (weighted_sim_sum / total_weight) if total_weight > 0 else 0.0
-        match_percent = round(match_score * 100.0, 2)
+        group_result = compute_skill_match(
+            job_skills, student_skills, skill_emb, skill_id_to_idx,
+            args.threshold_possessed, args.threshold_partial
+        )
+        matched_skills = group_result["matched_skills"]
+        partially_matched_skills = group_result["partially_matched_skills"]
+        missing_skills = group_result["missing_skills"]
+        match_score = group_result["match_score"]
+        match_percent = group_result["match_percent"]
         
         # Save to cv_job_matches table
         if cv_id is not None:
@@ -721,7 +799,8 @@ def main():
                 match_percent,
                 matched_skills,
                 partially_matched_skills,
-                missing_skills
+                missing_skills,
+                group_result["student_skills"]
             )
             
         output_data = {
@@ -731,7 +810,7 @@ def main():
             "search_group": matched_search_group,
             "match_score": round(match_score, 6),
             "match_percent": match_percent,
-            "student_skills": student_skills,
+            "student_skills": group_result["student_skills"],
             "matched_skills": matched_skills,
             "partially_matched_skills": partially_matched_skills,
             "missing_skills": missing_skills,

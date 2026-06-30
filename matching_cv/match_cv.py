@@ -467,6 +467,7 @@ def save_cv_job_match(
     matched_skills: List[Dict[str, Any]],
     partially_matched_skills: List[Dict[str, Any]],
     missing_skills: List[Dict[str, Any]],
+    student_skills: List[Dict[str, Any]] = None,
 ) -> None:
     """
     Save CV job match results to cv_job_matches table.
@@ -477,6 +478,8 @@ def save_cv_job_match(
             "matched_skills": matched_skills,
             "partially_matched_skills": partially_matched_skills,
         }
+        if student_skills is not None:
+            radar_data["student_skills"] = student_skills
         gap_report = {
             "missing_skills": missing_skills,
             "partially_matched_skills": partially_matched_skills,
@@ -556,11 +559,17 @@ def compute_skill_match(
         gap = weight * (1.0 - max_sim)
         weighted_sim_sum += contribution
 
+        # Đóng góp tuyệt đối của kỹ năng yêu cầu này vào tổng điểm chung (%)
+        abs_contrib_pct = (contribution / total_weight * 100.0) if total_weight > 0 else 0.0
+        max_contrib_pct = (weight / total_weight * 100.0) if total_weight > 0 else 0.0
+
         skill_detail = {
             "skill_id": target_sid,
             "skill_name": target_name,
             "weight": round(weight, 6),
             "similarity": round(max_sim, 4),
+            "absolute_contribution_percent": round(abs_contrib_pct, 2),
+            "max_contribution_percent": round(max_contrib_pct, 2)
         }
         if max_sim >= threshold_possessed:
             skill_detail["contribution"] = round(contribution, 6)
@@ -575,15 +584,24 @@ def compute_skill_match(
             partially_matched_skills.append(skill_detail)
         else:
             skill_detail["gap"] = round(gap, 6)
+            skill_detail["absolute_contribution_percent"] = 0.0
             missing_skills.append(skill_detail)
 
     match_score = (weighted_sim_sum / total_weight) if total_weight > 0 else 0.0
+    match_percent = round(match_score * 100.0, 2)
+
+    # Sắp xếp các danh sách kỹ năng kết quả theo trọng số (weight) giảm dần
+    matched_skills.sort(key=lambda x: x["weight"], reverse=True)
+    partially_matched_skills.sort(key=lambda x: x["weight"], reverse=True)
+    missing_skills.sort(key=lambda x: x["weight"], reverse=True)
+
     return {
         "match_score": match_score,
-        "match_percent": round(match_score * 100.0, 2),
+        "match_percent": match_percent,
         "matched_skills": matched_skills,
         "partially_matched_skills": partially_matched_skills,
         "missing_skills": missing_skills,
+        "student_skills": student_skills,
     }
 
 
@@ -666,6 +684,7 @@ def score_jobs_in_group(
         radar_data = {
             "matched_skills": result["matched_skills"],
             "partially_matched_skills": result["partially_matched_skills"],
+            "student_skills": result.get("student_skills"),
         }
         gap_report = {
             "missing_skills": result["missing_skills"],
@@ -877,6 +896,7 @@ def main():
                 matched_skills,
                 partially_matched_skills,
                 missing_skills,
+                group_result["student_skills"],
             )
 
             # Chấm TỪNG job trong nhóm (chỉ khi được yêu cầu — luồng CV/nhóm
@@ -884,7 +904,7 @@ def main():
             if args.score_jobs:
                 try:
                     score_jobs_in_group(
-                        conn, cv_id, args.search_group, student_skills,
+                        conn, cv_id, args.search_group, group_result["student_skills"],
                         job_skills, skill_emb, skill_id_to_idx,
                         args.threshold_possessed, args.threshold_partial,
                         days=args.score_days,
@@ -896,7 +916,7 @@ def main():
             "job_title": args.search_group,
             "match_score": round(match_score, 6),
             "match_percent": match_percent,
-            "student_skills": student_skills,
+            "student_skills": group_result["student_skills"],
             "matched_skills": matched_skills,
             "partially_matched_skills": partially_matched_skills,
             "missing_skills": missing_skills,
