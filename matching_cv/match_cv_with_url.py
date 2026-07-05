@@ -422,8 +422,9 @@ def main():
     parser.add_argument("--cv", required=True, help="Path to student CV file (PDF/PNG/JPG/JPEG)")
     parser.add_argument("--url", required=True, help="Job posting URL to crawl and match against")
     parser.add_argument("--source-id", type=str, required=True, help="Source/Student UUID associated with this CV")
+    parser.add_argument("--model-name", default="all-MiniLM-L6-v2", help="SentenceTransformer model name to use")
     parser.add_argument("--threshold-possessed", type=float, default=0.75, help="Similarity threshold for possessed skills")
-    parser.add_argument("--threshold-partial", type=float, default=0.3, help="Similarity threshold for partial match skills")
+    parser.add_argument("--threshold-partial", type=float, default=0.45, help="Similarity threshold for partial match skills")
     parser.add_argument("--confidence-threshold", type=float, default=0.85, help="LLM skill extraction confidence threshold")
     parser.add_argument("--cv-id", type=str, required=True, help="UUID for the CV from the web application")
     parser.add_argument("--output", help="Path to save matching result JSON. Default: next to CV file with suffix '_matching_result.json'")
@@ -777,8 +778,33 @@ def main():
             
         logger.info("Target job skills: %d", len(job_skills))
         
-        # 3. Match calculation
-        skill_emb, skill_id_to_idx, _ = load_skill_embedding_cache()
+        # 3. Load or generate skill embeddings cache
+        if args.model_name == "all-MiniLM-L6-v2":
+            logger.info("Loading default skill embeddings cache...")
+            skill_emb, skill_id_to_idx, _ = load_skill_embedding_cache()
+        else:
+            logger.info("Generating dynamic embeddings using model: %s", args.model_name)
+            # Collect unique skill IDs and names
+            unique_skills = {}
+            for s in student_skills:
+                if s["skill_id"] not in unique_skills:
+                    unique_skills[s["skill_id"]] = s["skill_name"]
+            for s in job_skills:
+                if s["skill_id"] not in unique_skills:
+                    unique_skills[s["skill_id"]] = s["skill_name"]
+            
+            # Load the model dynamically
+            from sentence_transformers import SentenceTransformer
+            model = SentenceTransformer(args.model_name)
+            skill_ids = list(unique_skills.keys())
+            skill_names = [unique_skills[sid] for sid in skill_ids]
+            
+            # Encode
+            logger.info("Encoding %d unique skills with %s...", len(skill_names), args.model_name)
+            embs = model.encode(skill_names, normalize_embeddings=True)
+            
+            skill_emb = np.asarray(embs, dtype=float)
+            skill_id_to_idx = {sid: idx for idx, sid in enumerate(skill_ids)}
         group_result = compute_skill_match(
             job_skills, student_skills, skill_emb, skill_id_to_idx,
             args.threshold_possessed, args.threshold_partial

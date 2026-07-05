@@ -535,6 +535,25 @@ def compute_skill_match(
     partially_matched_skills: List[Dict[str, Any]] = []
     missing_skills: List[Dict[str, Any]] = []
 
+    # Load skill type/category metadata for semantic filtering
+    skill_metadata = {}
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT skill_id, category, type, is_software, is_language, category_name FROM public.skills")
+        for row in cur.fetchall():
+            skill_metadata[int(row[0])] = {
+                "category": row[1] or "",
+                "type": row[2] or "",
+                "is_software": bool(row[3]),
+                "is_language": bool(row[4]),
+                "category_name": row[5] or ""
+            }
+        cur.close()
+        conn.close()
+    except Exception as e:
+        logger.warning("Could not load skill metadata for semantic filtering: %s", e)
+
     total_weight = sum(item["weight"] for item in target_skills)
     weighted_sim_sum = 0.0
 
@@ -550,6 +569,63 @@ def compute_skill_match(
             sim = get_skill_similarity(
                 target_sid, student["skill_id"], skill_emb, skill_id_to_idx
             )
+
+            # Apply semantic filtering rules
+            t_meta = skill_metadata.get(target_sid)
+            s_meta = skill_metadata.get(student["skill_id"])
+            if t_meta and s_meta:
+                t_type = t_meta.get("type", "")
+                s_type = s_meta.get("type", "")
+                t_is_sw = t_meta.get("is_software", False)
+                s_is_sw = s_meta.get("is_software", False)
+                t_is_lang = t_meta.get("is_language", False)
+                s_is_lang = s_meta.get("is_language", False)
+
+                # Rule 3: Symmetric Type Grouping (Specialized vs Specialized, Common vs Common)
+                # - Certifications are temporarily ignored (forced to 0.0)
+                if t_type == "Certification" or s_type == "Certification":
+                    sim = 0.0
+                elif t_type != s_type:
+                    sim = 0.0
+
+                # Rule 2: Software/Tool Exclusivity
+                # - Software/Tool cannot match Common skill (soft skills / process)
+                if t_is_sw and s_type == "Common skill":
+                    sim = 0.0
+                elif t_type == "Common skill" and s_is_sw:
+                    sim = 0.0
+
+                # Rule 1: Language Filtering
+                # - If either is a language skill, they must both be language skills of the same language root
+                if t_is_lang or s_is_lang:
+                    if not (t_is_lang and s_is_lang):
+                        sim = 0.0
+                    else:
+                        # Extract language root names (e.g. english, german)
+                        def get_language_root(name: str) -> str:
+                            name_lower = name.lower()
+                            for lang in ["english", "vietnamese", "german", "japanese", "french", "chinese", "korean", "spanish", "russian", "italian"]:
+                                if lang in name_lower:
+                                    return lang
+                            return ""
+                        
+                        t_lang = get_language_root(target_name)
+                        s_lang = get_language_root(student["skill_name"])
+                        if t_lang and s_lang and t_lang != s_lang:
+                            sim = 0.0
+
+                # Rule 5: Subcategory Penalty
+                # - If both have non-empty subcategory names (category field) and they are different, apply a penalty factor of 0.8
+                t_subcat = t_meta.get("category", "")
+                s_subcat = s_meta.get("category", "")
+                if t_subcat and s_subcat and t_subcat != s_subcat:
+                    sim = sim * 0.8
+
+                # Rule 6: Subcategory Boost
+                # - If both have non-empty subcategory names and they are in the exact same subcategory, apply a boost of 1.2 (up to 1.0)
+                if t_subcat and s_subcat and t_subcat == s_subcat:
+                    sim = min(1.0, sim * 1.2)
+
             if sim > max_sim:
                 max_sim = sim
                 best_match_name = student["skill_name"]
@@ -740,8 +816,9 @@ def main():
     parser = argparse.ArgumentParser(description="Match CV skills with Job Title requirements.")
     parser.add_argument("--cv", required=True, help="Path to student CV file (PDF/PNG/JPG/JPEG)")
     parser.add_argument("--search-group", required=True, help="Search group/job title to match against")
+    parser.add_argument("--model-name", default="all-MiniLM-L6-v2", help="SentenceTransformer model name to use")
     parser.add_argument("--threshold-possessed", type=float, default=0.75, help="Similarity threshold for possessed skills")
-    parser.add_argument("--threshold-partial", type=float, default=0.3, help="Similarity threshold for partial match skills")
+    parser.add_argument("--threshold-partial", type=float, default=0.45, help="Similarity threshold for partial match skills")
     parser.add_argument("--confidence-threshold", type=float, default=0.85, help="LLM skill extraction confidence threshold")
     parser.add_argument("--source-id", type=str, required=True, help="Source/Student UUID associated with this CV")
     parser.add_argument("--cv-id", type=str, required=True, help="UUID for the CV from the web application")
@@ -872,8 +949,55 @@ def main():
         #     insert_unmatched_skills(conn, log_source_id, "cv", unmatched_skills)
 
         # Load skills embeddings cache
-        logger.info("Loading skill embeddings cache...")
-        skill_emb, skill_id_to_idx, _ = load_skill_embedding_cache()
+        if args.model_name == "all-MiniLM-L6-v2":
+            logger.info("Loading default skill embeddings cache...")
+            skill_emb, skill_id_to_idx, _ = load_skill_embedding_cache()
+        else:
+            logger.info("Generating dynamic embeddings using model: %s", args.model_name)
+            # Collect unique skill IDs and names
+            unique_skills = {}
+            for s in student_skills:
+                if s["skill_id"] not in unique_skills:
+                    unique_skills[s["skill_id"]] = s["skill_name"]
+            for s in job_skills:
+                if s["skill_id"] not in unique_skills:
+                    unique_skills[s["skill_id"]] = s["skill_name"]
+                    
+            if args.score_jobs:
+                logger.info("Fetching additional open job skill names for dynamic encoding...")
+                cur = conn.cursor()
+                try:
+                    cur.execute(
+                        """
+                        SELECT DISTINCT js.skill_id, s.skill_name
+                        FROM public.jobs j
+                        JOIN public.job_skills js ON js.job_id = j.job_id
+                        JOIN public.skills s ON s.skill_id = js.skill_id
+                        WHERE (LOWER(j.search_group) = LOWER(%s) OR LOWER(j.job_category) = LOWER(%s))
+                          AND (j.expiry_time IS NULL OR j.expiry_time > now())
+                          AND j.listed_time >= (now() - make_interval(days => %s))
+                        """,
+                        (args.search_group, args.search_group, args.score_days)
+                    )
+                    for row in cur.fetchall():
+                        sid = int(row[0])
+                        if sid not in unique_skills:
+                            unique_skills[sid] = row[1]
+                finally:
+                    cur.close()
+            
+            # Load the model dynamically
+            from sentence_transformers import SentenceTransformer
+            model = SentenceTransformer(args.model_name)
+            skill_ids = list(unique_skills.keys())
+            skill_names = [unique_skills[sid] for sid in skill_ids]
+            
+            # Encode
+            logger.info("Encoding %d unique skills with %s...", len(skill_names), args.model_name)
+            embs = model.encode(skill_names, normalize_embeddings=True)
+            
+            skill_emb = np.asarray(embs, dtype=float)
+            skill_id_to_idx = {sid: idx for idx, sid in enumerate(skill_ids)}
 
         # Matching calculation (theo NHÓM): dùng chung compute_skill_match
         group_result = compute_skill_match(
