@@ -36,6 +36,77 @@ def load_json(path: Path) -> List[Dict[str, Any]]:
     raise ValueError("Unsupported input JSON format")
 
 
+def check_duplicate_by_similarity(cur, company_id: Optional[int], new_desc: str) -> Optional[tuple[int, Optional[str], float]]:
+    """
+    Check if there is a job by the same company in the last 30 days that has
+    a description text highly similar (> 0.8) to new_desc using pairwise TF-IDF.
+    Returns a tuple (job_id, job_posting_url, similarity) of the duplicate job if found, otherwise None.
+    """
+    if not company_id or not new_desc or len(new_desc.strip()) < 50:
+        return None
+        
+    cur.execute(
+        "SELECT job_id, description, job_posting_url FROM jobs WHERE company_id = %s AND scraped_at >= NOW() - INTERVAL '30 days'",
+        (company_id,)
+    )
+    rows = cur.fetchall()
+    if not rows:
+        return None
+
+    import re
+    import math
+    from collections import Counter
+
+    token_pattern = re.compile(r'\w+')
+    words_new = token_pattern.findall(new_desc.lower())
+    tf_new = Counter(words_new)
+    
+    for job_id, old_desc, old_url in rows:
+        if not old_desc or len(old_desc.strip()) < 50:
+            continue
+            
+        words_old = token_pattern.findall(old_desc.lower())
+        tf_old = Counter(words_old)
+        
+        # Calculate pairwise TF-IDF (N=2) for this pair of job descriptions.
+        # - Any word in both docs: df=2 -> idf = ln((1+2)/(1+2)) + 1 = 1.0
+        # - Any word in only one doc: df=1 -> idf = ln((1+2)/(1+1)) + 1 = ln(1.5) + 1 = 1.405465108
+        sq_sum_new = 0.0
+        sq_sum_old = 0.0
+        dot_product = 0.0
+        
+        all_words = set(tf_new.keys()) | set(tf_old.keys())
+        for w in all_words:
+            in_new = w in tf_new
+            in_old = w in tf_old
+            
+            if in_new and in_old:
+                idf_val = 1.0
+                val_new = tf_new[w] * idf_val
+                val_old = tf_old[w] * idf_val
+                dot_product += val_new * val_old
+                sq_sum_new += val_new ** 2
+                sq_sum_old += val_old ** 2
+            elif in_new:
+                idf_val = 1.405465108
+                val_new = tf_new[w] * idf_val
+                sq_sum_new += val_new ** 2
+            elif in_old:
+                idf_val = 1.405465108
+                val_old = tf_old[w] * idf_val
+                sq_sum_old += val_old ** 2
+                
+        len_new = math.sqrt(sq_sum_new)
+        len_old = math.sqrt(sq_sum_old)
+        
+        if len_new > 0 and len_old > 0:
+            sim = dot_product / (len_new * len_old)
+            if sim > 0.8:
+                return job_id, old_url, sim
+                
+    return None
+
+
 def get_db_connection():
     load_dotenv(BASE_DIR / ".env")
 
@@ -133,21 +204,92 @@ def make_fingerprint(rec: Dict[str, Any]) -> str:
     raw = "|".join([title, company_name, skills_desc])
     return hashlib.md5(raw.encode("utf-8")).hexdigest()
 
+def normalize_company_name(name: str) -> str:
+    import unicodedata
+    import re
+    if not name:
+        return ""
+    # Normalize accents
+    n = unicodedata.normalize("NFKD", str(name)).encode("ascii", "ignore").decode("utf-8").lower()
+    # Remove common suffixes
+    suffixes = [
+        r'\bcompany\b', r'\bco\b', r'\bltd\b', r'\bjsc\b', r'\bcorp\b', r'\bcorporation\b',
+        r'\bjoint\s+stock\b', r'\bthanh\s+vien\b', r'\bco\s+phan\b', r'\bcong\s+ty\b',
+        r'\btrach\s+nhiem\s+huu\s+han\b', r'\btnhh\b', r'\bgờ\s+rúp\b', r'\bgroup\b'
+    ]
+    for suffix in suffixes:
+        n = re.sub(suffix, '', n)
+    # Remove special chars and strip extra space
+    n = re.sub(r'[^a-z0-9\s]', ' ', n)
+    n = re.sub(r'\s+', ' ', n).strip()
+    return n
+
+
+def find_similar_company(cur, incoming_name: str) -> Optional[int]:
+    norm_incoming = normalize_company_name(incoming_name)
+    if not norm_incoming:
+        return None
+        
+    cur.execute("SELECT company_id, name FROM companies")
+    rows = cur.fetchall()
+    
+    words_incoming = set(norm_incoming.split())
+    if not words_incoming:
+        return None
+        
+    for comp_id, db_name in rows:
+        norm_db = normalize_company_name(db_name)
+        words_db = set(norm_db.split())
+        if not words_db:
+            continue
+            
+        intersection = words_incoming & words_db
+        if not intersection:
+            continue
+            
+        smaller_len = min(len(words_incoming), len(words_db))
+        overlap_ratio = len(intersection) / smaller_len
+        
+        # Stop-words to ignore for single-word exact matches
+        stopwords = {"software", "technology", "solution", "solutions", "vietnam", "system", "systems", "service", "services", "global"}
+        
+        if (smaller_len == 1 and overlap_ratio == 1.0 and list(intersection)[0] not in stopwords) or (smaller_len >= 2 and overlap_ratio >= 0.8):
+            return comp_id
+            
+    return None
+
+
 def upsert_company(cur, comp: Dict[str, Any]) -> Optional[int]:
     name = unwrap_and_truncate(comp.get("name") or comp.get("company_name"), 255)
     if not name:
         return None
     url = unwrap_and_truncate(comp.get("url") or comp.get("company_website"), 500)
-    # try find by name and url
+    
+    # 1. Try finding by name and url exact match
     if url:
         cur.execute("SELECT company_id FROM companies WHERE name = %s AND url = %s", (name, url))
         row = cur.fetchone()
         if row:
             return row[0]
+            
+    # 2. Try finding by name exact match
     cur.execute("SELECT company_id FROM companies WHERE name = %s", (name,))
     row = cur.fetchone()
     if row:
         return row[0]
+        
+    # 3. Try finding by URL exact match (URL is highly unique)
+    if url:
+        cur.execute("SELECT company_id FROM companies WHERE url = %s LIMIT 1", (url,))
+        row = cur.fetchone()
+        if row:
+            return row[0]
+            
+    # 4. Try finding by fuzzy/similar name match
+    similar_id = find_similar_company(cur, name)
+    if similar_id:
+        return similar_id
+        
     # create new company_id as max+1
     cur.execute("SELECT COALESCE(MAX(company_id), 0) + 1 FROM companies")
     new_id = cur.fetchone()[0]
@@ -169,7 +311,7 @@ def upsert_company(cur, comp: Dict[str, Any]) -> Optional[int]:
     return new_id
 
 
-def upsert_job(cur, rec: Dict[str, Any], company_id: Optional[int], fingerprint: str, valid_keywords: set, vi_to_en: dict) -> int:
+def upsert_job(cur, rec: Dict[str, Any], company_id: Optional[int], fingerprint: str, valid_keywords: set, vi_to_en: dict) -> tuple:
     import logging
     title = unwrap_and_truncate(unwrap_value(rec.get("title")) or unwrap_value(rec.get("job", {}).get("title")), 500)
     skills_desc = unwrap_value(rec.get("job", {}).get("skills_desc")) or unwrap_value(rec.get("skills_desc"))
@@ -224,9 +366,59 @@ def upsert_job(cur, rec: Dict[str, Any], company_id: Optional[int], fingerprint:
     source_name = unwrap_and_truncate(unwrap_value(rec.get("source_name")), 50)
     source_id = unwrap_and_truncate(unwrap_value(rec.get("job_source_id")) or unwrap_value(rec.get("source_id")), 255)
 
-    # Insert or update by fingerprint
+    # Check duplicate in Python using TF-IDF Cosine Similarity
+    dup_info = check_duplicate_by_similarity(cur, company_id, description)
+    if dup_info:
+        existing_job_id, matched_url, similarity = dup_info
+        # Retrieve existing source info to determine if it's a refresh or merge
+        cur.execute("SELECT source_name, source_id, job_posting_url FROM jobs WHERE job_id = %s", (existing_job_id,))
+        row = cur.fetchone()
+        
+        db_source_name = row[0] if row else None
+        db_source_id = row[1] if row else None
+        db_job_url = row[2] if row else None
+        
+        # If the incoming source_name and source_id match the database, or the URL matches, it's a refresh. Otherwise it's a merge.
+        is_same_source = (db_source_name == source_name and db_source_id == source_id) or (db_job_url == job_posting_url and job_posting_url)
+        status_code = "updated_refresh" if is_same_source else "updated_merge"
+        
+        # We will keep the previous source info in the details dict
+        previous_sources = [db_source_name] if db_source_name else []
+
+        cur.execute(
+            "UPDATE jobs SET company_id = %s, title = %s, skills_desc = %s, description = %s, formatted_experience_level = %s, work_type = %s, location = %s, is_remote = %s, listed_time = %s, expiry_time = %s, job_posting_url = %s, scraped_at = %s, applies = %s, views = %s, job_category = %s, search_group = %s, source_name = %s, source_id = %s WHERE job_id = %s",
+            (
+                company_id,
+                title,
+                skills_desc,
+                description,
+                formatted_experience_level,
+                work_type,
+                location,
+                is_remote,
+                listed_time,
+                expiry_time,
+                job_posting_url,
+                scraped_at,
+                applies,
+                views,
+                job_category,
+                search_group,
+                source_name,
+                source_id,
+                existing_job_id,
+            ),
+        )
+        print(f"[DUP_UPDATE] Found duplicate! New URL: '{job_posting_url}' is highly similar (similarity: {similarity:.3f}) with existing URL in DB: '{matched_url or db_job_url}' (ID={existing_job_id}, Title: {title})")
+        details = {
+            "matched_job_id": existing_job_id,
+            "previous_sources": previous_sources
+        }
+        return existing_job_id, status_code, details
+
+    # Insert new job (Deduplication is handled at Python layer by check_duplicate_by_similarity)
     cur.execute(
-        "INSERT INTO jobs(company_id, title, skills_desc, description, formatted_experience_level, work_type, location, is_remote, listed_time, expiry_time, job_posting_url, scraped_at, applies, views, fingerprint, job_category, search_group, source_name, source_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (fingerprint) DO UPDATE SET company_id = EXCLUDED.company_id, title = EXCLUDED.title, skills_desc = EXCLUDED.skills_desc, description = EXCLUDED.description, formatted_experience_level = EXCLUDED.formatted_experience_level, work_type = EXCLUDED.work_type, location = EXCLUDED.location, is_remote = EXCLUDED.is_remote, listed_time = EXCLUDED.listed_time, expiry_time = EXCLUDED.expiry_time, job_posting_url = EXCLUDED.job_posting_url, scraped_at = EXCLUDED.scraped_at, applies = EXCLUDED.applies, views = EXCLUDED.views, job_category = EXCLUDED.job_category, search_group = EXCLUDED.search_group, source_name = EXCLUDED.source_name, source_id = EXCLUDED.source_id RETURNING job_id",
+        "INSERT INTO jobs(company_id, title, skills_desc, description, formatted_experience_level, work_type, location, is_remote, listed_time, expiry_time, job_posting_url, scraped_at, applies, views, fingerprint, job_category, search_group, source_name, source_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING job_id",
         (
             company_id,
             title,
@@ -249,7 +441,7 @@ def upsert_job(cur, rec: Dict[str, Any], company_id: Optional[int], fingerprint:
             source_id,
         ),
     )
-    return cur.fetchone()[0]
+    return cur.fetchone()[0], "inserted", {}
 
 
 def upsert_salary(cur, job_id: int, salary: Dict[str, Any]) -> None:
@@ -461,8 +653,131 @@ def insert_company_industries(cur, company_id: int, industry_value: Any) -> None
     cur.execute("INSERT INTO company_industries(company_id, industry_id) VALUES (%s,%s) ON CONFLICT (company_id, industry_id) DO NOTHING", (company_id, iid))
 
 
-def import_records(conn, records: List[Dict[str, Any]], fallback_path: Path) -> Dict[str, int]:
+def print_import_report(stats_details: List[Dict[str, Any]], md_output_path: Optional[Path] = None) -> None:
+    if not stats_details:
+        return
+    
+    # Sort: inserts first, then merges, then refreshes
+    sorted_details = sorted(stats_details, key=lambda x: (x["status"], x["company"], x["title"]))
+    
+    # Generate text report for console
+    headers = ["Status", "Job ID", "Company", "Title", "Source", "Details"]
+    col_widths = [18, 8, 25, 35, 10, 30]
+    
+    console_lines = []
+    console_lines.append("\n" + "=" * 132)
+    console_lines.append("                                            DETAILED IMPORT STATISTICS REPORT")
+    console_lines.append("=" * 132)
+    
+    header_line = " | ".join(f"{h:<{w}}" for h, w in zip(headers, col_widths))
+    console_lines.append(header_line)
+    console_lines.append("-|-".join("-" * w for w in col_widths))
+    
+    for item in sorted_details:
+        status = item["status"].upper()
+        if status == "UPDATED_MERGE":
+            status_display = "UPDATED (MERGE)"
+        elif status == "UPDATED_REFRESH":
+            status_display = "UPDATED (REFRESH)"
+        else:
+            status_display = "INSERTED"
+            
+        job_id = str(item["job_id"])
+        company = item["company"]
+        if len(company) > col_widths[2]:
+            company = company[:col_widths[2]-3] + "..."
+            
+        title = item["title"]
+        if len(title) > col_widths[3]:
+            title = title[:col_widths[3]-3] + "..."
+            
+        source = item["source"]
+        
+        extra_details = ""
+        details_dict = item.get("details", {})
+        if status == "INSERTED":
+            extra_details = "New job posting"
+        elif status == "UPDATED_MERGE":
+            prev_sources = details_dict.get("previous_sources", [])
+            extra_details = f"Merged with {', '.join(prev_sources) or 'unknown'}"
+        elif status == "UPDATED_REFRESH":
+            extra_details = f"Refreshed existing posting"
+            
+        if len(extra_details) > col_widths[5]:
+            extra_details = extra_details[:col_widths[5]-3] + "..."
+            
+        row_line = " | ".join([
+            f"{status_display:<{col_widths[0]}}",
+            f"{job_id:<{col_widths[1]}}",
+            f"{company:<{col_widths[2]}}",
+            f"{title:<{col_widths[3]}}",
+            f"{source:<{col_widths[4]}}",
+            f"{extra_details:<{col_widths[5]}}"
+        ])
+        console_lines.append(row_line)
+    console_lines.append("=" * 132 + "\n")
+    
+    # Print to console
+    for line in console_lines:
+        print(line)
+        
+    # Write to Markdown file if path provided
+    if md_output_path:
+        try:
+            md_lines = []
+            md_lines.append("# Detailed Import Statistics Report\n")
+            md_lines.append(f"Generated at: {datetime.now().isoformat()}\n")
+            
+            # Summarize stats
+            num_inserted = sum(1 for x in stats_details if x["status"] == "inserted")
+            num_merge = sum(1 for x in stats_details if x["status"] == "updated_merge")
+            num_refresh = sum(1 for x in stats_details if x["status"] == "updated_refresh")
+            
+            md_lines.append("## Summary\n")
+            md_lines.append(f"- **Total Records Processed**: {len(stats_details)}")
+            md_lines.append(f"- **Inserted (New Jobs)**: {num_inserted}")
+            md_lines.append(f"- **Updated - Merged (New sources for existing jobs)**: {num_merge}")
+            md_lines.append(f"- **Updated - Refreshed (Same source updated)**: {num_refresh}\n")
+            
+            md_lines.append("## Detailed Records List\n")
+            md_lines.append("| Status | Job ID | Company | Title | Source | Details |")
+            md_lines.append("|---|---|---|---|---|---|")
+            
+            for item in sorted_details:
+                status = item["status"].upper()
+                if status == "UPDATED_MERGE":
+                    status_display = "UPDATED (MERGE)"
+                elif status == "UPDATED_REFRESH":
+                    status_display = "UPDATED (REFRESH)"
+                else:
+                    status_display = "INSERTED"
+                
+                job_id = str(item["job_id"])
+                company = item["company"].replace("|", "\\|")
+                title = item["title"].replace("|", "\\|")
+                source = item["source"]
+                
+                extra_details = ""
+                details_dict = item.get("details", {})
+                if status == "INSERTED":
+                    extra_details = "New job posting"
+                elif status == "UPDATED_MERGE":
+                    prev_sources = details_dict.get("previous_sources", [])
+                    extra_details = f"Merged with existing ({', '.join(prev_sources)})"
+                elif status == "UPDATED_REFRESH":
+                    extra_details = f"Refreshed existing posting"
+                
+                md_lines.append(f"| {status_display} | {job_id} | {company} | {title} | {source} | {extra_details} |")
+                
+            md_output_path.write_text("\n".join(md_lines), encoding="utf-8")
+            print(f"[INFO] Detailed Markdown report saved to {md_output_path}")
+        except Exception as e:
+            print(f"[WARNING] Could not write Markdown report: {e}")
+
+
+def import_records(conn, records: List[Dict[str, Any]], fallback_path: Path, md_report_path: Optional[Path] = None) -> Dict[str, int]:
     stats = {"inserted": 0, "updated": 0, "skipped": 0, "errors": 0}
+    stats_details = []
     cur = conn.cursor()
     
     # Pre-load valid keywords from search_group_keywords for CHECK-POINT 1 validation
@@ -503,9 +818,7 @@ def import_records(conn, records: List[Dict[str, Any]], fallback_path: Path) -> 
 
             comp = rec.get('company') or {}
             company_id = upsert_company(cur, comp) if comp else None
-            cur.execute("SELECT job_id FROM jobs WHERE fingerprint = %s", (fp,))
-            existing_job = cur.fetchone()
-            job_id = upsert_job(cur, rec, company_id, fp, valid_keywords, vi_to_en)
+            job_id, status_code, details = upsert_job(cur, rec, company_id, fp, valid_keywords, vi_to_en)
 
             upsert_salary(cur, job_id, rec.get('salary') or {})
 
@@ -525,10 +838,20 @@ def import_records(conn, records: List[Dict[str, Any]], fallback_path: Path) -> 
                     pass
 
             cur.execute("RELEASE SAVEPOINT record_savepoint")
-            if existing_job:
-                stats["updated"] += 1
-            else:
+            
+            if status_code == "inserted":
                 stats["inserted"] += 1
+            else:
+                stats["updated"] += 1
+                
+            stats_details.append({
+                "title": unwrap_and_truncate(rec.get("title") or (rec.get("job") or {}).get("title"), 500) or "Unknown Title",
+                "company": unwrap_and_truncate(comp.get("name") or comp.get("company_name"), 255) or "Unknown Company",
+                "source": unwrap_and_truncate(rec.get("source_name"), 50) or "Unknown Source",
+                "status": status_code,
+                "job_id": job_id,
+                "details": details
+            })
 
             pending_records_in_transaction += 1
 
@@ -565,6 +888,10 @@ def import_records(conn, records: List[Dict[str, Any]], fallback_path: Path) -> 
             print(f"[ERROR] Final commit failed: {e}")
             conn.rollback()
             stats['errors'] += pending_records_in_transaction
+    
+    # Print the detailed stats report
+    print_import_report(stats_details, md_report_path)
+    
     cur.close()
     return stats
 
@@ -604,7 +931,8 @@ def main():
     conn = get_db_connection()
     conn.autocommit = False
 
-    stats = import_records(conn, records, args.fallback)
+    md_report_path = args.stats_output.with_suffix(".md") if args.stats_output else None
+    stats = import_records(conn, records, args.fallback, md_report_path=md_report_path)
     print(json.dumps(stats, ensure_ascii=False))
 
     if args.stats_output:
