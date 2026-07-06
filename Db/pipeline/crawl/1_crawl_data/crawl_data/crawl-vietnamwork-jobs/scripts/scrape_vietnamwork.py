@@ -366,11 +366,11 @@ def map_api_job_to_raw_job_data(job: dict, search_keyword: Optional[str] = None)
     expiry_date = html_expiry_date or job.get("expiredOn")
     
     # Tags / skills
-    skills = job.get("skills", [])
+    skills = job.get("skills") or []
     tags = [s.get("skillName") for s in skills if s.get("skillName")]
     
     # Benefits
-    benefits_list = job.get("benefits", [])
+    benefits_list = job.get("benefits") or []
     benefits = [b.get("benefitValue") for b in benefits_list if b.get("benefitValue")]
     
     # Company Info
