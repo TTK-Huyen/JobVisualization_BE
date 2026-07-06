@@ -318,32 +318,19 @@ def step_1_clean_html(input_file, output_file="clean/pending_llm.json", limit=No
             if len(cleaned_text) < 100 and len(words) < 20:
                 reasons.append('too_short')
 
-            # 3) No significant HTML left
-            if re.search(r"<[^>]{1,50}>", cleaned_text):
-                reasons.append('html_leftover')
-
-            # 4) Not garbage (alnum ratio)
+            # 3) Not garbage (alnum ratio)
             total_chars = max(1, len(cleaned_text))
             alnum_count = sum(1 for c in cleaned_text if c.isalnum())
             alnum_ratio = alnum_count / total_chars
-            if alnum_ratio < 0.5:
+            if alnum_ratio < 0.25:
                 reasons.append('low_alnum_ratio')
 
-            # 5) Not only special characters / whitespace
+            # 4) Not only special characters / whitespace
             visible_chars = re.sub(r"[\W_]+", "", cleaned_text)
             if not visible_chars:
                 reasons.append('only_special_chars')
 
-            # 6) Recruitment signal keywords (EN + VI)
-            signals = [
-                'requirement','requirements','responsibilities','skills','experience','benefits','job description',
-                'yêu cầu','trách nhiệm','kinh nghiệm','quyền lợi','mô tả công việc','yêu cầu công việc'
-            ]
-            txt_lower = (cleaned_text or '').lower()
-            if not any(s in txt_lower for s in signals):
-                reasons.append('no_recruitment_signal')
-
-            # 7) Required metadata
+            # 5) Required metadata
             if not title or not url:
                 reasons.append('missing_title_or_url')
 

@@ -1108,6 +1108,17 @@ def deduplicate_jobs_by_embeddings(
 
     logger.info("Deduplication completed. Total input jobs: %d. Kept: %d. Filtered cross-source duplicates (trung lien nguon): %d. Filtered same-source duplicates: %d.", 
                 len(jobs), len(jobs_to_keep), cross_source_dup_count, same_source_dup_count)
+
+    if duplicate_jobs:
+        logger.info("==================================================================================")
+        logger.info("📊 CHI TIẾT CÁC JOB BỊ LOẠI DO TRÙNG LẶP (EMBEDDING DEDUPLICATION):")
+        for idx, dj in enumerate(duplicate_jobs, 1):
+            logger.info("  [%d] Skip: '%s' (%s) -> URL: %s", 
+                        idx, dj.get("title"), dj.get("source_name"), dj.get("job_url"))
+            logger.info("      Trùng với: URL: %s (Lý do: %s)", 
+                        dj.get("duplicate_of"), dj.get("failure_reason"))
+        logger.info("==================================================================================")
+
     return jobs_to_keep, duplicate_jobs
 
 

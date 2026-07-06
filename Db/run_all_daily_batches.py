@@ -107,6 +107,17 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Limit the number of runs/batches to execute."
     )
+    parser.add_argument(
+        "--step",
+        type=str,
+        default=None,
+        help="Run a specific pipeline step only: crawl|clean|import"
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print verbose/detailed crawler filters to the console."
+    )
     return parser.parse_args()
 
 def main():
@@ -118,6 +129,10 @@ def main():
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting daily crawl batches...")
     print(f"Total runs to execute: {runs_to_execute} (out of {TOTAL_RUNS} total runs), batch size: {BATCH_SIZE} keywords, pause: {PAUSE_SECONDS} seconds")
     print(f"Reset keywords on start: {args.reset_keywords}")
+    if args.step:
+        print(f"Pipeline step filter: {args.step}")
+    if args.verbose:
+        print("Verbose mode enabled: detailed crawler logs will be printed to console.")
     print(f"Working Directory: {BASE_DIR}")
     print(f"Python Venv Executable: {python_exe}")
     print(f"Pipeline Script: {pipeline_script}")
@@ -129,6 +144,10 @@ def main():
         
         # Build the command
         cmd = [python_exe, pipeline_script]
+        if args.step:
+            cmd.extend(["--step", args.step])
+        if args.verbose:
+            cmd.append("--verbose")
         
         # Omit `--step all` to run the full pipeline, and only reset keywords on the very first run
         if run == 1 and args.reset_keywords:
