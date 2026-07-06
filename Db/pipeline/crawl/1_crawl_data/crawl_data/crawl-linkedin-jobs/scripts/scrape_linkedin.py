@@ -1,5 +1,5 @@
 import time, re, random, os, argparse, json
-from typing import Dict, List
+from typing import Dict, List, Optional
 from datetime import datetime, timedelta
 import sys
 import psutil
@@ -67,6 +67,7 @@ import requests
 
 # Global map to store posted dates for crawl_only mode
 _LINKEDIN_POSTED_DATES = {}
+_LINKEDIN_LOCATIONS = {}
 
 try:
     import platform
@@ -299,6 +300,83 @@ def _should_enable_selenium_fallback() -> bool:
     return os.environ.get("PIPELINE_CRAWL_MODE", "").strip().lower() == "bootstrap"
 
 
+def is_vietnam_location(location_str: Optional[str]) -> bool:
+    if not location_str:
+        # Nếu không có địa điểm, tạm giữ lại để tránh bỏ sót do lỗi parser
+        return True
+    
+    loc_lower = location_str.lower()
+    
+    # 1. Kiểm tra từ khóa Việt Nam trực tiếp
+    for kw in ["vietnam", "viet nam", "việt nam"]:
+        if kw in loc_lower:
+            return True
+            
+    # 2. Kiểm tra từ khóa "vn" nước mình
+    if re.search(r"\bvn\b", loc_lower):
+        return True
+        
+    # 3. Kiểm tra danh sách các tỉnh thành của Việt Nam
+    vn_keywords = [
+        "hanoi", "ha noi", "hà nội",
+        "ho chi minh", "hồ chí minh", "hcm", "saigon", "sài gòn",
+        "da nang", "đà nẵng",
+        "binh duong", "bình dương",
+        "dong nai", "đồng nai",
+        "hai phong", "hải phòng",
+        "can tho", "cần thơ",
+        "hue", "huế",
+        "bac ninh", "bắc ninh",
+        "vung tau", "vũng tàu",
+        "nha trang", "khanh hoa", "khánh hòa",
+        "binh thuan", "bình thuận",
+        "lam dong", "lâm đồng", "da lat", "đà lạt",
+        "long an", "quang nam", "quảng nam",
+        "nghe an", "nghệ an", "vinh",
+        "kien giang", "kiên giang", "phu quoc", "phú quốc",
+        "thai nguyen", "thái nguyên",
+        "hai duong", "hải dương",
+        "vinh phuc", "vĩnh phúc",
+        "bac giang", "bắc giang",
+        "quang ninh", "quảng ninh", "ha long", "hạ long",
+        "nam dinh", "nam định",
+        "ha giang", "hà giang",
+        "thanh hoa", "thanh hóa",
+        "tien giang", "tiền giang",
+        "ben tre", "bến tre",
+        "tay ninh", "tây ninh",
+        "soc trang", "sóc trăng",
+        "dong thap", "đồng tháp",
+        "lang son", "lạng sơn",
+        "lao cai", "lào cai",
+        "ninh binh", "ninh bình",
+        "phu tho", "phú thọ",
+        "quang ngai", "quảng ngãi",
+        "quang tri", "quảng trị",
+        "son la", "sơn la",
+        "tuyen quang", "tuyên quang",
+        "vinh long", "vĩnh long",
+        "an giang", "cà mau", "cao bằng", "đắk lắk", "điện biên", "gia lai", "hà tĩnh", "hưng yên", "lai châu", "hà nam"
+    ]
+    for kw in vn_keywords:
+        if kw in loc_lower:
+            return True
+            
+    # 4. Loại trừ nếu chứa từ khóa nước ngoài/khu vực quốc tế
+    foreign_keywords = [
+        "singapore", "malaysia", "thailand", "philippines", "indonesia", 
+        "india", "united states", "usa", "us", "palo alto", "california", 
+        "china", "japan", "korea", "taiwan", "germany", "france", "uk", 
+        "london", "australia", "canada", "hong kong", "apac", "asia", 
+        "europe", "middle east", "americas"
+    ]
+    for kw in foreign_keywords:
+        if kw in loc_lower:
+            return False
+            
+    return True
+
+
 def _build_linkedin_search_url(keywords: str, location: str, start: int, search_tpr: str) -> str:
     keywords_q = quote_plus(keywords)
     location_q = quote_plus(location.lower())
@@ -313,6 +391,10 @@ def _build_linkedin_search_url(keywords: str, location: str, start: int, search_
     if search_tpr not in {"", "off", "all", "none"}:
         params.append("sortBy=DD")
     return "https://www.linkedin.com/jobs/search/?" + "&".join(params)
+
+
+_CURRENT_DROPPED_DATE = []
+_CURRENT_DROPPED_LOCATION = []
 
 
 def _collect_job_ids_from_soup(soup, id_list: List[str], max_jobs: int) -> int:
@@ -342,14 +424,27 @@ def _collect_job_ids_from_soup(soup, id_list: List[str], max_jobs: int) -> int:
         
         if posted_date and not is_posted_date_allowed(posted_date):
             print(f"[FILTER] Dropped LinkedIn job card {job_id} (raw date: {raw_date_text})")
+            _CURRENT_DROPPED_DATE.append(job_id)
             stats_collector.record_date_dropped("LinkedIn", 1, [f"https://www.linkedin.com/jobs/view/{job_id}"])
             continue
+
+        # Lọc địa điểm sớm từ danh sách thẻ
+        loc_elem = job.find(class_=re.compile(r"job-search-card__location|location"))
+        loc_text = None
+        if loc_elem:
+            loc_text = loc_elem.get_text(strip=True)
+            if not is_vietnam_location(loc_text):
+                print(f"[FILTER] Bỏ qua job card ngoài Việt Nam: ID={job_id} (location: {loc_text})")
+                _CURRENT_DROPPED_LOCATION.append(job_id)
+                continue
 
         if job_id not in id_list:
             id_list.append(job_id)
             added_this_page += 1
             if posted_date:
                 _LINKEDIN_POSTED_DATES[job_id] = posted_date.isoformat()
+            if loc_text:
+                _LINKEDIN_LOCATIONS[job_id] = loc_text
             if len(id_list) >= max_jobs:
                 break
 
@@ -680,6 +775,10 @@ def scrape_data(
     driver=None,
     close_driver: bool = True,
 ) -> List[RawJobData]:
+    global _CURRENT_DROPPED_DATE, _CURRENT_DROPPED_LOCATION
+    _CURRENT_DROPPED_DATE = []
+    _CURRENT_DROPPED_LOCATION = []
+
     stats_collector.set_active_keyword(search_keyword or keyword)
     if max_jobs is not None and max_jobs <= 0:
         print("[INFO] max_jobs is 0 or negative. Skipping crawl and returning empty list.")
@@ -754,12 +853,15 @@ def scrape_data(
     for i, job_id in enumerate(id_list, 1):
         if os.environ.get("CRAWL_ONLY") == "true":
             posted_date_str = _LINKEDIN_POSTED_DATES.get(job_id)
+            loc_str = _LINKEDIN_LOCATIONS.get(job_id)
             raw_job = RawJobData(
                 source_name="linkedin",
                 job_url=f"https://www.linkedin.com/jobs/view/{job_id}",
                 job_source_id=job_id,
                 title="Crawl Only Mock",
                 description_html="Crawl Only Mock",
+                location_raw=loc_str,
+                company_address=loc_str,
                 posted_date=posted_date_str,
                 scraped_at=datetime.now().isoformat()
             )
@@ -775,6 +877,18 @@ def scrape_data(
         debug_log(f"[{i}/{len(id_list)}] Processed job_id={job_id} in {time.time() - job_start:.2f}s")
 
         if not job_post:
+            time.sleep(job_delay + random.uniform(0, 0.8))
+            continue
+
+        # Location filtering to ensure the job is in Vietnam
+        location_raw = job_post.get("location_raw")
+        if not location_raw:
+            location_raw = _LINKEDIN_LOCATIONS.get(job_id)
+            job_post["location_raw"] = location_raw
+
+        if location_raw and not is_vietnam_location(location_raw):
+            print(f"[FILTER] Dropped foreign LinkedIn job: ID={job_id} (location: {location_raw})")
+            _CURRENT_DROPPED_LOCATION.append(job_id)
             time.sleep(job_delay + random.uniform(0, 0.8))
             continue
 
@@ -799,6 +913,12 @@ def scrape_data(
             driver.quit()
         except Exception:
             pass
+
+    # Print consolidated filter summary for this keyword (always shown in console)
+    if _CURRENT_DROPPED_DATE:
+        print(f"[INFO] [FILTER_SUMMARY] {keyword}: Dropped {len(_CURRENT_DROPPED_DATE)} job card(s) due to old date. Sample IDs: {', '.join(_CURRENT_DROPPED_DATE[:10])}{'...' if len(_CURRENT_DROPPED_DATE) > 10 else ''}")
+    if _CURRENT_DROPPED_LOCATION:
+        print(f"[INFO] [FILTER_SUMMARY] {keyword}: Dropped {len(_CURRENT_DROPPED_LOCATION)} job card(s) due to location (outside Vietnam). Sample IDs: {', '.join(_CURRENT_DROPPED_LOCATION[:10])}{'...' if len(_CURRENT_DROPPED_LOCATION) > 10 else ''}")
 
     debug_log(f"KEYWORD [{keyword}] DONE: {len(job_list)} jobs in {time.time() - keyword_start:.2f}s total")
     stats_collector.record_detail_scraped("LinkedIn", len(job_list), [j.job_url for j in job_list])
