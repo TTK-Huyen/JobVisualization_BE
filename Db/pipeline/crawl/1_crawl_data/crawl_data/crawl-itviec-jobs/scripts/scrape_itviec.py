@@ -104,8 +104,12 @@ def get_max_page(keyword, location):
     try:
         stats_collector.record_search_list_url("ITviec", url)
         resp = requests.get(url, headers=get_headers(), timeout=15)
-        decode_html_response(resp)
         stats_collector.record_http_status("ITviec", resp.status_code)
+        if resp.status_code == 404:
+            print(f"[INFO] get_max_page - Status: 404 (No jobs found for keyword '{keyword}')")
+            return 0
+            
+        decode_html_response(resp)
         print(f"[DEBUG] get_max_page - Status: {resp.status_code}, Url: {url}")
         if resp.status_code != 200:
             return 1
@@ -153,7 +157,12 @@ def get_job_list(keyword, location, test_mode=False, max_jobs=None):
         requested_pages = 3
     effective_max_page = min(max_page, requested_pages)
     
-    if test_mode:
+    if max_page == 0:
+        if loc_clean:
+            print(f"[INFO] No pages found for '{keyword}' in {loc_clean}. Skipping crawl.")
+        else:
+            print(f"[INFO] No pages found for '{keyword}' (Toàn quốc / Vietnam). Skipping crawl.")
+    elif test_mode:
         print(f"[TEST MODE] Đang kích hoạt mode test. Sẽ quét tối đa {effective_max_page} trang, mỗi trang chỉ lấy 1 job.")
     else:
         if loc_clean:
@@ -175,7 +184,10 @@ def get_job_list(keyword, location, test_mode=False, max_jobs=None):
             print(f"Page {page} - Status: {response.status_code}")
             
             if response.status_code != 200:
-                print(f"Failed to fetch page {page} - Status: {response.status_code}")
+                if response.status_code == 404:
+                    print(f"[INFO] Page {page} - Status: 404 (No jobs found for keyword '{keyword}')")
+                else:
+                    print(f"[ERROR] Failed to fetch page {page} - Status: {response.status_code}")
                 continue
                 
             soup = BeautifulSoup(response.text, "html.parser")
@@ -444,8 +456,10 @@ def scrape_data(keyword, location, max_jobs=None, search_keyword=None, test_mode
     filtered_count = len(job_links)
     if original_count != filtered_count:
         print(f"[DB_FILTER] Bỏ qua {original_count - filtered_count} jobs đã tồn tại trong database. Còn lại {filtered_count} jobs.")
-
-    print(f"[INFO] Tim thay {len(job_links)} job. Dang scrape chi tiết...")
+    if filtered_count > 0:
+        print(f"[INFO] Tìm thấy {filtered_count} job. Đang scrape chi tiết...")
+    else:
+        print("[INFO] Không tìm thấy job mới nào. Bỏ qua bước cào chi tiết.")
 
     if max_jobs and max_jobs > 0:
         job_links = job_links[:max_jobs]
