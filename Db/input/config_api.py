@@ -32,6 +32,11 @@ def _load_api_keys():
     api_keys = {}
     matched_keys = []
 
+    # Support unsuffixed GEMINI_API_KEY as the primary key
+    unsuffixed = os.environ.get("GEMINI_API_KEY")
+    if unsuffixed:
+        matched_keys.append((0, "GEMINI_API_KEY", unsuffixed))
+
     for env_name, env_value in os.environ.items():
         match = re.fullmatch(r"GEMINI_API_KEY_(\d+)", env_name)
         if not match or not env_value:
@@ -131,7 +136,7 @@ class KeyRotationManager:
         # reset last_request so it won't be treated as recently used after cooldown
         current_key["last_request"] = None
         
-        print(f"\n⚠️  API Key quota exceeded!")
+        print(f"\n[WARNING] API Key quota exceeded!")
         print(f"   Key: {current_key['env_name']}")
         print(f"   Cooldown until: {current_key['cooldown_until'].strftime('%H:%M:%S')}")
         
@@ -145,9 +150,9 @@ class KeyRotationManager:
                 if k["value"] == next_key:
                     next_env = k["env_name"]
                     break
-            print(f"✅ Switched to next key: {next_env}")
+            print(f"[SUCCESS] Switched to next key: {next_env}")
         else:
-            print(f"❌ No active keys available!")
+            print(f"[ERROR] No active keys available!")
     
     def get_all_keys(self, provider="gemini"):
         """Lấy tất cả keys (không filter)"""
@@ -214,10 +219,10 @@ GEMINI_CONFIG = {
 def print_api_status():
     """In trạng thái API keys"""
     print("\n" + "="*70)
-    print("🔑 API KEY STATUS")
+    print("API KEY STATUS")
     print("="*70)
     
-    print(f"\n📋 Available Keys:")
+    print(f"\nAvailable Keys:")
     gemini_keys = API_KEYS.get("gemini", [])
     if gemini_keys:
         for i, key_info in enumerate(gemini_keys):
@@ -231,12 +236,12 @@ def print_api_status():
                 minutes = int(time_remaining.total_seconds() / 60)
                 status_display = f"COOLDOWN ({minutes}m remaining)"
             
-            marker = " ← Current" if i == (key_manager.current_index % len(gemini_keys)) else ""
+            marker = " <- Current" if i == (key_manager.current_index % len(gemini_keys)) else ""
             print(f"  [{i}] {key_info['env_name']}: {key_display} [{status_display}]{marker}")
     else:
-        print("  ✗ No GEMINI_API_KEY_X found in .env")
+        print("  [ERROR] No GEMINI_API_KEY_X found in .env")
     
-    print(f"\n🎯 Status:")
+    print(f"\nStatus:")
     print(f"  Total keys: {len(gemini_keys)}")
     print(f"  Active key index: {key_manager.current_index % len(gemini_keys) if gemini_keys else 'N/A'}")
     print(f"  Model: {GEMINI_CONFIG['model']}")
@@ -250,7 +255,7 @@ def print_api_status():
     # Key stats
     status_dict = key_manager.get_status("gemini")
     if status_dict:
-        print(f"\n📊 Key Statistics:")
+        print(f"\nKey Statistics:")
         for key_name, info in status_dict.items():
             print(f"  {key_name}: {info['status']} (errors: {info['error_count']})")
     
