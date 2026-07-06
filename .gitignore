@@ -254,3 +254,16 @@ debug_*.txt
 /Db/pipeline/import/3_import/Debug
 /matching_cv/evaluation
 /Db/scratch
+# FAISS Index Cache
+/Db/pipeline/normalize/2_1_normalized_data/cache/
+*.bin
+
+# Normalize experimental (pipeline moi chua integrate, debug/research scripts)
+Db/pipeline/normalize/2_1_normalized_data/normalize_experimental/
+
+# Normalize runtime data
+Db/pipeline/normalize/2_1_normalized_data/datatest/
+Db/pipeline/normalize/2_1_normalized_data/unmatched_review*.json
+
+# Knowledge Graph experimental scripts
+matching_cv/kg/

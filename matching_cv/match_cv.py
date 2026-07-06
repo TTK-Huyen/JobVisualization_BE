@@ -614,17 +614,22 @@ def compute_skill_match(
                         if t_lang and s_lang and t_lang != s_lang:
                             sim = 0.0
 
-                # Rule 5: Subcategory Penalty
-                # - If both have non-empty subcategory names (category field) and they are different, apply a penalty factor of 0.8
+                # Rule 5: Subcategory Exclusivity
+                # - If both have non-empty subcategory names (category field) and they are different, force similarity to 0.0
                 t_subcat = t_meta.get("category", "")
                 s_subcat = s_meta.get("category", "")
                 if t_subcat and s_subcat and t_subcat != s_subcat:
-                    sim = sim * 0.8
+                    sim = 0.0
 
                 # Rule 6: Subcategory Boost
                 # - If both have non-empty subcategory names and they are in the exact same subcategory, apply a boost of 1.2 (up to 1.0)
                 if t_subcat and s_subcat and t_subcat == s_subcat:
                     sim = min(1.0, sim * 1.2)
+
+                # Rule 8: Soft Skills Direct Match
+                # - If both are Common skills (soft skills) and they have a base similarity > 0.35, they are treated as a full match (1.0)
+                if t_type == "Common skill" and s_type == "Common skill" and sim > 0.35:
+                    sim = 1.0
 
             if sim > max_sim:
                 max_sim = sim
@@ -910,6 +915,7 @@ def main():
             try:
                 raw_skills = extract_student_skills_gemini(cv_text, confidence_threshold=args.confidence_threshold)
                 logger.info("Extracted %d skills from CV using Gemini.", len(raw_skills))
+                logger.info("RAW EXTRACTED SKILLS: %s", [s.get("skill") for s in raw_skills])
             except RuntimeError as e:
                 logger.warning("Gemini extraction failed: %s. Initiating keyword matching fallback...", e)
                 raw_skills = extract_student_skills_keyword_fallback(cv_text, conn)
