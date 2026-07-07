@@ -11,6 +11,9 @@ app = FastAPI(
     version="1.0.0"
 )
 
+BASE_DIR = Path(__file__).resolve().parent
+DB_DIR = BASE_DIR / "Db"
+
 UPLOAD_DIR = Path(".tmp_cv_uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
@@ -22,7 +25,9 @@ else:
     PYTHON_EXEC = str(Path(".venv/bin/python").resolve())
 
 
-def run_cli_command(command: list[str], working_dir: str = "/app") -> dict:
+def run_cli_command(command: list[str], working_dir: str = None) -> dict:
+    if working_dir is None:
+        working_dir = str(BASE_DIR)
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
     
@@ -73,7 +78,7 @@ async def match_by_search_group(
         if str(score_jobs).lower() in ("true", "1", "yes"):
             cmd.append("--score-jobs")
 
-        res = run_cli_command(cmd, working_dir="/app")
+        res = run_cli_command(cmd, working_dir=str(BASE_DIR))
         if res["status"] == "error":
             raise HTTPException(status_code=500, detail=res)
         return {"message": "Match thành công", "output": res["stdout"]}
@@ -102,7 +107,7 @@ async def match_by_job_url(
             "--source-id", source_id,
             "--cv-id", cv_id
         ]
-        res = run_cli_command(cmd, working_dir="/app")
+        res = run_cli_command(cmd, working_dir=str(BASE_DIR))
         if res["status"] == "error":
             raise HTTPException(status_code=500, detail=res)
         return {"message": "Match URL thành công", "output": res["stdout"]}
@@ -117,17 +122,18 @@ def background_etl_worker(step: str):
     else:
         cmd = [PYTHON_EXEC, "run_etl_pipeline.py", "--step", step]
     
+    log_path = DB_DIR / "api_etl_debug.log"
     try:
-        with open("/app/Db/api_etl_debug.log", "w") as log_file:
+        with open(log_path, "w", encoding="utf-8") as log_file:
             subprocess.run(
                 cmd,
                 stdout=log_file,
                 stderr=log_file,
-                cwd="/app/Db",
+                cwd=str(DB_DIR),
                 env=os.environ.copy()
             )
     except Exception as e:
-        print(f"--- KHÔNG THỂ GHI FILE LOG OUGHT: {str(e)} ---")
+        print(f"--- KHÔNG THỂ GHI FILE LOG: {log_path} | Lỗi: {str(e)} ---")
 
 
 @app.post("/api/v1/pipeline/trigger")
@@ -143,7 +149,7 @@ def trigger_pipeline(background_tasks: BackgroundTasks, step: str = "all"):
 @app.post("/api/v1/weights/update-tfidf")
 def update_tfidf():
     cmd = [PYTHON_EXEC, "SkillWeighting/tf_idf.py"]
-    res = run_cli_command(cmd, working_dir="/app")
+    res = run_cli_command(cmd, working_dir=str(BASE_DIR))
     if res["status"] == "error":
         raise HTTPException(status_code=500, detail=res)
     return {"status": "success", "output": res["stdout"]}
