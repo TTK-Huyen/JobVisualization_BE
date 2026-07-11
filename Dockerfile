@@ -2,6 +2,7 @@ FROM python:3.11-slim-bookworm
 
 # install system dependencies + Chrome for Selenium (VietnamWorks crawler)
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    tini \
     build-essential \
     curl \
     poppler-utils \
@@ -56,4 +57,5 @@ RUN mkdir -p .tmp_cv_uploads
 # Mở cổng 8000 cho FastAPI
 EXPOSE 8000
 
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
