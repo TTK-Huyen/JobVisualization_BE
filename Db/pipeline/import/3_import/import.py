@@ -328,7 +328,12 @@ def upsert_job(cur, rec: Dict[str, Any], company_id: Optional[int], fingerprint:
     is_remote = unwrap_value(rec.get("job", {}).get("is_remote"))
     if is_remote is None:
         is_remote = unwrap_value(rec.get("is_remote"))
-    listed_time = parse_datetime(rec.get("listed_time")) or parse_datetime(rec.get("job", {}).get("listed_time"))
+    listed_time = (
+        parse_datetime(rec.get("listed_time"))
+        or parse_datetime(rec.get("posted_date"))
+        or parse_datetime(rec.get("job", {}).get("listed_time"))
+        or parse_datetime(rec.get("job", {}).get("posted_date"))
+    )
     expiry_time = parse_datetime(rec.get("expiry_time")) or parse_datetime(rec.get("job", {}).get("expiry_time"))
     job_posting_url = unwrap_value(rec.get("job", {}).get("job_posting_url")) or unwrap_value(rec.get("job_url"))
     scraped_at = parse_datetime(rec.get("scraped_at"))
