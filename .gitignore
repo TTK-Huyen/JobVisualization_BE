@@ -267,3 +267,7 @@ Db/pipeline/normalize/2_1_normalized_data/unmatched_review*.json
 
 # Knowledge Graph experimental scripts
 matching_cv/kg/
+
+*.png
+*.pdf
+*.jpg
