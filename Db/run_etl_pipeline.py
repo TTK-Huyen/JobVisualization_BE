@@ -753,7 +753,6 @@ def run_daily_crawl_parallel(
     if not keywords_file.exists():
         fallback_candidates = [
             BASE_DIR / "input" / "keywords_daily.json",
-            BASE_DIR / "keywords_daily.json",
         ]
         for cand in fallback_candidates:
             if cand.exists():
@@ -774,7 +773,7 @@ def run_daily_crawl_parallel(
 
     # In báo cáo thống kê crawler & scraper chi tiết
     try:
-        from central_filters import stats_collector
+        from pipeline.central_filters import stats_collector
         stats_collector.end_time = datetime.now()
         print(stats_collector.get_summary_report())
     except Exception as e:
@@ -1554,26 +1553,7 @@ Examples:
     # If parallel mode fails, each crawl mode will automatically fallback to sequential.
     args.parallel_crawl = True
 
-    # Deprecated alias handling (kept as comments for traceability):
-    # # Backwards-friendly alias: --parallel => --parallel-crawl
-    # if getattr(args, "parallel", False):
-    #     args.parallel_crawl = True
-
-    # Deprecated translation to duplicate flags (kept as comments for traceability):
-    # # If user asked for a specific step via --step, translate to flags where appropriate
-    # if args.step:
-    #     step_arg = str(args.step).strip().lower()
-    #     if step_arg == 'crawl':
-    #         args.crawl_only = True
-    #     elif step_arg == 'clean':
-    #         args.clean_only = True
-    #     elif step_arg == 'import':
-    #         args.import_only = True
-    #     elif step_arg == 'extract':
-    #         # We'll handle extract-only mode specially below
-    #         pass
-    #     else:
-    #         log(f"⚠️ Unknown --step value: {args.step}; ignoring")
+    
 
     step_arg = str(args.step).strip().lower() if args.step else ""
     step_is_crawl = step_arg == 'crawl'
