@@ -34,7 +34,6 @@ def load_job_normalizer_module():
         / "Db"
         / "pipeline"
         / "normalize"
-        / "2_1_normalized_data"
         / "normalize_pipeline_v2.py"
     )
     normalizer_path_old = (
@@ -42,7 +41,6 @@ def load_job_normalizer_module():
         / "Db"
         / "pipeline"
         / "normalize"
-        / "2_1_normalized_data"
         / "normalize_embeddings.py"
     )
 
@@ -83,8 +81,8 @@ def _find_skills_cache() -> Optional[Path]:
     repo_root = Path(__file__).resolve().parents[1]
 
     candidates = [
-        repo_root / "Db" / "pipeline" / "normalize" / "2_1_normalized_data" / "cache" / "skills_embedding.pkl",
-        repo_root / "Db" / "2_1_normalized_data" / "cache" / "skills_embedding.pkl",
+        repo_root / "Db" / "pipeline" / "normalize" / "cache" / "skills_embedding.pkl",
+        repo_root / "Db"  / "cache" / "skills_embedding.pkl",
     ]
     for c in candidates:
         if c.exists():

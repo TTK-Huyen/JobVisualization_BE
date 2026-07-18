@@ -20,11 +20,11 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 # Import the database connection utility from the existing pipeline structure dynamically
-# since "3_import" is not a valid Python identifier and "import" is a reserved keyword
+
 import importlib.util
 
 def load_db_connection_func():
-    module_dir = PROJECT_ROOT / "Db" / "pipeline" / "import" / "3_import"
+    module_dir = PROJECT_ROOT / "Db" / "pipeline" / "import"
     module_path = module_dir / "import.py"
     if not module_path.exists():
         raise FileNotFoundError(f"Database import module not found at: {module_path}")

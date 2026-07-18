@@ -39,8 +39,8 @@ LLM_MAX_WAIT_FOR_KEY_SECONDS = _int_env("LLM_MAX_WAIT_FOR_KEY_SECONDS", 30)
 LLM_THROUGHPUT_FIRST = os.getenv("LLM_THROUGHPUT_FIRST", "true").lower() in ("1", "true", "yes")
 
 # Paths
-LLM_RETRY_QUEUE_PATH = os.getenv("LLM_RETRY_QUEUE_PATH", str(BASE_DIR / "2_clean_data" / "cache" / "pending_failed_jobs.json"))
-LLM_DEAD_LETTER_PATH = os.getenv("LLM_DEAD_LETTER_PATH", str(BASE_DIR / "2_clean_data" / "cache" / "llm_dead_letter_jobs.json"))
+LLM_RETRY_QUEUE_PATH = os.getenv("LLM_RETRY_QUEUE_PATH", str(BASE_DIR / "cache" / "pending_failed_jobs.json"))
+LLM_DEAD_LETTER_PATH = os.getenv("LLM_DEAD_LETTER_PATH", str(BASE_DIR / "cache" / "llm_dead_letter_jobs.json"))
 LLM_ERROR_LOG_PATH = os.getenv("LLM_ERROR_LOG_PATH", str(BASE_DIR / "logs" / "extraction_errors.jsonl"))
 
 

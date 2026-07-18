@@ -41,7 +41,7 @@ if sys.stdout.encoding != 'utf-8':
 # ============================================================================
 # LOAD ENV CONFIGURATION
 # ============================================================================
-# Use an absolute BASE_DIR to ensure any derived folders (DATA_FOLDER, RAW_FOLDER)
+# Use an absolute _DIR to ensure any derived folders (DATA_FOLDER, RAW_FOLDER)
 # are absolute paths. This prevents relative paths being interpreted relative to
 # the crawler working directory and producing duplicated prefixes like "Db/Db/...".
 BASE_DIR = Path(__file__).parent.resolve()
@@ -84,7 +84,7 @@ def resolve_pipeline_path(*parts: str) -> Path:
 
         Examples:
             resolve_pipeline_path('clean') -> pipeline/clean if exists
-            resolve_pipeline_path('3_import', 'import.py') -> pipeline/3_import/import.py if exists
+            resolve_pipeline_path('import.py') -> pipeline/import/import.py if exists
         """
         candidate = PIPELINE_ROOT.joinpath(*parts)
         if candidate.exists():
@@ -2213,8 +2213,7 @@ Examples:
             extract_script = resolve_pipeline_path("extract", "process_pending_llm.py")
             if not extract_script.exists():
                 extract_script = resolve_pipeline_path("process_pending_llm.py")
-            # transform_for_import.py lives in 2_1_normalized_data; prefer pipeline layout
-           
+            
 
             if clean_script.exists():
                 # Ensure absolute paths are passed to the child process so
@@ -2257,15 +2256,14 @@ Examples:
                 log(f"⚠️  Extract script not found: {extract_script}")
                 clean_ok = False
 
-            # Use the new normalize runner (v2) inside 2_1_normalized_data
-            normalize_entry = resolve_pipeline_path("normalize", "2_1_normalized_data", "normalize_pipeline_v2.py")
+            normalize_entry = resolve_pipeline_path("normalize", "normalize_pipeline_v2.py")
             # Run normalization only if normalized file not provided
             if args.normalized:
                 log(f"Skipping NORMALIZE because normalized file provided: {normalized_file}")
             elif clean_ok and normalize_entry and normalize_entry.exists():
                 # call normalize_pipeline_v2 with input/output/fallback args
                 # Use directory of normalize_entry if available in pipeline layout
-                normalize_cwd = normalize_entry.parent if normalize_entry.exists() else resolve_pipeline_path("2_1_normalized_data")
+                normalize_cwd = normalize_entry.parent if normalize_entry.exists() else BASE_DIR
                 normalize_fallback = FALLBACK_FOLDER / "normalize_fallback.json"
                 clean_ok = run_step(
                     "NORMALIZE (v2)",
@@ -2312,10 +2310,10 @@ Examples:
         log("STEP 3: IMPORT TO DATABASE")
 
         # Prefer pipeline/import_db then pipeline/import for import step
-        import_script = resolve_pipeline_path("import_db", "3_import", "import.py")
+        import_script = resolve_pipeline_path("import_db", "import.py")
 
         if import_script is None or not import_script.exists():
-            import_script = resolve_pipeline_path("import", "3_import", "import.py")
+            import_script = resolve_pipeline_path("import", "import.py")
 
         if import_script is None or not import_script.exists():
             log("❌ Import script not found")

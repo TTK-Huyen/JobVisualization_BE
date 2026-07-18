@@ -48,7 +48,7 @@ from Db.scripts.split_description import extract_clean_job_description
 
 DEFAULT_INPUT_PATH = BASE_DIR / "data" / "queue" / "batch_1.json"
 DEFAULT_OUTPUT_DIR = BASE_DIR / "data" / "queue"
-DEFAULT_CONFIG_PATH = ROOT_DIR / "clean" / "2_clean_data" / "clean_config.yaml"
+DEFAULT_CONFIG_PATH = ROOT_DIR / "clean"  / "clean_config.yaml"
 DEFAULT_FALLBACK_DIR = BASE_DIR / "data" / "queue"
 
 # Top-level fields guaranteed by the crawler and must not be overwritten by LLM
@@ -417,15 +417,15 @@ def _to_int_or_null(value: Any) -> Optional[int]:
 
 
 def _load_2cd_module(name: str):
-    """Import a module from the `Db.2_clean_data` package path.
+    """Import a module from the `Db` package path.
 
     Prefer normal import so relative imports inside the module work.
     """
     import importlib
     for pkg_name in (
-        f"Db.pipeline.clean.2_clean_data.{name}",
-        f"pipeline.clean.2_clean_data.{name}",
-        f"Db.2_clean_data.{name}"
+        f"Db.pipeline.clean.{name}",
+        f"pipeline.clean.{name}",
+        f"Db.{name}"
     ):
         try:
             return importlib.import_module(pkg_name)
@@ -433,10 +433,10 @@ def _load_2cd_module(name: str):
             continue
 
     # fallback: load by path
-    module_path = ROOT_DIR / "clean" / "2_clean_data" / f"{name}.py"
+    module_path = ROOT_DIR / "clean" / f"{name}.py"
     if not module_path.exists():
         # also try old location relative to BASE_DIR
-        module_path = BASE_DIR / "2_clean_data" / f"{name}.py"
+        module_path = BASE_DIR / f"{name}.py"
     if not module_path.exists():
         raise FileNotFoundError(f"Module file not found: {name}")
 
@@ -1305,7 +1305,7 @@ def main() -> int:
         APIKeyController = None
 
     if APIKeyController:
-        key_state_path = BASE_DIR / "2_clean_data" / "cache" / "api_key_state.json"
+        key_state_path = BASE_DIR / "cache" / "api_key_state.json"
         rpd = int(os.getenv("GEMINI_RPD", "1000"))
         controller = APIKeyController(provider='gemini', state_file=key_state_path, max_requests_per_day=rpd)
         if not controller.has_active_keys():
@@ -1463,7 +1463,7 @@ def main() -> int:
     request_timeout = int(os.getenv('LLM_REQUEST_TIMEOUT_SECONDS', '60'))
 
     # API key state file and utilities (do not store secret values)
-    key_state_path = BASE_DIR / '2_clean_data' / 'cache' / 'api_key_state.json'
+    key_state_path = BASE_DIR / 'cache' / 'api_key_state.json'
 
     def _read_key_state(p: Path) -> Dict[str, Any]:
         try:

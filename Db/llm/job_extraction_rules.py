@@ -9,8 +9,7 @@ import yaml
 def load_job_extraction_prompt(config_path) -> str:
     p = Path(config_path)
     if not p.exists():
-        # try relative to 2_clean_data
-        alt = Path(__file__).parent / "2_clean_data" / "clean_config.yaml"
+        alt = Path(__file__).parent / "clean_config.yaml"
         p = alt if alt.exists() else p
     try:
         raw = p.read_text(encoding='utf-8')

@@ -24,7 +24,7 @@ class APIKeyController:
         from Db.llm.llm_config import LLM_RPM_PER_KEY
 
         self.provider = provider
-        self.state_file = Path(state_file) if state_file is not None else Path(__file__).parent.parent / "2_clean_data" / "cache" / "api_key_state.json"
+        self.state_file = Path(state_file) if state_file is not None else Path(__file__).parent.parent / "cache" / "api_key_state.json"
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
         self.max_requests_per_day = int(max_requests_per_day)
         self.rpm_per_key = int(LLM_RPM_PER_KEY)

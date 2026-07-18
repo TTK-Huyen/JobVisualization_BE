@@ -23,7 +23,7 @@ OUTDIR = RAW_DIR  # Output merged file to same location
 
 # If the pipeline layout's data folder doesn't exist, fall back to the repository-level data folder
 if not RAW_DIR.exists():
-    # repository root is two parents up from this file (pipeline/crawl/1_crawl_data -> project root)
+    # repository root is two parents up from this file (pipeline/crawl -> project root)
     repo_data_candidate = BASE.parents[2] / "data" / f"crawl_{TODAY_WITH_TIME}"
     if repo_data_candidate.exists():
         CRAWL_DIR = repo_data_candidate
@@ -37,7 +37,7 @@ FALLBACK_DIR.mkdir(parents=True, exist_ok=True)
 print(f"[MERGE] Reading crawled files from: {RAW_DIR}")
 print(f"[MERGE] Output directory: {OUTDIR}")
 
-sys.path.insert(0, str(BASE / "crawl_data"))
+sys.path.insert(0, str(BASE))
 try:
     from central_filters import filter_recent_jobs
 except Exception:
@@ -170,9 +170,9 @@ def main():
 
     # Load keywords config to translate search_keywords
     keyword_cfg = {}
-    keywords_file = BASE / "crawl_data" / "keywords_daily.json"
+    keywords_file = BASE.parent / "keywords_daily.json"
     if not keywords_file.exists():
-        keywords_file = BASE.parent / "crawl_data" / "keywords_daily.json"
+        keywords_file = BASE.parent / "keywords_daily.json"
     if not keywords_file.exists():
         keywords_file = BASE.parents[1] / "input" / "keywords_daily.json"
         

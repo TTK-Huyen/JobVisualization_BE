@@ -420,14 +420,14 @@ Chi tiết hướng dẫn chuẩn bị dữ liệu (bao gồm việc thiết l�
 ### Chỉ crawl một nguồn cụ thể
 
 ```bash
-cd Db/pipeline/crawl/1_crawl_data
-python crawl_data/crawl-itviec-jobs/scripts/daily_itviec_runner.py
+cd Db/pipeline/crawl
+python crawl-itviec-jobs/scripts/daily_itviec_runner.py
 ```
 
 ### Chỉ normalize một file
 
 ```bash
-.venv/Scripts/python.exe Db/pipeline/normalize/2_1_normalized_data/normalize_embeddings.py \
+.venv/Scripts/python.exe Db/pipeline/normalize normalize_embeddings.py \
     --input Db/data/crawl_20260522_103000/clean/extracted.json \
     --output Db/data/crawl_20260522_103000/clean/normalized.json
 ```
@@ -438,7 +438,7 @@ python crawl_data/crawl-itviec-jobs/scripts/daily_itviec_runner.py
 # Xem cache đã có bao nhiêu entry
 python -c "
 import json; from pathlib import Path
-cache = Path('Db/pipeline/normalize/2_1_normalized_data/cache/mapped_skills_cache.json')
+cache = Path('Db/pipeline/normalize/cache/mapped_skills_cache.json')
 data = json.loads(cache.read_text()) if cache.exists() else {}
 print(f'Cache entries: {len(data)}')
 "
@@ -447,7 +447,7 @@ print(f'Cache entries: {len(data)}')
 ### Import thủ công từ file normalized
 
 ```bash
-.venv/Scripts/python.exe Db/pipeline/import/3_import/import.py \
+.venv/Scripts/python.exe Db/pipeline/import/import.py \
     --input Db/data/crawl_20260522_103000/clean/normalized.json \
     --fallback Db/data/crawl_20260522_103000/fallback/import_fallback.json
 ```
@@ -477,25 +477,22 @@ JobVisualization_BE/
 │   ├── input/                    ← Config keywords, API keys…
 │   └── pipeline/
 │       ├── crawl/
-│       │   └── 1_crawl_data/
-│       │       ├── crawl_data/
-│       │       │   ├── crawl-itviec-jobs/
-│       │       │   ├── crawl-careerviet-jobs/
-│       │       │   ├── crawl-linkedin-jobs/
-│       │       │   └── crawl-vietnamwork-jobs/
-│       │       └── merge_daily_outputs.py
+│       │   └── 
+│       │      ├── crawl-itviec-jobs/
+│       │      ├── crawl-careerviet-jobs/
+│       │      ├── crawl-linkedin-jobs/
+│       │      └── crawl-vietnamwork-jobs/
+│       │      └── merge_daily_outputs.py
 │       ├── clean/
-│       │   └── 2_clean_data/
+│       │   
 │       │       └── clean_process.py
 │       ├── extract/
 │       │   └── process_pending_llm.py    ← Gemini skill extraction
 │       ├── normalize/
-│       │   └── 2_1_normalized_data/
 │       │       ├── normalize_embeddings.py  ← Embedding + cache
 │       │       └── cache/
 │       │           └── mapped_skills_cache.json  ← Cache mapping
 │       └── import/
-│           └── 3_import/
 │               └── import.py             ← DB import + weight trigger
 │
 ├── SkillWeighting/               ← Tính trọng số skill

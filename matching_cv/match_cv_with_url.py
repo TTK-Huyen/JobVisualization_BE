@@ -97,7 +97,7 @@ def load_scraper_module(folder_name: str, script_name: str):
     Dynamically load a scraper module using spec_from_file_location
     to bypass Python hyphen-in-folder import syntax limits.
     """
-    crawl_dir = PROJECT_ROOT / "Db" / "pipeline" / "crawl" / "1_crawl_data" / "crawl_data" / folder_name / "scripts"
+    crawl_dir = PROJECT_ROOT / "Db" / "pipeline" / "crawl" / folder_name / "scripts"
     script_path = crawl_dir / script_name
     if not script_path.exists():
         raise FileNotFoundError(f"Scraper script not found: {script_path}")
@@ -651,7 +651,7 @@ def main():
                 python_exe = sys.executable
                 
                 pending_temp = tmp_dir / "pending_llm_temp.json"
-                clean_script = PROJECT_ROOT / "Db" / "pipeline" / "clean" / "2_clean_data" / "clean_process.py"
+                clean_script = PROJECT_ROOT / "Db" / "pipeline" / "clean" / "clean_process.py"
                 logger.info("Running clean_process.py...")
                 subprocess.run([
                     python_exe, str(clean_script), str(raw_temp), "--step", "1", "--output", str(pending_temp)
@@ -668,8 +668,8 @@ def main():
                     python_exe, str(extract_script), "--input-path", str(pending_temp), "--output-path", str(extracted_temp), "--fallback-path", str(fallback_temp)
                 ], env=env, check=True)
                 
-                normalize_script = PROJECT_ROOT / "Db" / "pipeline" / "normalize" / "2_1_normalized_data" / "normalize_embeddings.py"
-                logger.info("Running normalize_embeddings.py...")
+                normalize_script = PROJECT_ROOT / "Db" / "pipeline" / "normalize" / "normalize_pipeline_v2.py"
+                logger.info("Running normalize_pipeline_v2.py...")
                 subprocess.run([
                     python_exe, str(normalize_script), "--input", str(extracted_temp), "--output", str(normalized_temp)
                 ], check=True)
@@ -719,7 +719,7 @@ def main():
             # STEP 5: Import Job into DB
             # ==========================================
             logger.info("\n--- STEP 5: IMPORT JOB TO DATABASE ---")
-            import_script = PROJECT_ROOT / "Db" / "pipeline" / "import" / "3_import" / "import.py"
+            import_script = PROJECT_ROOT / "Db" / "pipeline" / "import" / "import.py"
             subprocess.run([
                 python_exe, str(import_script), "--input", str(normalized_temp)
             ], check=True)

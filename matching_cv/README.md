@@ -42,7 +42,7 @@ Công thức
 
 Các lỗi thường gặp và hướng xử lý
 - Không tìm thấy `Db/.env` hoặc biến GEMINI_API_KEY_*: đảm bảo bạn có file `Db/.env` với biến PG_* (PG_HOST, PG_PORT, PG_DB, PG_USER, PG_PASSWORD) và GEMINI_API_KEY_1... để gọi LLM.
-- Không tìm thấy `skills_embedding.pkl`: chạy pipeline normalize trong `Db` để tạo cache embeddings (tệp: `Db/pipeline/normalize/2_1_normalized_data/cache/skills_embedding.pkl`).
+- Không tìm thấy `skills_embedding.pkl`: chạy pipeline normalize trong `Db` để tạo cache embeddings (tệp: `Db/pipeline/normalize/cache/skills_embedding.pkl`).
 - Thiếu thư viện: cài đặt các phụ thuộc chính:
 
 ```bash

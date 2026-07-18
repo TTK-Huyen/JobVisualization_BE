@@ -41,7 +41,7 @@ Chương trình tự động tìm kiếm file `.env` tại đường dẫn `Db/.
 
 ### 💾 D. Tạo file Cache Embeddings (`skills_embedding.pkl`)
 Chương trình tối ưu hiệu năng bằng cách sử dụng bộ nhớ cache được tạo trước thay vì tính lại embeddings cho hàng ngàn kỹ năng mỗi lần chạy.
-*   **Đường dẫn yêu cầu**: `Db/pipeline/normalize/2_1_normalized_data/cache/skills_embedding.pkl`
+*   **Đường dẫn yêu cầu**: `Db/pipeline/normalize/cache/skills_embedding.pkl`
 *   *Lưu ý*: Hãy đảm bảo đã chạy pipeline chuẩn hóa dữ liệu tối thiểu một lần để tạo ra tệp tin này trước khi chạy thuật toán khớp CV.
 
 ---

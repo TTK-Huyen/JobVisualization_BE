@@ -42,7 +42,7 @@ load_db_env()
 # Load DB connection dynamically
 import importlib.util
 def load_db_connection_func():
-    module_dir = PROJECT_ROOT / "Db" / "pipeline" / "import" / "3_import"
+    module_dir = PROJECT_ROOT / "Db" / "pipeline" / "import" 
     module_path = module_dir / "import.py"
     if not module_path.exists():
         raise FileNotFoundError(f"Database import module not found at: {module_path}")

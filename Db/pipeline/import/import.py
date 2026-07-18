@@ -919,7 +919,7 @@ def normalize_for_fingerprint(text: Any) -> str:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input", type=Path, required=True)
-    parser.add_argument("--fallback", type=Path, default=BASE_DIR / "3_import" / "import_fallback.json")
+    parser.add_argument("--fallback", type=Path, default=BASE_DIR / "import_fallback.json")
     parser.add_argument("--skip-weight-update", action="store_true", help="Skip updating skill weights after import")
     parser.add_argument("--weight-method", type=str, choices=["tf-idf", "llm"], default="tf-idf", help="Weighting method to update: 'tf-idf' or 'llm'")
     parser.add_argument("--stats-output", type=Path, help="Path to write import stats JSON")
