@@ -28,7 +28,7 @@ try:
 except Exception:
     pass
 
-from Db.llm.retry_queue import load_retry_queue, remove_retry_queue_entries, save_retry_queue
+from Db.pipeline.extract.retry_queue import load_retry_queue, remove_retry_queue_entries, save_retry_queue
 
 from dotenv import load_dotenv
 import importlib.util
@@ -41,7 +41,7 @@ from Db.llm.llm_config import (
 
 from Db.llm.debug_llm_adapter import call_llm as call_gemini_llm
 
-from Db.llm.job_extraction_rules import load_job_extraction_prompt
+from Db.pipeline.extract.job_extraction_rules import load_job_extraction_prompt
 from Db.scripts.split_description import extract_clean_job_description
 
 

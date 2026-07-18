@@ -1,3 +1,4 @@
+
 """Child helper to call Gemini safely in a subprocess.
 
 Reads a JSON object from stdin with keys: {"prompt": str, "api_key": str}
