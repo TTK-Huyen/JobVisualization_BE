@@ -41,6 +41,7 @@ cd Db
 - [Chạy ETL Pipeline (Crawl → Clean → Import)](#chạy-etl-pipeline)
 - [Cập nhật trọng số Skill (SkillWeighting)](#cập-nhật-trọng-số-skill)
 - [Matching CV](#matching-cv)
+- [Đánh giá & Thực nghiệm (Kiểm thử)](#đánh-giá--thực-nghiệm-kiểm-thử)
 - [Chạy từng bước riêng lẻ](#chạy-từng-bước-riêng-lẻ)
 - [Cấu trúc thư mục](#cấu-trúc-thư-mục)
 - [Troubleshooting](#troubleshooting)
@@ -402,6 +403,15 @@ Partial match skills : 4   (4.6%)
 Missing skills       : 68  (78.2%)
 Match score          : 62.4 / 100
 ```
+
+---
+
+## Đánh giá & Thực nghiệm (Kiểm thử)
+
+Hệ thống hỗ trợ các module đánh giá thực nghiệm độc lập phục vụ mục đích học thuật và đo lường độ chính xác (KB1 -> KB4) trong thư mục [`KiemThu/`](KiemThu/).
+
+Chi tiết hướng dẫn chuẩn bị dữ liệu (bao gồm việc thiết lập riêng tư để tránh lộ dữ liệu cá nhân của ứng viên) và cách chạy đối soát, vui lòng đọc:
+👉 **[Hướng dẫn thực nghiệm & đánh giá](KiemThu/README.md)**
 
 ---
 
