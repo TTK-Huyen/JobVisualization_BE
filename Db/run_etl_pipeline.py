@@ -4,9 +4,9 @@ ETL PIPELINE ORCHESTRATOR
 Điều hướng 3 bước chính: Crawl -> Clean -> Import
 Gọi các script chính trong từng folder
 Kiến trúc Hybrid:
-  - Crawlers → 1_crawl_data/crawl_data/output/ (tạm thời)
-  - Clean → data/crawl_YYYYMMDD/clean/ (lưu trữ)
-  - Import → đọc từ data/crawl_YYYYMMDD/clean/
+  - Crawlers → pipeline/crawl/ (chứa các runner và scripts cào dữ liệu)
+  - Clean    → pipeline/clean/ (chứa logic làm sạch và chuẩn hóa text/kỹ năng)
+  - Import   → pipeline/import/ (đọc từ data/crawl_YYYYMMDD/clean/ để nạp vào DB)
 
 Usage:
   python run_etl_pipeline.py                           # Auto detect latest crawl
@@ -53,7 +53,7 @@ print(f"✓ Loaded .env from: {ENV_FILE}")
 # If user moves pipeline subfolders into `pipeline/`, prefer those paths;
 # otherwise fall back to existing top-level folders.
 PIPELINE_ROOT = BASE_DIR / "pipeline"
-CRAWL_DATA_ROOT = PIPELINE_ROOT / "crawl" / "1_crawl_data" / "crawl_data"
+CRAWL_DATA_ROOT = PIPELINE_ROOT / "crawl" 
 
 
 def ensure_crawler_import_paths():
@@ -83,7 +83,7 @@ def resolve_pipeline_path(*parts: str) -> Path:
         """Return the pipeline-prefixed path if it exists, otherwise fallback to BASE_DIR path.
 
         Examples:
-            resolve_pipeline_path('clean', '2_clean_data') -> pipeline/clean/2_clean_data if exists
+            resolve_pipeline_path('clean') -> pipeline/clean if exists
             resolve_pipeline_path('3_import', 'import.py') -> pipeline/3_import/import.py if exists
         """
         candidate = PIPELINE_ROOT.joinpath(*parts)
@@ -167,7 +167,7 @@ KEYWORD_CONFIG = {
     "selection_method": os.getenv("KEYWORD_SELECTION_METHOD", "sequential").strip().lower(),
     "rotation_state_path": os.getenv(
         "KEYWORD_ROTATION_STATE_PATH",
-        "2_clean_data/cache/keyword_rotation_state.json",
+        "cache/keyword_rotation_state.json",
     ),
     "keywords_file": os.getenv(
         "KEYWORDS_DAILY_PATH",
@@ -1894,13 +1894,13 @@ Examples:
 
             if run_sequential_fallback:
                 crawlers = [
-                    ("ITviec", "crawl_data/crawl-itviec-jobs/scripts/daily_itviec_runner.py", "itviec"),
-                    ("LinkedIn", "crawl_data/crawl-linkedin-jobs/scripts/daily_linkedin_runner.py", "linkedin"),
-                    ("CareerViet", "crawl_data/crawl-careerviet-jobs/scripts/daily_careerviet_runner.py", "careerviet"),
-                    ("VietnamWorks", "crawl_data/crawl-vietnamwork-jobs/scripts/daily_vietnamworks_runner.py", "vietnamworks"),
+                    ("ITviec", "crawl-itviec-jobs/scripts/daily_itviec_runner.py", "itviec"),
+                    ("LinkedIn", "crawl-linkedin-jobs/scripts/daily_linkedin_runner.py", "linkedin"),
+                    ("CareerViet", "crawl-careerviet-jobs/scripts/daily_careerviet_runner.py", "careerviet"),
+                    ("VietnamWorks", "crawl-vietnamwork-jobs/scripts/daily_vietnamworks_runner.py", "vietnamworks"),
                 ]
 
-                crawl_dir = resolve_pipeline_path("crawl", "1_crawl_data")
+                crawl_dir = resolve_pipeline_path("crawl")
 
                 for crawler_name, crawler_path, limit_key in crawlers:
                     if enabled_sources is not None and crawler_name.lower() not in enabled_sources:
@@ -2013,13 +2013,13 @@ Examples:
 
             if run_sequential_fallback:
                 crawlers = [
-                    ("ITviec", "crawl_data/crawl-itviec-jobs/scripts/daily_itviec_runner.py", "itviec"),
-                    ("LinkedIn", "crawl_data/crawl-linkedin-jobs/scripts/daily_linkedin_runner.py", "linkedin"),
-                    ("CareerViet", "crawl_data/crawl-careerviet-jobs/scripts/daily_careerviet_runner.py", "careerviet"),
-                    ("VietnamWorks", "crawl_data/crawl-vietnamwork-jobs/scripts/daily_vietnamworks_runner.py", "vietnamworks"),
+                    ("ITviec", "crawl-itviec-jobs/scripts/daily_itviec_runner.py", "itviec"),
+                    ("LinkedIn", "crawl-linkedin-jobs/scripts/daily_linkedin_runner.py", "linkedin"),
+                    ("CareerViet", "crawl-careerviet-jobs/scripts/daily_careerviet_runner.py", "careerviet"),
+                    ("VietnamWorks", "crawl-vietnamwork-jobs/scripts/daily_vietnamworks_runner.py", "vietnamworks"),
                 ]
 
-                crawl_dir = resolve_pipeline_path("crawl", "1_crawl_data")
+                crawl_dir = resolve_pipeline_path("crawl")
 
                 for crawler_name, crawler_path, limit_key in crawlers:
                     if enabled_sources is not None and crawler_name.lower() not in enabled_sources:
@@ -2124,13 +2124,13 @@ Examples:
 
             if run_sequential_fallback:
                 crawlers = [
-                    ("ITviec", "crawl_data/crawl-itviec-jobs/scripts/daily_itviec_runner.py", "itviec"),
-                    ("LinkedIn", "crawl_data/crawl-linkedin-jobs/scripts/daily_linkedin_runner.py", "linkedin"),
-                    ("CareerViet", "crawl_data/crawl-careerviet-jobs/scripts/daily_careerviet_runner.py", "careerviet"),
-                    ("VietnamWorks", "crawl_data/crawl-vietnamwork-jobs/scripts/daily_vietnamworks_runner.py", "vietnamworks"),
+                    ("ITviec", "crawl-itviec-jobs/scripts/daily_itviec_runner.py", "itviec"),
+                    ("LinkedIn", "crawl-linkedin-jobs/scripts/daily_linkedin_runner.py", "linkedin"),
+                    ("CareerViet", "crawl-careerviet-jobs/scripts/daily_careerviet_runner.py", "careerviet"),
+                    ("VietnamWorks", "crawl-vietnamwork-jobs/scripts/daily_vietnamworks_runner.py", "vietnamworks"),
                 ]
 
-                crawl_dir = resolve_pipeline_path("crawl", "1_crawl_data")
+                crawl_dir = resolve_pipeline_path("crawl")
 
                 for crawler_name, crawler_path, limit_key in crawlers:
                     crawler_script = crawl_dir / crawler_path
@@ -2207,7 +2207,7 @@ Examples:
    
 
             # Resolve scripts to pipeline layout if files were moved into pipeline/
-            clean_dir = resolve_pipeline_path("clean", "2_clean_data")
+            clean_dir = resolve_pipeline_path("clean")
             clean_script = clean_dir / "clean_process.py"
             # Prefer pipeline/extract/process_pending_llm.py, fallback to pipeline/process_pending_llm.py or top-level
             extract_script = resolve_pipeline_path("extract", "process_pending_llm.py")
