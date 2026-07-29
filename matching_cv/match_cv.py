@@ -103,7 +103,7 @@ def extract_student_skills_gemini(cv_text: str, confidence_threshold: float = 0.
     for attempt in range(1, max_attempts + 1):
         key, key_label = get_api_key_info("gemini")
         if not key:
-            raise RuntimeError("No active Gemini API keys available. All keys may be in cooldown.")
+            raise RuntimeError("API_KEY_EXHAUSTED: No active Gemini API keys available. All keys may be in cooldown.")
 
         try:
             logger.info("Calling Gemini (attempt %d/%d) using key %s", attempt, max_attempts, key_label)
@@ -141,9 +141,23 @@ def extract_student_skills_gemini(cv_text: str, confidence_threshold: float = 0.
                     evidence_norm = clean_text_normalization(evidence)
 
                     # Anti-hallucination check: ensure evidence or skill is in the original text
-                    if not evidence_norm or (evidence_norm not in cv_norm and skill_norm not in cv_norm):
-                        logger.info("Dropping skill without verifiable evidence in CV: %s (evidence: %s)", skill, evidence)
-                        continue
+                    is_in_text = False
+                    if evidence_norm and (evidence_norm in cv_norm or skill_norm in cv_norm):
+                        is_in_text = True
+                    else:
+                        # Allow partial word matching for translations/abbreviations
+                        words = [w for w in (evidence_norm or skill_norm).split() if len(w) > 2]
+                        if words and any(w in cv_norm for w in words):
+                            is_in_text = True
+
+                    if not is_in_text:
+                        # If not directly in text, only drop if confidence is below a safe threshold (0.80)
+                        # otherwise keep it (trusting LLM's translation of Vietnamese terms to English)
+                        if confidence < 0.80:
+                            logger.info("Dropping skill without verifiable evidence in CV: %s (evidence: %s)", skill, evidence)
+                            continue
+                        else:
+                            logger.warning("Skill '%s' (evidence: '%s') not directly found in CV text, keeping due to high confidence (%s)", skill, evidence, confidence)
 
                     extracted_skills.append({
                         "skill": skill,
@@ -502,12 +516,14 @@ def save_cv_job_match(
             )
         else:
             logger.info("Inserting new cv_job_match for cv_id: %s...", cv_id)
+            import uuid
+            match_uuid = str(uuid.uuid4())
             cur.execute(
                 """
-                INSERT INTO public.cv_job_matches (cv_id, match_type, search_group, match_score, radar_data, gap_report, model_version)
-                VALUES (%s, 'search_group', %s, %s, %s, %s, 'gemini-2.5-flash')
+                INSERT INTO public.cv_job_matches (match_id, cv_id, match_type, search_group, match_score, radar_data, gap_report, model_version)
+                VALUES (%s, %s, 'search_group', %s, %s, %s, %s, 'gemini-2.5-flash')
                 """,
-                (cv_id, search_group, match_percent, json.dumps(radar_data), json.dumps(gap_report))
+                (match_uuid, cv_id, search_group, match_percent, json.dumps(radar_data), json.dumps(gap_report))
             )
         conn.commit()
         logger.info("Saved cv_job_match successfully.")
@@ -1053,7 +1069,6 @@ def main():
         }
 
         # Print output to stdout
-        print("\n=== MATCHING RESULT ===")
         print(json.dumps(output_data, ensure_ascii=False, indent=2))
         
         # Save output JSON to file

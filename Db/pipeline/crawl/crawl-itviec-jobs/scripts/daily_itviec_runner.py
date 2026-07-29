@@ -40,7 +40,7 @@ if env_file and env_file.exists():
     print(f"[DEBUG] env_file: {env_file}, exists: {env_file.exists()}")
 else:
     # Fallback to original hardcoded path if not found
-    env_file = Path(__file__).parent.parent.parent.parent.parent / ".env"
+    env_file = Path(__file__).parent.parent.parent.parent.parent.parent / ".env"
     load_dotenv(env_file, override=False)
     print(f"[DEBUG] fallback env_file: {env_file}, exists: {env_file.exists()}")
 

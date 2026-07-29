@@ -89,10 +89,71 @@ def _find_skills_cache() -> Optional[Path]:
             return c
     return None
 
-def load_skill_embedding_cache():
+def _ensure_skills_embedding_cache(model_name: str) -> Path:
+    repo_root = Path(__file__).resolve().parents[1]
+    default_cache = repo_root / "Db" / "pipeline" / "normalize" / "cache" / "skills_embedding.pkl"
+
     cache = _find_skills_cache()
+    
+    # Check if cache is missing or empty
+    need_rebuild = False
     if not cache:
-        raise RuntimeError("Skills embeddings cache not found.")
+        need_rebuild = True
+        cache = default_cache
+    else:
+        try:
+            with cache.open("rb") as fh:
+                data = pickle.load(fh)
+            if not data or not data.get("map"):
+                need_rebuild = True
+        except Exception:
+            need_rebuild = True
+
+    if need_rebuild:
+        print(f"[CACHE INFO] Skills embedding cache empty or missing at {cache}. Rebuilding from database...")
+        import psycopg2
+        import os
+        
+        try:
+            conn = psycopg2.connect(
+                host=os.getenv("PG_HOST", "localhost"),
+                port=os.getenv("PG_PORT", "5432"),
+                database=os.getenv("PG_DB", "job_vis_clone"),
+                user=os.getenv("PG_USER", "postgres"),
+                password=os.getenv("PG_PASSWORD", "123456")
+            )
+            cur = conn.cursor()
+            cur.execute("SELECT skill_id, skill_name FROM public.skills ORDER BY skill_id;")
+            rows = cur.fetchall()
+            cur.close()
+            conn.close()
+        except Exception as e:
+            raise RuntimeError(f"Failed to connect to database to rebuild skills cache: {e}")
+
+        if not rows:
+            raise RuntimeError("Database table 'public.skills' is empty! Cannot rebuild skills embedding cache.")
+
+        print(f"[CACHE INFO] Loaded {len(rows)} skills from database. Computing embeddings using {model_name}...")
+        
+        skill_map = [(int(row[0]), str(row[1])) for row in rows]
+        skill_names = [str(row[1]) for row in rows]
+        
+        model = SentenceTransformer(model_name)
+        skill_emb = model.encode(skill_names, show_progress_bar=True)
+        
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        
+        try:
+            with cache.open("wb") as fh:
+                pickle.dump({"emb": skill_emb, "map": skill_map}, fh, protocol=4)
+            print(f"[CACHE INFO] Successfully created and saved skills embedding cache to {cache}.")
+        except Exception as e:
+            raise RuntimeError(f"Failed to write skills embedding cache to disk: {e}")
+
+    return cache
+
+def load_skill_embedding_cache(model_name: str = "all-MiniLM-L6-v2"):
+    cache = _ensure_skills_embedding_cache(model_name)
 
     with cache.open("rb") as fh:
         data = pickle.load(fh)
@@ -134,11 +195,7 @@ def normalize_student_skills(
             "sentence-transformers and numpy are required. Install: pip install sentence-transformers numpy"
         )
 
-    cache = _find_skills_cache()
-    if not cache:
-        raise RuntimeError(
-            "Skills embeddings cache not found. Run normalization pipeline to produce skills_embedding.pkl"
-        )
+    cache = _ensure_skills_embedding_cache(model_name)
 
     with cache.open("rb") as fh:
         data = pickle.load(fh)

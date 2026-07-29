@@ -68,76 +68,11 @@ def extract_cv_text(file_path: str, ocr_threshold: int = 200) -> str:
         except Exception:
             text = ""
 
-    # For non-pdf or pdf fallback, if text short then OCR / Vision
+    # For non-pdf or pdf fallback, if text short then OCR
     if len(text) < ocr_threshold:
-        suffix = p.suffix.lower()
-        if suffix in (".jpg", ".jpeg", ".png", ".bmp", ".webp", ".gif"):
-            # --- Primary: Gemini Vision API ---
-            text = _extract_text_gemini_vision(p) or ""
-            if not text.strip():
-                # --- Fallback: pytesseract ---
-                text = _extract_text_pytesseract(p)
-        elif suffix == ".pdf":
-            # PDF with little text: try pdf2image + pytesseract
-            text = _extract_text_pytesseract(p)
+        text = _extract_text_pytesseract(p)
 
     return text or ""
-
-
-def _extract_text_gemini_vision(p: Path) -> str:
-    """Use Gemini Vision to OCR a CV image file."""
-    import re
-    matched_keys = []
-    
-    # Try custom environment variable first
-    custom_key = os.environ.get("GEMINI_API_KEY")
-    if custom_key:
-        matched_keys.append((0, custom_key))
-        
-    # Scan all GEMINI_API_KEY_X in environment
-    for env_name, env_value in os.environ.items():
-        match = re.fullmatch(r"GEMINI_API_KEY_(\d+)", env_name)
-        if match and env_value:
-            matched_keys.append((int(match.group(1)), env_value))
-            
-    if not matched_keys:
-        return ""
-        
-    matched_keys.sort(key=lambda item: item[0])
-    
-    import google.generativeai as genai  # type: ignore
-    from PIL import Image
-    import io
-    
-    # Try keys one by one until one succeeds
-    for index, api_key in matched_keys:
-        try:
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel("gemini-2.0-flash")
-            img = Image.open(str(p))
-            if img.mode not in ("RGB", "L"):
-                img = img.convert("RGB")
-            buf = io.BytesIO()
-            img.save(buf, format="JPEG")
-            image_bytes = buf.getvalue()
-            
-            response = model.generate_content(
-                [
-                    {
-                        "mime_type": "image/jpeg",
-                        "data": base64.b64encode(image_bytes).decode("utf-8"),
-                    },
-                    "Extract ALL text from this CV/resume image. Return only the raw text content, preserving structure.",
-                ]
-            )
-            return (response.text or "").strip()
-        except Exception as e:
-            # Print warning and proceed to next key
-            key_name = f"GEMINI_API_KEY_{index}" if index > 0 else "GEMINI_API_KEY"
-            print(f"[OCR KEY WARNING] Key {key_name} failed: {e}. Trying next key...")
-            continue
-            
-    return ""
 
 
 def _extract_text_pytesseract(p: Path) -> str:

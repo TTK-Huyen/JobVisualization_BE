@@ -402,12 +402,14 @@ def save_cv_job_match_existing_job(
             )
         else:
             logger.info("Inserting new cv_job_match for cv_id: %s and job_id: %d...", cv_id, job_id)
+            import uuid
+            match_uuid = str(uuid.uuid4())
             cur.execute(
                 """
-                INSERT INTO public.cv_job_matches (cv_id, match_type, search_group, job_id, match_score, radar_data, gap_report, model_version)
-                VALUES (%s, 'url_job', %s, %s, %s, %s, %s, 'gemini-2.5-flash')
+                INSERT INTO public.cv_job_matches (match_id, cv_id, match_type, search_group, job_id, match_score, radar_data, gap_report, model_version)
+                VALUES (%s, %s, 'url_job', %s, %s, %s, %s, %s, 'gemini-2.5-flash')
                 """,
-                (cv_id, search_group, job_id, match_percent, json.dumps(radar_data), json.dumps(gap_report))
+                (match_uuid, cv_id, search_group, job_id, match_percent, json.dumps(radar_data), json.dumps(gap_report))
             )
         conn.commit()
         logger.info("Saved cv_job_match successfully.")
@@ -655,7 +657,7 @@ def main():
                 logger.info("Running clean_process.py...")
                 subprocess.run([
                     python_exe, str(clean_script), str(raw_temp), "--step", "1", "--output", str(pending_temp)
-                ], check=True)
+                ], stdout=sys.stderr, check=True)
                 
                 extracted_temp = tmp_dir / "extracted_temp.json"
                 fallback_temp = tmp_dir / "fallback_temp.json"
@@ -666,13 +668,26 @@ def main():
                 env["PYTHONPATH"] = os.pathsep.join([str(PROJECT_ROOT), str(PROJECT_ROOT.parent)]) + (os.pathsep + env.get("PYTHONPATH", "") if env.get("PYTHONPATH") else "")
                 subprocess.run([
                     python_exe, str(extract_script), "--input-path", str(pending_temp), "--output-path", str(extracted_temp), "--fallback-path", str(fallback_temp)
-                ], env=env, check=True)
+                ], env=env, stdout=sys.stderr, check=True)
+                
+                if fallback_temp.exists() and fallback_temp.stat().st_size > 2:
+                    try:
+                        with open(fallback_temp, "r", encoding="utf-8") as f:
+                            fallback_data = json.load(f)
+                        if fallback_data and isinstance(fallback_data, list):
+                            first_fail = fallback_data[0]
+                            err_msg = str(first_fail.get("last_error") or "")
+                            if "no_valid_api_key" in err_msg or "exhausted" in err_msg:
+                                raise RuntimeError("API_KEY_EXHAUSTED: Gemini API key exhausted during job extraction.")
+                    except Exception as fe:
+                        if "API_KEY_EXHAUSTED" in str(fe):
+                            raise fe
                 
                 normalize_script = PROJECT_ROOT / "Db" / "pipeline" / "normalize" / "normalize_pipeline_v2.py"
                 logger.info("Running normalize_pipeline_v2.py...")
                 subprocess.run([
                     python_exe, str(normalize_script), "--input", str(extracted_temp), "--output", str(normalized_temp)
-                ], check=True)
+                ], stdout=sys.stderr, check=True)
             
             # ==========================================
             # STEP 4: Match Job Title to search_group via vector embedding
@@ -722,7 +737,7 @@ def main():
             import_script = PROJECT_ROOT / "Db" / "pipeline" / "import" / "import.py"
             subprocess.run([
                 python_exe, str(import_script), "--input", str(normalized_temp)
-            ], check=True)
+            ], stdout=sys.stderr, check=True)
             
             # Query generated/updated job_id from DB
             cur = conn.cursor()
@@ -843,7 +858,6 @@ def main():
         }
         
         # Print output JSON to stdout
-        print("\n=== MATCHING RESULT ===")
         print(json.dumps(output_data, ensure_ascii=False, indent=2, default=json_serializable))
         
         # Save output JSON to file
