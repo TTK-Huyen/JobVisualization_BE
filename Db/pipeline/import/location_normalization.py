@@ -13,6 +13,15 @@ TARGET_34_PROVINCES: Set[str] = {
     "Thái Nguyên", "Thanh Hóa", "Tuyên Quang", "Vĩnh Long"
 }
 
+# Các giá trị canonical là QUỐC GIA (không phải tỉnh/thành) — dùng để loại bỏ
+# đuôi quốc gia khi rút gọn địa điểm về tỉnh/thành. Khớp với nhóm "# Countries"
+# trong LOCATION_MAP bên dưới.
+COUNTRY_CANONICAL: Set[str] = {
+    "Việt Nam", "Singapore", "Nhật Bản", "Hàn Quốc", "Hoa Kỳ", "Đức",
+    "Australia", "Đài Loan", "Malaysia", "Bỉ", "Na Uy", "Hà Lan",
+    "Phần Lan", "Lào",
+}
+
 # Mapping of normalized base strings (without diacritics/accents) to canonical names
 LOCATION_MAP = {
     # 34 Target Provinces/Cities
@@ -259,22 +268,27 @@ def normalize_location(raw_location: Any) -> Optional[str]:
 
     # Handle composite location separators: comma, semicolon, slash, or " and " / " & "
     parts = re.split(r"[,;/]|\band\b|&", s, flags=re.IGNORECASE)
+
+    # Rút gọn về ĐÚNG MỘT tỉnh/thành: nếu bất kỳ phần nào (quận/phường/thành phố)
+    # map tới một tỉnh/thành trong LOCATION_MAP thì trả về đúng tên tỉnh/thành đó,
+    # bỏ quận/phường và đuôi quốc gia. Nhờ vậy mọi biến thể của cùng một thành phố
+    # ("Quận 1, Hồ Chí Minh, Việt Nam", "Thủ Đức", "District 1, HCM"...) gộp về một
+    # giá trị duy nhất -> danh sách thành phố sạch và filter theo thành phố chính xác.
+    for p in parts:
+        canonical = LOCATION_MAP.get(clean_key(p.strip()))
+        if canonical and canonical not in COUNTRY_CANONICAL:
+            return canonical
+
+    # Không nhận diện được tỉnh/thành: giữ hành vi title-case cũ nhưng loại bỏ mọi
+    # cụm quốc gia (mọi alias, không chỉ "vietnam") để tránh đuôi quốc gia thừa.
     normalized_parts = []
-    
     for p in parts:
         p_clean = p.strip()
         if not p_clean:
             continue
-        
-        # Check standard lookup
-        key = clean_key(p_clean)
-        if key in LOCATION_MAP:
-            normalized_parts.append(LOCATION_MAP[key])
-        else:
-            # Title case fallback for unknown places
-            # Filter out generic country terms if paired
-            if key not in ("vietnam", "viet nam", "vn"):
-                normalized_parts.append(p_clean.title())
+        if LOCATION_MAP.get(clean_key(p_clean)) in COUNTRY_CANONICAL:
+            continue
+        normalized_parts.append(p_clean.title())
 
     if not normalized_parts:
         return None
@@ -286,7 +300,7 @@ def normalize_location(raw_location: Any) -> Optional[str]:
         if part not in seen:
             seen.add(part)
             deduped.append(part)
-            
+
     return ", ".join(deduped)
 
 def normalize_country(raw_country: Any) -> Optional[str]:
